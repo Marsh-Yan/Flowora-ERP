@@ -9,9 +9,17 @@ spring:
       - org.springframework.boot.autoconfigure.orm.jpa.HibernateJpaAutoConfiguration
       - org.springframework.boot.autoconfigure.data.redis.RedisAutoConfiguration
       - org.springframework.boot.autoconfigure.session.SessionAutoConfiguration
+  session:
+    timeout: 8h
 
 server:
   port: 8080
+  servlet:
+    session:
+      cookie:
+        http-only: true
+        same-site: lax
+        secure: false
 
 management:
   endpoints:

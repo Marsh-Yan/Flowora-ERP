@@ -1,4 +1,7 @@
 import { createRouter, createWebHistory, type RouteRecordRaw } from 'vue-router'
+import AppLayout from '@/layouts/AppLayout.vue'
+import LoginView from '@/views/LoginView.vue'
+import { useAuthStore } from '@/stores/auth'
 
 const placeholderRoutes: RouteRecordRaw[] = [
   ['sales', 'nav.sales'],
@@ -9,23 +12,35 @@ const placeholderRoutes: RouteRecordRaw[] = [
   ['analytics', 'nav.analytics'],
   ['settings', 'nav.settings'],
 ].map(([path, titleKey]) => ({
-  path: '/' + path,
+  path,
   name: path,
   component: () => import('@/views/ModulePlaceholderView.vue'),
   meta: { titleKey },
 }))
 
-export default createRouter({
+const router = createRouter({
   history: createWebHistory(),
   routes: [
-    { path: '/', redirect: '/dashboard' },
     {
-      path: '/dashboard',
-      name: 'dashboard',
-      component: () => import('@/views/DashboardView.vue'),
-      meta: { titleKey: 'nav.dashboard' },
+      path: '/login',
+      name: 'login',
+      component: LoginView,
+      meta: { public: true },
     },
-    ...placeholderRoutes,
+    {
+      path: '/',
+      component: AppLayout,
+      children: [
+        { path: '', redirect: '/dashboard' },
+        {
+          path: 'dashboard',
+          name: 'dashboard',
+          component: () => import('@/views/DashboardView.vue'),
+          meta: { titleKey: 'nav.dashboard' },
+        },
+        ...placeholderRoutes,
+      ],
+    },
     {
       path: '/:pathMatch(.*)*',
       name: 'not-found',
@@ -34,3 +49,17 @@ export default createRouter({
   ],
   scrollBehavior: () => ({ top: 0 }),
 })
+
+router.beforeEach(async (to) => {
+  if (to.meta.public) return true
+
+  const authStore = useAuthStore()
+  const authenticated = await authStore.ensureSession()
+  if (!authenticated) {
+    return { name: 'login', query: { redirect: to.fullPath } }
+  }
+
+  return true
+})
+
+export default router

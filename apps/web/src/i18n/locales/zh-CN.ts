@@ -10,6 +10,7 @@ export default {
     viewAll: '查看全部',
     comingSoon: '即将开放',
     active: '运行中',
+    logout: '退出登录',
   },
   nav: {
     dashboard: '工作台',
@@ -23,7 +24,7 @@ export default {
   },
   dashboard: {
     eyebrow: '本周经营概览',
-    title: '你好，演示用户',
+    title: '你好，{name}',
     subtitle: '这是你的经营概览。今天有 12 个待处理任务。',
     viewTasks: '查看待办',
     createOrder: '创建订单',
@@ -55,5 +56,25 @@ export default {
     subtitle: '这个模块已加入 Flowora 导航，业务能力将在后续迭代中逐步开放。',
     backDashboard: '返回工作台',
     roadmap: '查看产品路线图',
+  },
+  auth: {
+    eyebrow: '安全访问工作台',
+    title: '登录 Flowora',
+    subtitle: '使用演示账号进入你的经营工作台。',
+    username: '账号',
+    password: '密码',
+    usernamePlaceholder: 'you@example.com',
+    passwordPlaceholder: '请输入密码',
+    usernameRequired: '请输入账号',
+    passwordRequired: '请输入密码',
+    signIn: '登录',
+    loginFailed: '登录失败，请检查账号和密码后重试。',
+    demoHint: '演示账号',
+  },
+  errors: {
+    authRequired: '请先登录后继续。',
+    authForbidden: '你没有执行此操作的权限。',
+    authInvalidCredentials: '账号或密码不正确。',
+    internal: '系统出现问题，请稍后重试。',
   },
 } as const

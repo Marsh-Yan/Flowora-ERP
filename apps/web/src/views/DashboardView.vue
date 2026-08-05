@@ -2,8 +2,10 @@
 import { computed } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { ArrowUp, Box, Check, Clock, Plus, Right } from '@element-plus/icons-vue'
+import { useAuthStore } from '@/stores/auth'
 
 const { t } = useI18n()
+const authStore = useAuthStore()
 
 const stats = computed(() => [
   { label: t('dashboard.revenue'), value: '¥ 2.48M', trend: t('dashboard.revenueTrend'), tone: 'mint', icon: '↗' },
@@ -24,7 +26,7 @@ const workflows = computed(() => [
     <section class="welcome-banner">
       <div>
         <span class="eyebrow">{{ t('dashboard.eyebrow') }}</span>
-        <h1>{{ t('dashboard.title') }}</h1>
+        <h1>{{ t('dashboard.title', { name: authStore.user?.displayName }) }}</h1>
         <p>{{ t('dashboard.subtitle') }}</p>
         <div class="welcome-actions">
           <el-button type="primary" round>

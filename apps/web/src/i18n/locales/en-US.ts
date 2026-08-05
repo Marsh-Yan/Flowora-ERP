@@ -10,6 +10,7 @@ export default {
     viewAll: 'View all',
     comingSoon: 'Coming soon',
     active: 'Active',
+    logout: 'Sign out',
   },
   nav: {
     dashboard: 'Workspace',
@@ -23,7 +24,7 @@ export default {
   },
   dashboard: {
     eyebrow: 'Operating overview',
-    title: 'Hello, demo user',
+    title: 'Hello, {name}',
     subtitle: 'Here is your operating overview. You have 12 tasks waiting today.',
     viewTasks: 'View tasks',
     createOrder: 'Create order',
@@ -55,5 +56,25 @@ export default {
     subtitle: 'This module is part of the Flowora navigation. Its business capabilities will be delivered in upcoming iterations.',
     backDashboard: 'Back to workspace',
     roadmap: 'View product roadmap',
+  },
+  auth: {
+    eyebrow: 'Secure workspace access',
+    title: 'Sign in to Flowora',
+    subtitle: 'Use a demo account to continue to your operating workspace.',
+    username: 'Username',
+    password: 'Password',
+    usernamePlaceholder: 'you@example.com',
+    passwordPlaceholder: 'Enter your password',
+    usernameRequired: 'Please enter your username',
+    passwordRequired: 'Please enter your password',
+    signIn: 'Sign in',
+    loginFailed: 'Sign in failed. Check your credentials and try again.',
+    demoHint: 'Demo account',
+  },
+  errors: {
+    authRequired: 'Please sign in to continue.',
+    authForbidden: 'You do not have permission to perform this action.',
+    authInvalidCredentials: 'The username or password is incorrect.',
+    internal: 'Something went wrong. Please try again.',
   },
 } as const

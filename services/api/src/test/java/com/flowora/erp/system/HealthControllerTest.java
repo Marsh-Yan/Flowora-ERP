@@ -7,13 +7,14 @@ import org.springframework.context.annotation.Import;
 import org.springframework.test.web.servlet.MockMvc;
 
 import com.flowora.erp.config.SecurityConfig;
+import com.flowora.erp.identity.DemoUserStore;
 
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 @WebMvcTest(HealthController.class)
-@Import(SecurityConfig.class)
+@Import({SecurityConfig.class, DemoUserStore.class})
 class HealthControllerTest {
     @Autowired
     private MockMvc mockMvc;
