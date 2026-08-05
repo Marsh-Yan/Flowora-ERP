@@ -1,6 +1,7 @@
 import { createRouter, createWebHistory, type RouteRecordRaw } from 'vue-router'
 import AppLayout from '@/layouts/AppLayout.vue'
 import LoginView from '@/views/LoginView.vue'
+import MasterDataView from '@/views/MasterDataView.vue'
 import { useAuthStore } from '@/stores/auth'
 
 const placeholderRoutes: RouteRecordRaw[] = [
@@ -10,7 +11,6 @@ const placeholderRoutes: RouteRecordRaw[] = [
   ['finance', 'nav.finance'],
   ['workflow', 'nav.workflow'],
   ['analytics', 'nav.analytics'],
-  ['settings', 'nav.settings'],
 ].map(([path, titleKey]) => ({
   path,
   name: path,
@@ -39,6 +39,12 @@ const router = createRouter({
           meta: { titleKey: 'nav.dashboard' },
         },
         ...placeholderRoutes,
+        {
+          path: 'settings',
+          name: 'settings',
+          component: MasterDataView,
+          meta: { titleKey: 'nav.settings' },
+        },
       ],
     },
     {

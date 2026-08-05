@@ -85,13 +85,569 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/ApiResponseLogout'
+  /api/v1/organizations/settings:
+    get:
+      operationId: getOrganizationSettings
+      summary: Get organization settings
+      security:
+        - sessionCookie: []
+      responses:
+        '200':
+          description: Organization settings
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiResponseOrganizationSettings'
+    put:
+      operationId: updateOrganizationSettings
+      summary: Update organization settings
+      security:
+        - sessionCookie: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/OrganizationSettingsRequest'
+      responses:
+        '200':
+          description: Updated organization settings
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiResponseOrganizationSettings'
+        '403':
+          description: Administrator role required
+  /api/v1/masters/customers:
+    get:
+      operationId: listCustomers
+      summary: Search customers with pagination
+      security:
+        - sessionCookie: []
+      parameters:
+        - $ref: '#/components/parameters/Query'
+        - $ref: '#/components/parameters/Page'
+        - $ref: '#/components/parameters/Size'
+      responses:
+        '200':
+          description: Customer page
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiResponseCustomerPage'
+    post:
+      operationId: createCustomer
+      summary: Create a customer
+      security:
+        - sessionCookie: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CustomerRequest'
+      responses:
+        '200':
+          description: Created customer
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiResponseCustomer'
+  /api/v1/masters/customers/{id}:
+    put:
+      operationId: updateCustomer
+      summary: Update a customer
+      security:
+        - sessionCookie: []
+      parameters:
+        - $ref: '#/components/parameters/Id'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CustomerRequest'
+      responses:
+        '200':
+          description: Updated customer
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiResponseCustomer'
+    delete:
+      operationId: deactivateCustomer
+      summary: Deactivate a customer
+      security:
+        - sessionCookie: []
+      parameters:
+        - $ref: '#/components/parameters/Id'
+      responses:
+        '200':
+          description: Customer deactivated
+  /api/v1/masters/suppliers:
+    get:
+      operationId: listSuppliers
+      summary: Search suppliers with pagination
+      security:
+        - sessionCookie: []
+      parameters:
+        - $ref: '#/components/parameters/Query'
+        - $ref: '#/components/parameters/Page'
+        - $ref: '#/components/parameters/Size'
+      responses:
+        '200':
+          description: Supplier page
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiResponseSupplierPage'
+    post:
+      operationId: createSupplier
+      summary: Create a supplier
+      security:
+        - sessionCookie: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SupplierRequest'
+      responses:
+        '200':
+          description: Created supplier
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiResponseSupplier'
+  /api/v1/masters/items:
+    get:
+      operationId: listItems
+      summary: Search items and services with pagination
+      security:
+        - sessionCookie: []
+      parameters:
+        - $ref: '#/components/parameters/Query'
+        - $ref: '#/components/parameters/Page'
+        - $ref: '#/components/parameters/Size'
+      responses:
+        '200':
+          description: Item page
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiResponseItemPage'
+    post:
+      operationId: createItem
+      summary: Create an item or service
+      security:
+        - sessionCookie: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ItemRequest'
+      responses:
+        '200':
+          description: Created item
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiResponseItem'
+  /api/v1/masters/warehouses:
+    get:
+      operationId: listWarehouses
+      summary: Search warehouses with pagination
+      security:
+        - sessionCookie: []
+      parameters:
+        - $ref: '#/components/parameters/Query'
+        - $ref: '#/components/parameters/Page'
+        - $ref: '#/components/parameters/Size'
+      responses:
+        '200':
+          description: Warehouse page
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiResponseWarehousePage'
+    post:
+      operationId: createWarehouse
+      summary: Create a warehouse
+      security:
+        - sessionCookie: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/WarehouseRequest'
+      responses:
+        '200':
+          description: Created warehouse
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiResponseWarehouse'
+  /api/v1/masters/currencies:
+    get:
+      operationId: listCurrencies
+      summary: Search currencies with pagination
+      security:
+        - sessionCookie: []
+      parameters:
+        - $ref: '#/components/parameters/Query'
+        - $ref: '#/components/parameters/Page'
+        - $ref: '#/components/parameters/Size'
+      responses:
+        '200':
+          description: Currency page
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiResponseCurrencyPage'
+  /api/v1/masters/exchange-rates:
+    get:
+      operationId: listExchangeRates
+      summary: Search exchange rates with pagination
+      security:
+        - sessionCookie: []
+      parameters:
+        - $ref: '#/components/parameters/Query'
+        - $ref: '#/components/parameters/Page'
+        - $ref: '#/components/parameters/Size'
+      responses:
+        '200':
+          description: Exchange rate page
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiResponseExchangeRatePage'
+  /api/v1/masters/tax-rates:
+    get:
+      operationId: listTaxRates
+      summary: Search tax rates with pagination
+      security:
+        - sessionCookie: []
+      parameters:
+        - $ref: '#/components/parameters/Query'
+        - $ref: '#/components/parameters/Page'
+        - $ref: '#/components/parameters/Size'
+      responses:
+        '200':
+          description: Tax rate page
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiResponseTaxRatePage'
+  /api/v1/masters/accounts:
+    get:
+      operationId: listAccounts
+      summary: Search accounts with pagination
+      security:
+        - sessionCookie: []
+      parameters:
+        - $ref: '#/components/parameters/Query'
+        - $ref: '#/components/parameters/Page'
+        - $ref: '#/components/parameters/Size'
+      responses:
+        '200':
+          description: Account page
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiResponseAccountPage'
+  /api/v1/masters/{resource}/import:
+    post:
+      operationId: importMasterData
+      summary: Import customer, supplier, item or warehouse CSV data
+      security:
+        - sessionCookie: []
+      parameters:
+        - $ref: '#/components/parameters/Resource'
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              required: [file]
+              properties:
+                file:
+                  type: string
+                  format: binary
+      responses:
+        '200':
+          description: Import summary
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiResponseImportResult'
+  /api/v1/masters/{resource}/export.csv:
+    get:
+      operationId: exportMasterData
+      summary: Export master data as CSV
+      security:
+        - sessionCookie: []
+      parameters:
+        - $ref: '#/components/parameters/Resource'
+      responses:
+        '200':
+          description: UTF-8 CSV file
+          content:
+            text/csv:
+              schema:
+                type: string
+                format: binary
 components:
+  parameters:
+    Id:
+      name: id
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
+    Resource:
+      name: resource
+      in: path
+      required: true
+      schema:
+        type: string
+        enum: [customers, suppliers, items, warehouses, currencies, exchange-rates, tax-rates, accounts]
+    Query:
+      name: query
+      in: query
+      required: false
+      schema:
+        type: string
+    Page:
+      name: page
+      in: query
+      required: false
+      schema:
+        type: integer
+        minimum: 0
+        default: 0
+    Size:
+      name: size
+      in: query
+      required: false
+      schema:
+        type: integer
+        minimum: 1
+        maximum: 100
+        default: 20
   securitySchemes:
     sessionCookie:
       type: apiKey
       in: cookie
       name: SESSION
   schemas:
+    PageMeta:
+      type: object
+      required: [content, page, size, totalElements, totalPages]
+      properties:
+        content:
+          type: array
+          items: {}
+        page:
+          type: integer
+        size:
+          type: integer
+        totalElements:
+          type: integer
+          format: int64
+        totalPages:
+          type: integer
+    CustomerRequest:
+      type: object
+      required: [code, name, currencyCode, paymentTermsDays, active]
+      properties:
+        code: { type: string, maxLength: 48, example: C-0001 }
+        name: { type: string, maxLength: 160, example: Acme Trading }
+        contactName: { type: string }
+        email: { type: string, format: email }
+        phone: { type: string }
+        address: { type: string }
+        currencyCode: { type: string, minLength: 3, maxLength: 3, example: USD }
+        paymentTermsDays: { type: integer, minimum: 0, example: 30 }
+        active: { type: boolean, default: true }
+    SupplierRequest:
+      allOf:
+        - $ref: '#/components/schemas/CustomerRequest'
+    ItemRequest:
+      type: object
+      required: [code, name, type, unit, salesPrice, purchasePrice, averageCost, taxRate, active]
+      properties:
+        code: { type: string, example: SKU-0001 }
+        name: { type: string, example: Consulting service }
+        type: { type: string, enum: [GOODS, SERVICE] }
+        unit: { type: string, example: pcs }
+        salesPrice: { type: number, format: double, minimum: 0 }
+        purchasePrice: { type: number, format: double, minimum: 0 }
+        averageCost: { type: number, format: double, minimum: 0 }
+        taxRate: { type: number, format: double, minimum: 0, maximum: 100 }
+        inventoryManaged: { type: boolean }
+        active: { type: boolean }
+    WarehouseRequest:
+      type: object
+      required: [code, name, active]
+      properties:
+        code: { type: string, example: WH-MAIN }
+        name: { type: string, example: Main warehouse }
+        address: { type: string }
+        active: { type: boolean }
+    OrganizationSettingsRequest:
+      type: object
+      required: [name, baseCurrencyCode, timezone, approvalThreshold, defaultTaxRate]
+      properties:
+        name: { type: string }
+        baseCurrencyCode: { type: string, example: USD }
+        timezone: { type: string, example: Asia/Shanghai }
+        approvalThreshold: { type: number, format: double, minimum: 0 }
+        defaultTaxRate: { type: number, format: double, minimum: 0, maximum: 100 }
+    Customer:
+      allOf:
+        - $ref: '#/components/schemas/CustomerRequest'
+        - type: object
+          required: [id]
+          properties:
+            id: { type: string, format: uuid }
+    Supplier:
+      allOf:
+        - $ref: '#/components/schemas/Customer'
+    Item:
+      allOf:
+        - $ref: '#/components/schemas/ItemRequest'
+        - type: object
+          required: [id]
+          properties:
+            id: { type: string, format: uuid }
+    Warehouse:
+      allOf:
+        - $ref: '#/components/schemas/WarehouseRequest'
+        - type: object
+          required: [id]
+          properties:
+            id: { type: string, format: uuid }
+    Currency:
+      type: object
+      required: [id, code, name, symbol, decimalPlaces, active]
+      properties:
+        id: { type: string, format: uuid }
+        code: { type: string }
+        name: { type: string }
+        symbol: { type: string }
+        decimalPlaces: { type: integer }
+        active: { type: boolean }
+    ExchangeRate:
+      type: object
+      required: [id, baseCurrencyCode, quoteCurrencyCode, rate, effectiveDate, active]
+      properties:
+        id: { type: string, format: uuid }
+        baseCurrencyCode: { type: string }
+        quoteCurrencyCode: { type: string }
+        rate: { type: number, format: double }
+        effectiveDate: { type: string, format: date }
+        active: { type: boolean }
+    TaxRate:
+      type: object
+      required: [id, code, name, rate, exempt, effectiveDate, active]
+      properties:
+        id: { type: string, format: uuid }
+        code: { type: string }
+        name: { type: string }
+        rate: { type: number, format: double }
+        exempt: { type: boolean }
+        effectiveDate: { type: string, format: date }
+        active: { type: boolean }
+    Account:
+      type: object
+      required: [id, code, name, type, postingAllowed, active]
+      properties:
+        id: { type: string, format: uuid }
+        code: { type: string }
+        name: { type: string }
+        type: { type: string, enum: [ASSET, LIABILITY, EQUITY, REVENUE, EXPENSE] }
+        parentCode: { type: string, nullable: true }
+        postingAllowed: { type: boolean }
+        active: { type: boolean }
+    OrganizationSettings:
+      allOf:
+        - $ref: '#/components/schemas/OrganizationSettingsRequest'
+        - type: object
+          required: [id, active]
+          properties:
+            id: { type: string }
+            active: { type: boolean }
+    ApiResponseCustomer:
+      type: object
+      required: [data, requestId]
+      properties:
+        data: { $ref: '#/components/schemas/Customer' }
+        requestId: { type: string }
+    ApiResponseSupplier:
+      type: object
+      required: [data, requestId]
+      properties:
+        data: { $ref: '#/components/schemas/Supplier' }
+        requestId: { type: string }
+    ApiResponseItem:
+      type: object
+      required: [data, requestId]
+      properties:
+        data: { $ref: '#/components/schemas/Item' }
+        requestId: { type: string }
+    ApiResponseWarehouse:
+      type: object
+      required: [data, requestId]
+      properties:
+        data: { $ref: '#/components/schemas/Warehouse' }
+        requestId: { type: string }
+    ApiResponseOrganizationSettings:
+      type: object
+      required: [data, requestId]
+      properties:
+        data: { $ref: '#/components/schemas/OrganizationSettings' }
+        requestId: { type: string }
+    ApiResponseImportResult:
+      type: object
+      required: [data, requestId]
+      properties:
+        data:
+          type: object
+          required: [imported, rejected, errors]
+          properties:
+            imported: { type: integer }
+            rejected: { type: integer }
+            errors:
+              type: array
+              items: { type: object, additionalProperties: true }
+        requestId: { type: string }
+    ApiResponseCustomerPage:
+      allOf: [{ $ref: '#/components/schemas/ApiResponsePage' }]
+    ApiResponseSupplierPage:
+      allOf: [{ $ref: '#/components/schemas/ApiResponsePage' }]
+    ApiResponseItemPage:
+      allOf: [{ $ref: '#/components/schemas/ApiResponsePage' }]
+    ApiResponseWarehousePage:
+      allOf: [{ $ref: '#/components/schemas/ApiResponsePage' }]
+    ApiResponseCurrencyPage:
+      allOf: [{ $ref: '#/components/schemas/ApiResponsePage' }]
+    ApiResponseExchangeRatePage:
+      allOf: [{ $ref: '#/components/schemas/ApiResponsePage' }]
+    ApiResponseTaxRatePage:
+      allOf: [{ $ref: '#/components/schemas/ApiResponsePage' }]
+    ApiResponseAccountPage:
+      allOf: [{ $ref: '#/components/schemas/ApiResponsePage' }]
+    ApiResponsePage:
+      type: object
+      required: [data, requestId]
+      properties:
+        data:
+          $ref: '#/components/schemas/PageMeta'
+        requestId: { type: string }
     ApiResponseHealth:
       type: object
       required: [data, requestId]
