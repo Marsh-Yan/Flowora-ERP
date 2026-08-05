@@ -1,0 +1,28 @@
+spring:
+  config:
+    activate:
+      on-profile: local
+  autoconfigure:
+    exclude: []
+  datasource:
+    url: ${DB_URL:jdbc:mysql://localhost:3306/flowora_erp?useUnicode=true&characterEncoding=utf8&serverTimezone=UTC}
+    username: ${DB_USERNAME}
+    password: ${DB_PASSWORD}
+  jpa:
+    open-in-view: false
+    hibernate:
+      ddl-auto: validate
+    properties:
+      hibernate:
+        jdbc:
+          time_zone: UTC
+  data:
+    redis:
+      host: ${REDIS_HOST:localhost}
+      port: ${REDIS_PORT:6379}
+      password: ${REDIS_PASSWORD}
+  session:
+    store-type: redis
+  flyway:
+    enabled: true
+    locations: classpath:db/migration

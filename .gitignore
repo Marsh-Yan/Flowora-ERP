@@ -1,0 +1,26 @@
+# Dependencies
+node_modules/
+.pnpm-store/
+
+# Project-local caches and build outputs
+.cache/
+dist/
+coverage/
+target/
+*.log
+
+# Environment and secrets
+.env
+.env.*
+!.env.example
+
+# IDE / OS
+.idea/
+.vscode/
+*.iml
+.DS_Store
+Thumbs.db
+
+# Local database exports
+*.sql.gz
+*.dump

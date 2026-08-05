@@ -1,0 +1,29 @@
+name: Bug report
+description: Report a reproducible defect.
+title: "[Bug]: "
+labels: ["bug"]
+body:
+  - type: textarea
+    id: reproduce
+    attributes:
+      label: Reproduction steps
+      description: List the smallest reliable reproduction.
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected behavior
+    validations:
+      required: true
+  - type: textarea
+    id: actual
+    attributes:
+      label: Actual behavior
+    validations:
+      required: true
+  - type: textarea
+    id: environment
+    attributes:
+      label: Environment
+      description: Use generic versions only. Do not include secrets or personal paths.

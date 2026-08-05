@@ -1,0 +1,55 @@
+openapi: 3.0.3
+info:
+  title: Flowora ERP API
+  version: 0.1.0
+  description: |
+    Stable API contract for the Flowora ERP demo.
+    User-facing text is represented by message keys.
+servers:
+  - url: http://localhost:8080
+paths:
+  /api/v1/health:
+    get:
+      operationId: getHealth
+      summary: Service health
+      responses:
+        '200':
+          description: Service is available
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiResponseHealth'
+components:
+  schemas:
+    ApiResponseHealth:
+      type: object
+      required: [data, requestId]
+      properties:
+        data:
+          type: object
+          required: [service, status]
+          properties:
+            service:
+              type: string
+              example: flowora-api
+            status:
+              type: string
+              example: UP
+        requestId:
+          type: string
+          example: req_01J123456789
+    ApiError:
+      type: object
+      required: [code, messageKey, requestId]
+      properties:
+        code:
+          type: string
+          example: AUTH_REQUIRED
+        messageKey:
+          type: string
+          example: errors.authRequired
+        args:
+          type: object
+          additionalProperties: true
+        requestId:
+          type: string
