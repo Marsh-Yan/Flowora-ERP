@@ -19,6 +19,7 @@ import {
 } from '@element-plus/icons-vue'
 import LocaleSwitcher from '@/components/LocaleSwitcher.vue'
 import { useAppStore } from '@/stores/app'
+import { useAuthStore } from '@/stores/auth'
 
 interface MenuItem {
   index: string
@@ -30,6 +31,7 @@ const { t } = useI18n()
 const route = useRoute()
 const router = useRouter()
 const appStore = useAppStore()
+const authStore = useAuthStore()
 
 const menuItems = computed<MenuItem[]>(() => [
   { index: '/dashboard', label: t('nav.dashboard'), icon: Odometer },
@@ -50,6 +52,11 @@ const currentTitle = computed(() => {
 function navigate(path: string) {
   router.push(path)
 }
+
+async function handleLogout() {
+  await authStore.logout()
+  await router.replace({ name: 'login' })
+}
 </script>
 
 <template>
@@ -64,9 +71,9 @@ function navigate(path: string) {
       </div>
 
       <div v-if="!appStore.sidebarCollapsed" class="workspace-selector">
-        <div class="workspace-avatar">DO</div>
+        <div class="workspace-avatar">{{ authStore.user?.organizationName.slice(0, 2).toUpperCase() }}</div>
         <div class="workspace-info">
-          <strong>Demo Organization</strong>
+          <strong>{{ authStore.user?.organizationName }}</strong>
           <span>{{ t('common.active') }}</span>
         </div>
         <el-icon><Expand /></el-icon>
@@ -124,13 +131,13 @@ function navigate(path: string) {
             <el-icon><Bell /></el-icon>
             <span class="notification-dot" />
           </button>
-          <div class="profile-chip">
+          <button class="profile-chip profile-button" type="button" :aria-label="t('common.logout')" @click="handleLogout">
             <div class="profile-avatar"><el-icon><UserFilled /></el-icon></div>
             <div class="profile-copy">
-              <strong>Demo Operator</strong>
-              <span>Operations</span>
+              <strong>{{ authStore.user?.displayName }}</strong>
+              <span>{{ authStore.user?.roles[0] }}</span>
             </div>
-          </div>
+          </button>
         </div>
       </el-header>
 

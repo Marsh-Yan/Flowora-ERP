@@ -7,16 +7,28 @@ import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
 
 import java.util.Map;
-import java.util.UUID;
 
 @RestControllerAdvice
 public class GlobalExceptionHandler {
+    @ExceptionHandler(InvalidCredentialsException.class)
+    public ResponseEntity<ApiError> handleInvalidCredentials(
+            InvalidCredentialsException exception,
+            HttpServletRequest request
+    ) {
+        return ResponseEntity.status(HttpStatus.UNAUTHORIZED).body(new ApiError(
+                "AUTH_INVALID_CREDENTIALS",
+                "errors.authInvalidCredentials",
+                Map.of(),
+                RequestIdFilter.get(request)
+        ));
+    }
+
     @ExceptionHandler(Exception.class)
     public ResponseEntity<ApiError> handleUnexpectedException(
             Exception exception,
             HttpServletRequest request
     ) {
-        String requestId = "req_" + UUID.randomUUID();
+        String requestId = RequestIdFilter.get(request);
         ApiError error = new ApiError(
                 "INTERNAL_ERROR",
                 "errors.internal",

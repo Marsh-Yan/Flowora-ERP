@@ -19,7 +19,78 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/ApiResponseHealth'
+  /api/v1/auth/csrf:
+    get:
+      operationId: getCsrfToken
+      summary: Get the CSRF token cookie and token value
+      responses:
+        '200':
+          description: CSRF token
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiResponseCsrf'
+  /api/v1/auth/login:
+    post:
+      operationId: login
+      summary: Start an authenticated session
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/LoginRequest'
+      responses:
+        '200':
+          description: Authenticated user and organization context
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiResponseAuthUser'
+        '401':
+          description: Invalid credentials
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+  /api/v1/auth/me:
+    get:
+      operationId: getCurrentUser
+      summary: Get the current authenticated user
+      security:
+        - sessionCookie: []
+      responses:
+        '200':
+          description: Current user
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiResponseAuthUser'
+        '401':
+          description: Authentication required
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+  /api/v1/auth/logout:
+    post:
+      operationId: logout
+      summary: End the authenticated session
+      security:
+        - sessionCookie: []
+      responses:
+        '200':
+          description: Session ended
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiResponseLogout'
 components:
+  securitySchemes:
+    sessionCookie:
+      type: apiKey
+      in: cookie
+      name: SESSION
   schemas:
     ApiResponseHealth:
       type: object
@@ -35,6 +106,78 @@ components:
             status:
               type: string
               example: UP
+        requestId:
+          type: string
+          example: req_01J123456789
+    LoginRequest:
+      type: object
+      required: [username, password]
+      properties:
+        username:
+          type: string
+          format: email
+          example: operator@demo.flowora
+        password:
+          type: string
+          format: password
+          example: Demo123!
+    AuthUser:
+      type: object
+      required: [id, username, displayName, organizationId, organizationName, roles]
+      properties:
+        id:
+          type: string
+          example: user-demo-operator
+        username:
+          type: string
+          example: operator@demo.flowora
+        displayName:
+          type: string
+          example: Demo Operator
+        organizationId:
+          type: string
+          example: org-demo
+        organizationName:
+          type: string
+          example: Demo Organization
+        roles:
+          type: array
+          items:
+            type: string
+          example: [BUSINESS]
+    ApiResponseAuthUser:
+      type: object
+      required: [data, requestId]
+      properties:
+        data:
+          $ref: '#/components/schemas/AuthUser'
+        requestId:
+          type: string
+          example: req_01J123456789
+    ApiResponseCsrf:
+      type: object
+      required: [data, requestId]
+      properties:
+        data:
+          type: object
+          required: [token]
+          properties:
+            token:
+              type: string
+        requestId:
+          type: string
+          example: req_01J123456789
+    ApiResponseLogout:
+      type: object
+      required: [data, requestId]
+      properties:
+        data:
+          type: object
+          required: [authenticated]
+          properties:
+            authenticated:
+              type: boolean
+              example: false
         requestId:
           type: string
           example: req_01J123456789
