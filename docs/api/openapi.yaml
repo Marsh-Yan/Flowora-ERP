@@ -399,6 +399,148 @@ paths:
               schema:
                 type: string
                 format: binary
+  /api/v1/workflow/tasks:
+    get:
+      operationId: listWorkflowTasks
+      summary: List the current user's workflow inbox
+      security:
+        - sessionCookie: []
+      parameters:
+        - $ref: '#/components/parameters/Page'
+        - $ref: '#/components/parameters/Size'
+      responses:
+        '200':
+          description: Workflow task page
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiResponseWorkflowTaskPage'
+    post:
+      operationId: createWorkflowTask
+      summary: Submit a workflow task
+      security:
+        - sessionCookie: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/WorkflowTaskRequest'
+      responses:
+        '200':
+          description: Created workflow task
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiResponseWorkflowTask'
+  /api/v1/workflow/tasks/{id}/actions:
+    post:
+      operationId: actOnWorkflowTask
+      summary: Execute a workflow action
+      security:
+        - sessionCookie: []
+      parameters:
+        - $ref: '#/components/parameters/Id'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/WorkflowActionRequest'
+      responses:
+        '200':
+          description: Updated workflow task
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiResponseWorkflowAction'
+        '409':
+          description: Invalid state transition
+  /api/v1/workflow/notifications:
+    get:
+      operationId: listWorkflowNotifications
+      summary: List workflow notifications
+      security:
+        - sessionCookie: []
+      parameters:
+        - $ref: '#/components/parameters/Page'
+        - $ref: '#/components/parameters/Size'
+      responses:
+        '200':
+          description: Notification page
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiResponseNotificationPage'
+  /api/v1/workflow/notifications/unread-count:
+    get:
+      operationId: getWorkflowUnreadCount
+      summary: Count unread workflow notifications
+      security:
+        - sessionCookie: []
+      responses:
+        '200':
+          description: Unread notification count
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiResponseUnreadCount'
+  /api/v1/workflow/notifications/{id}/read:
+    post:
+      operationId: markWorkflowNotificationRead
+      summary: Mark a workflow notification as read
+      security:
+        - sessionCookie: []
+      parameters:
+        - $ref: '#/components/parameters/Id'
+      responses:
+        '200':
+          description: Updated notification
+  /api/v1/workflow/resources/{resourceType}/{resourceId}/comments:
+    get:
+      operationId: listWorkflowComments
+      summary: List comments for a business resource
+      security:
+        - sessionCookie: []
+      parameters:
+        - $ref: '#/components/parameters/ResourceType'
+        - $ref: '#/components/parameters/ResourceId'
+        - $ref: '#/components/parameters/Page'
+        - $ref: '#/components/parameters/Size'
+      responses:
+        '200':
+          description: Comment page
+    post:
+      operationId: addWorkflowComment
+      summary: Add a comment to a business resource
+      security:
+        - sessionCookie: []
+      parameters:
+        - $ref: '#/components/parameters/ResourceType'
+        - $ref: '#/components/parameters/ResourceId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/WorkflowCommentRequest'
+      responses:
+        '200':
+          description: Created comment
+  /api/v1/workflow/resources/{resourceType}/{resourceId}/activities:
+    get:
+      operationId: listWorkflowActivities
+      summary: List the activity timeline for a business resource
+      security:
+        - sessionCookie: []
+      parameters:
+        - $ref: '#/components/parameters/ResourceType'
+        - $ref: '#/components/parameters/ResourceId'
+        - $ref: '#/components/parameters/Page'
+        - $ref: '#/components/parameters/Size'
+      responses:
+        '200':
+          description: Activity page
 components:
   parameters:
     Id:
@@ -415,6 +557,18 @@ components:
       schema:
         type: string
         enum: [customers, suppliers, items, warehouses, currencies, exchange-rates, tax-rates, accounts]
+    ResourceType:
+      name: resourceType
+      in: path
+      required: true
+      schema:
+        type: string
+    ResourceId:
+      name: resourceId
+      in: path
+      required: true
+      schema:
+        type: string
     Query:
       name: query
       in: query
@@ -444,6 +598,104 @@ components:
       in: cookie
       name: SESSION
   schemas:
+    WorkflowTaskRequest:
+      type: object
+      required: [resourceType, resourceId, title, amount]
+      properties:
+        resourceType: { type: string, enum: [PURCHASE_REQUEST, PURCHASE_ORDER, SALES_QUOTE, SALES_ORDER, INVENTORY_ADJUSTMENT, PROJECT, GENERAL] }
+        resourceId: { type: string, maxLength: 64 }
+        title: { type: string, maxLength: 200 }
+        description: { type: string, maxLength: 1000 }
+        amount: { type: number, format: double, minimum: 0 }
+        assigneeUserId: { type: string, maxLength: 64 }
+        dueAt: { type: string, format: date-time }
+    WorkflowActionRequest:
+      type: object
+      required: [action]
+      properties:
+        action: { type: string, enum: [APPROVE, REJECT, TRANSFER, COMPLETE, CANCEL] }
+        transferToUserId: { type: string, maxLength: 64 }
+        comment: { type: string, maxLength: 1000 }
+    WorkflowCommentRequest:
+      type: object
+      required: [body]
+      properties:
+        body: { type: string, maxLength: 2000 }
+    WorkflowTask:
+      type: object
+      required: [id, resourceType, resourceId, title, amount, status]
+      properties:
+        id: { type: string }
+        resourceType: { type: string }
+        resourceId: { type: string }
+        title: { type: string }
+        description: { type: string }
+        amount: { type: number, format: double }
+        requesterUserId: { type: string }
+        assigneeUserId: { type: string }
+        assigneeRole: { type: string }
+        status: { type: string, enum: [OPEN, APPROVED, REJECTED, TRANSFERRED, COMPLETED, CANCELLED] }
+        dueAt: { type: string, format: date-time }
+        completedAt: { type: string, format: date-time }
+    WorkflowNotification:
+      type: object
+      required: [id, type, title, message, read, createdAt]
+      properties:
+        id: { type: string }
+        type: { type: string }
+        title: { type: string }
+        message: { type: string }
+        read: { type: boolean }
+        createdAt: { type: string, format: date-time }
+    WorkflowAction:
+      type: object
+      required: [task, action, notificationCreated]
+      properties:
+        task: { $ref: '#/components/schemas/WorkflowTask' }
+        action: { type: string }
+        notificationCreated: { type: boolean }
+    ApiResponseWorkflowTask:
+      type: object
+      properties:
+        data: { $ref: '#/components/schemas/WorkflowTask' }
+        requestId: { type: string }
+    ApiResponseWorkflowTaskPage:
+      type: object
+      properties:
+        data:
+          allOf:
+            - $ref: '#/components/schemas/PageMeta'
+            - type: object
+              properties:
+                content:
+                  type: array
+                  items: { $ref: '#/components/schemas/WorkflowTask' }
+        requestId: { type: string }
+    ApiResponseWorkflowAction:
+      type: object
+      properties:
+        data: { $ref: '#/components/schemas/WorkflowAction' }
+        requestId: { type: string }
+    ApiResponseNotificationPage:
+      type: object
+      properties:
+        data:
+          allOf:
+            - $ref: '#/components/schemas/PageMeta'
+            - type: object
+              properties:
+                content:
+                  type: array
+                  items: { $ref: '#/components/schemas/WorkflowNotification' }
+        requestId: { type: string }
+    ApiResponseUnreadCount:
+      type: object
+      properties:
+        data:
+          type: object
+          properties:
+            count: { type: integer, format: int64 }
+        requestId: { type: string }
     PageMeta:
       type: object
       required: [content, page, size, totalElements, totalPages]

@@ -81,6 +81,32 @@ public class GlobalExceptionHandler {
         ));
     }
 
+    @ExceptionHandler(WorkflowStateConflictException.class)
+    public ResponseEntity<ApiError> handleWorkflowConflict(
+            WorkflowStateConflictException exception,
+            HttpServletRequest request
+    ) {
+        return ResponseEntity.status(HttpStatus.CONFLICT).body(new ApiError(
+                "WORKFLOW_STATE_CONFLICT",
+                "errors.workflowStateConflict",
+                Map.of("reason", exception.getMessage() == null ? "Invalid workflow transition" : exception.getMessage()),
+                RequestIdFilter.get(request)
+        ));
+    }
+
+    @ExceptionHandler(WorkflowPermissionException.class)
+    public ResponseEntity<ApiError> handleWorkflowPermission(
+            WorkflowPermissionException exception,
+            HttpServletRequest request
+    ) {
+        return ResponseEntity.status(HttpStatus.FORBIDDEN).body(new ApiError(
+                "WORKFLOW_FORBIDDEN",
+                "errors.workflowForbidden",
+                Map.of("reason", exception.getMessage() == null ? "Workflow action is not allowed" : exception.getMessage()),
+                RequestIdFilter.get(request)
+        ));
+    }
+
     @ExceptionHandler(Exception.class)
     public ResponseEntity<ApiError> handleUnexpectedException(
             Exception exception,
