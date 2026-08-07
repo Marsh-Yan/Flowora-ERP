@@ -1,5 +1,6 @@
 package com.flowora.erp.inventory;
 
+import com.flowora.erp.finance.AccountingService;
 import com.flowora.erp.common.api.PageResponse;
 import com.flowora.erp.common.api.ResourceNotFoundException;
 import com.flowora.erp.identity.FloworaPrincipal;
@@ -36,6 +37,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.math.BigDecimal;
+import java.time.LocalDate;
 import java.util.UUID;
 
 @Service
@@ -58,6 +60,7 @@ public class InventoryService {
     private final OrganizationRepository organizationRepository;
     private final ApprovalPolicy approvalPolicy;
     private final WorkflowService workflowService;
+    private final AccountingService accountingService;
 
     public InventoryService(
             PurchaseOrderRepository orderRepository,
@@ -75,7 +78,8 @@ public class InventoryService {
             ItemRepository itemRepository,
             OrganizationRepository organizationRepository,
             ApprovalPolicy approvalPolicy,
-            WorkflowService workflowService
+            WorkflowService workflowService,
+            AccountingService accountingService
     ) {
         this.orderRepository = orderRepository;
         this.orderLineRepository = orderLineRepository;
@@ -93,6 +97,7 @@ public class InventoryService {
         this.organizationRepository = organizationRepository;
         this.approvalPolicy = approvalPolicy;
         this.workflowService = workflowService;
+        this.accountingService = accountingService;
     }
 
     @Transactional(readOnly = true)
@@ -132,6 +137,7 @@ public class InventoryService {
         orderLineRepository.save(orderLine);
         if (orderLine.remainingQuantity().signum() == 0) order.markReceived(); else order.markPartiallyReceived();
         orderRepository.save(order);
+        accountingService.postPurchaseReceipt(actor.organizationId(), actor.userId(), receipt.id(), order.supplierId(), body.quantity().multiply(body.unitCost()), baseCurrency(actor.organizationId()), LocalDate.now().plusDays(30));
         return new PurchaseReceiptResponse(receipt.id(), receipt.number(), receipt.purchaseOrderId(), receipt.warehouseId(), receiptLine.itemId(), receiptLine.quantity(), receiptLine.unitCost(), receipt.receivedAt());
     }
 
@@ -176,6 +182,7 @@ public class InventoryService {
         BigDecimal variance = line.variance();
         if (variance.signum() != 0) {
             applyDelta(actor.organizationId(), body.warehouseId(), body.itemId(), variance, variance.signum() > 0 ? body.unitCost() : balance.averageCost(), InventoryMovementType.COUNT, "STOCK_COUNT", count.id(), actor.userId());
+            accountingService.postInventoryDelta(actor.organizationId(), actor.userId(), "STOCK_COUNT", count.id(), variance, variance.signum() > 0 ? body.unitCost() : balance.averageCost(), baseCurrency(actor.organizationId()), LocalDate.now());
         }
         return new StockCountResponse(count.id(), count.number(), count.warehouseId(), line.itemId(), line.expectedQuantity(), line.countedQuantity(), variance, count.status());
     }
@@ -227,6 +234,7 @@ public class InventoryService {
     private void postAdjustment(FloworaPrincipal actor, StockAdjustmentEntity adjustment) {
         if (adjustment.status() == StockAdjustmentStatus.POSTED) return;
         applyDelta(actor.organizationId(), adjustment.warehouseId(), adjustment.itemId(), adjustment.quantityDelta(), adjustment.unitCost(), InventoryMovementType.ADJUSTMENT, "STOCK_ADJUSTMENT", adjustment.id(), actor.userId());
+        accountingService.postInventoryDelta(actor.organizationId(), actor.userId(), "STOCK_ADJUSTMENT", adjustment.id(), adjustment.quantityDelta(), adjustment.unitCost(), baseCurrency(actor.organizationId()), LocalDate.now());
         adjustment.post();
         adjustmentRepository.save(adjustment);
     }
@@ -261,6 +269,10 @@ public class InventoryService {
 
     private BigDecimal approvalThreshold(String organizationId) {
         return organizationRepository.findById(organizationId).map(OrganizationEntity::approvalThreshold).orElse(DEFAULT_APPROVAL_THRESHOLD);
+    }
+
+    private String baseCurrency(String organizationId) {
+        return organizationRepository.findById(organizationId).map(OrganizationEntity::baseCurrencyCode).orElse("USD");
     }
 
     private void requireWarehouse(String organizationId, String warehouseId) {

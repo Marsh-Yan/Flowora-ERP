@@ -31,6 +31,7 @@ import static org.mockito.Mockito.when;
 
 @ExtendWith(MockitoExtension.class)
 class InventoryServiceTest {
+    @Mock private com.flowora.erp.finance.AccountingService accountingService;
     @Mock private com.flowora.erp.procurement.PurchaseOrderRepository orderRepository;
     @Mock private com.flowora.erp.procurement.PurchaseOrderLineRepository orderLineRepository;
     @Mock private PurchaseReceiptRepository receiptRepository;

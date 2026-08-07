@@ -865,6 +865,187 @@ paths:
       responses:
         '200':
           description: Customer payment posted
+  /api/v1/finance/journals:
+    get:
+      operationId: listFinanceJournals
+      summary: List posted journal entries
+      security:
+        - sessionCookie: []
+      parameters:
+        - name: from
+          in: query
+          required: false
+          schema: { type: string, format: date }
+        - name: to
+          in: query
+          required: false
+          schema: { type: string, format: date }
+        - $ref: '#/components/parameters/Page'
+        - $ref: '#/components/parameters/Size'
+      responses:
+        '200':
+          description: Journal entry page
+  /api/v1/finance/journals/manual:
+    post:
+      operationId: postManualJournal
+      summary: Post a balanced manual journal entry
+      security:
+        - sessionCookie: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ManualJournalCreate'
+      responses:
+        '200':
+          description: Manual journal posted
+  /api/v1/finance/periods:
+    get:
+      operationId: listAccountingPeriods
+      summary: List accounting periods
+      security:
+        - sessionCookie: []
+      parameters:
+        - $ref: '#/components/parameters/Page'
+        - $ref: '#/components/parameters/Size'
+      responses:
+        '200':
+          description: Accounting period page
+  /api/v1/finance/periods/{id}/close:
+    post:
+      operationId: closeAccountingPeriod
+      summary: Close an accounting period
+      security:
+        - sessionCookie: []
+      parameters:
+        - $ref: '#/components/parameters/Id'
+      responses:
+        '200':
+          description: Accounting period closed
+  /api/v1/finance/reports/trial-balance:
+    get:
+      operationId: getTrialBalance
+      summary: Get trial balance
+      security:
+        - sessionCookie: []
+      parameters:
+        - name: from
+          in: query
+          required: false
+          schema: { type: string, format: date }
+        - name: to
+          in: query
+          required: false
+          schema: { type: string, format: date }
+      responses:
+        '200':
+          description: Trial balance report
+  /api/v1/finance/reports/income-statement:
+    get:
+      operationId: getIncomeStatement
+      summary: Get income statement
+      security:
+        - sessionCookie: []
+      parameters:
+        - name: from
+          in: query
+          required: false
+          schema: { type: string, format: date }
+        - name: to
+          in: query
+          required: false
+          schema: { type: string, format: date }
+      responses:
+        '200':
+          description: Income statement report
+  /api/v1/finance/reports/balance-sheet:
+    get:
+      operationId: getBalanceSheet
+      summary: Get balance sheet
+      security:
+        - sessionCookie: []
+      parameters:
+        - name: from
+          in: query
+          required: false
+          schema: { type: string, format: date }
+        - name: to
+          in: query
+          required: false
+          schema: { type: string, format: date }
+      responses:
+        '200':
+          description: Balance sheet report
+  /api/v1/finance/payables:
+    get:
+      operationId: listPayables
+      summary: List supplier payables
+      security:
+        - sessionCookie: []
+      parameters:
+        - $ref: '#/components/parameters/Query'
+        - $ref: '#/components/parameters/Page'
+        - $ref: '#/components/parameters/Size'
+      responses:
+        '200':
+          description: Payables page
+  /api/v1/finance/payables/{id}/payments:
+    get:
+      operationId: listSupplierPayments
+      summary: List payments for a payable
+      security:
+        - sessionCookie: []
+      parameters:
+        - $ref: '#/components/parameters/Id'
+        - $ref: '#/components/parameters/Page'
+        - $ref: '#/components/parameters/Size'
+      responses:
+        '200':
+          description: Supplier payment page
+  /api/v1/finance/supplier-payments:
+    post:
+      operationId: postSupplierPayment
+      summary: Post a supplier payment against a payable
+      security:
+        - sessionCookie: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SupplierPaymentCreate'
+      responses:
+        '200':
+          description: Supplier payment posted
+  /api/v1/finance/reports/aging/receivables:
+    get:
+      operationId: getReceivableAging
+      summary: Get receivable aging
+      security:
+        - sessionCookie: []
+      parameters:
+        - name: asOf
+          in: query
+          required: false
+          schema: { type: string, format: date }
+      responses:
+        '200':
+          description: Receivable aging report
+  /api/v1/finance/reports/aging/payables:
+    get:
+      operationId: getPayableAging
+      summary: Get payable aging
+      security:
+        - sessionCookie: []
+      parameters:
+        - name: asOf
+          in: query
+          required: false
+          schema: { type: string, format: date }
+      responses:
+        '200':
+          description: Payable aging report
 components:
   parameters:
     Id:
@@ -1431,3 +1612,34 @@ components:
           additionalProperties: true
         requestId:
           type: string
+
+    JournalLineInput:
+      type: object
+      required: [accountCode, debit, credit]
+      properties:
+        accountCode: { type: string, minLength: 1 }
+        description: { type: string, maxLength: 200 }
+        debit: { type: number, format: double, minimum: 0 }
+        credit: { type: number, format: double, minimum: 0 }
+    ManualJournalCreate:
+      type: object
+      required: [entryDate, memo, currencyCode, lines]
+      properties:
+        entryDate: { type: string, format: date }
+        memo: { type: string, minLength: 1, maxLength: 500 }
+        currencyCode: { type: string, minLength: 3, maxLength: 3 }
+        lines:
+          type: array
+          minItems: 2
+          maxItems: 50
+          items:
+            $ref: '#/components/schemas/JournalLineInput'
+    SupplierPaymentCreate:
+      type: object
+      required: [payableId, amount, method, paymentDate]
+      properties:
+        payableId: { type: string, format: uuid }
+        amount: { type: number, format: double, minimum: 0.0001 }
+        method: { type: string, enum: [BANK, CASH, OTHER] }
+        paymentDate: { type: string, format: date }
+        reference: { type: string, maxLength: 120 }
