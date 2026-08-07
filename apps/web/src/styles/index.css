@@ -1134,6 +1134,60 @@ input {
   margin-top: 10px;
 }
 
+.operations-page {
+  max-width: 1440px;
+  margin: 0 auto;
+}
+
+.operations-heading {
+  align-items: flex-end;
+  margin-bottom: 22px;
+}
+
+.operations-heading h1 {
+  margin: 10px 0 7px;
+  font-size: 28px;
+  letter-spacing: -0.04em;
+}
+
+.operations-heading p {
+  margin: 0;
+  color: var(--flowora-muted);
+  font-size: 12px;
+}
+
+.operations-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.operations-actions .el-icon {
+  margin-right: 5px;
+}
+
+.operations-card {
+  border: 1px solid var(--flowora-border);
+  border-radius: 16px;
+}
+
+.operations-card :deep(.el-card__body) {
+  padding: 12px 22px 22px;
+}
+
+.operations-form-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 4px 18px;
+}
+
+.inventory-summary-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 16px;
+  margin-bottom: 18px;
+}
+
 .master-data-heading {
   align-items: flex-end;
   margin-bottom: 22px;
@@ -1242,7 +1296,8 @@ input {
   .master-data-heading,
   .master-data-toolbar,
   .workflow-heading,
-  .workflow-toolbar {
+  .workflow-toolbar,
+  .operations-heading {
     align-items: flex-start;
     flex-direction: column;
   }
@@ -1294,7 +1349,12 @@ input {
   }
 
   .workflow-summary-grid,
-  .workflow-layout {
+  .workflow-layout,
+  .inventory-summary-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .operations-form-grid {
     grid-template-columns: 1fr;
   }
 

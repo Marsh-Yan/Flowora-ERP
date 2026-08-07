@@ -541,6 +541,186 @@ paths:
       responses:
         '200':
           description: Activity page
+  /api/v1/procurement/requests:
+    get:
+      operationId: listPurchaseRequests
+      summary: List purchase requests
+      security:
+        - sessionCookie: []
+      parameters:
+        - $ref: '#/components/parameters/Query'
+        - $ref: '#/components/parameters/Page'
+        - $ref: '#/components/parameters/Size'
+      responses:
+        '200':
+          description: Purchase request page
+    post:
+      operationId: createPurchaseRequest
+      summary: Create and submit a purchase request
+      security:
+        - sessionCookie: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PurchaseRequestCreate'
+      responses:
+        '200':
+          description: Created purchase request
+  /api/v1/procurement/orders:
+    get:
+      operationId: listPurchaseOrders
+      summary: List purchase orders
+      security:
+        - sessionCookie: []
+      parameters:
+        - $ref: '#/components/parameters/Query'
+        - $ref: '#/components/parameters/Page'
+        - $ref: '#/components/parameters/Size'
+      responses:
+        '200':
+          description: Purchase order page
+    post:
+      operationId: createPurchaseOrder
+      summary: Create a purchase order from an approved request
+      security:
+        - sessionCookie: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PurchaseOrderCreate'
+      responses:
+        '200':
+          description: Created purchase order
+  /api/v1/procurement/orders/{id}:
+    delete:
+      operationId: cancelPurchaseOrder
+      summary: Cancel an unreceived purchase order
+      security:
+        - sessionCookie: []
+      parameters:
+        - $ref: '#/components/parameters/Id'
+      responses:
+        '200':
+          description: Purchase order cancelled
+  /api/v1/inventory/balances:
+    get:
+      operationId: listStockBalances
+      summary: List stock balances by warehouse
+      security:
+        - sessionCookie: []
+      parameters:
+        - name: warehouseId
+          in: query
+          schema: { type: string }
+        - $ref: '#/components/parameters/Page'
+        - $ref: '#/components/parameters/Size'
+      responses:
+        '200':
+          description: Stock balance page
+  /api/v1/inventory/ledger:
+    get:
+      operationId: listStockLedger
+      summary: List stock ledger entries
+      security:
+        - sessionCookie: []
+      parameters:
+        - name: warehouseId
+          in: query
+          schema: { type: string }
+        - name: itemId
+          in: query
+          schema: { type: string }
+        - $ref: '#/components/parameters/Page'
+        - $ref: '#/components/parameters/Size'
+      responses:
+        '200':
+          description: Stock ledger page
+  /api/v1/inventory/receipts:
+    post:
+      operationId: receivePurchaseOrder
+      summary: Receive part or all of a purchase order line
+      security:
+        - sessionCookie: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PurchaseReceiptRequest'
+      responses:
+        '200':
+          description: Receipt posted and stock ledger updated
+  /api/v1/inventory/transfers:
+    post:
+      operationId: transferStock
+      summary: Transfer stock between warehouses
+      security:
+        - sessionCookie: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/StockTransferRequest'
+      responses:
+        '200':
+          description: Transfer posted with two ledger entries
+  /api/v1/inventory/counts:
+    post:
+      operationId: postStockCount
+      summary: Post a stock count variance
+      security:
+        - sessionCookie: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/StockCountRequest'
+      responses:
+        '200':
+          description: Stock count posted
+  /api/v1/inventory/adjustments:
+    post:
+      operationId: createStockAdjustment
+      summary: Post or submit a stock adjustment for approval
+      security:
+        - sessionCookie: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/StockAdjustmentRequest'
+      responses:
+        '200':
+          description: Adjustment posted or awaiting approval
+  /api/v1/inventory/adjustments/{id}/approve:
+    post:
+      operationId: approveStockAdjustment
+      summary: Approve and post a high-risk stock adjustment
+      security:
+        - sessionCookie: []
+      parameters:
+        - $ref: '#/components/parameters/Id'
+      responses:
+        '200':
+          description: Adjustment approved and posted
+  /api/v1/inventory/adjustments/{id}/reject:
+    post:
+      operationId: rejectStockAdjustment
+      summary: Reject a high-risk stock adjustment
+      security:
+        - sessionCookie: []
+      parameters:
+        - $ref: '#/components/parameters/Id'
+      responses:
+        '200':
+          description: Adjustment rejected
 components:
   parameters:
     Id:
@@ -598,6 +778,64 @@ components:
       in: cookie
       name: SESSION
   schemas:
+    PurchaseRequestCreate:
+      type: object
+      required: [supplierId, warehouseId, itemId, quantity, estimatedUnitCost]
+      properties:
+        supplierId: { type: string, format: uuid }
+        warehouseId: { type: string, format: uuid }
+        itemId: { type: string, format: uuid }
+        quantity: { type: number, format: double, minimum: 0.0001 }
+        estimatedUnitCost: { type: number, format: double, minimum: 0 }
+        note: { type: string, maxLength: 500 }
+    PurchaseOrderCreate:
+      type: object
+      required: [supplierId, warehouseId, itemId, quantity, unitPrice, taxRate]
+      properties:
+        purchaseRequestId: { type: string, format: uuid, nullable: true }
+        supplierId: { type: string, format: uuid }
+        warehouseId: { type: string, format: uuid }
+        itemId: { type: string, format: uuid }
+        quantity: { type: number, format: double, minimum: 0.0001 }
+        unitPrice: { type: number, format: double, minimum: 0 }
+        taxRate: { type: number, format: double, minimum: 0 }
+        expectedDate: { type: string, format: date, nullable: true }
+        note: { type: string, maxLength: 500 }
+    PurchaseReceiptRequest:
+      type: object
+      required: [purchaseOrderId, purchaseOrderLineId, warehouseId, quantity, unitCost]
+      properties:
+        purchaseOrderId: { type: string, format: uuid }
+        purchaseOrderLineId: { type: string, format: uuid }
+        warehouseId: { type: string, format: uuid }
+        quantity: { type: number, format: double, minimum: 0.0001 }
+        unitCost: { type: number, format: double, minimum: 0 }
+    StockTransferRequest:
+      type: object
+      required: [sourceWarehouseId, targetWarehouseId, itemId, quantity, unitCost]
+      properties:
+        sourceWarehouseId: { type: string, format: uuid }
+        targetWarehouseId: { type: string, format: uuid }
+        itemId: { type: string, format: uuid }
+        quantity: { type: number, format: double, minimum: 0.0001 }
+        unitCost: { type: number, format: double, minimum: 0 }
+    StockCountRequest:
+      type: object
+      required: [warehouseId, itemId, countedQuantity, unitCost]
+      properties:
+        warehouseId: { type: string, format: uuid }
+        itemId: { type: string, format: uuid }
+        countedQuantity: { type: number, format: double, minimum: 0 }
+        unitCost: { type: number, format: double, minimum: 0 }
+    StockAdjustmentRequest:
+      type: object
+      required: [warehouseId, itemId, quantityDelta, unitCost, reason]
+      properties:
+        warehouseId: { type: string, format: uuid }
+        itemId: { type: string, format: uuid }
+        quantityDelta: { type: number, format: double }
+        unitCost: { type: number, format: double, minimum: 0 }
+        reason: { type: string, minLength: 1, maxLength: 500 }
     WorkflowTaskRequest:
       type: object
       required: [resourceType, resourceId, title, amount]
