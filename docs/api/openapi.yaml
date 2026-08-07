@@ -85,6 +85,143 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/ApiResponseLogout'
+  /api/v1/projects:
+    get:
+      operationId: listProjects
+      summary: List projects and delivery metrics
+      security: [{ sessionCookie: [] }]
+      parameters:
+        - { name: query, in: query, schema: { type: string } }
+        - { name: status, in: query, schema: { type: string, enum: [PLANNED, ACTIVE, AT_RISK, COMPLETED, ARCHIVED] } }
+        - { name: page, in: query, schema: { type: integer, default: 0 } }
+        - { name: size, in: query, schema: { type: integer, default: 20 } }
+      responses:
+        '200':
+          description: Project page
+          content: { application/json: { schema: { $ref: '#/components/schemas/ApiResponseProjectPage' } } }
+    post:
+      operationId: createProject
+      summary: Create a project optionally linked to a customer and sales order
+      security: [{ sessionCookie: [] }]
+      requestBody:
+        required: true
+        content: { application/json: { schema: { $ref: '#/components/schemas/ProjectCreate' } } }
+      responses:
+        '200':
+          description: Created project
+          content: { application/json: { schema: { $ref: '#/components/schemas/ApiResponseProject' } } }
+  /api/v1/projects/{id}/summary:
+    get:
+      operationId: getProjectSummary
+      summary: Get project progress, cost and billing metrics
+      security: [{ sessionCookie: [] }]
+      parameters: [{ name: id, in: path, required: true, schema: { type: string, format: uuid } }]
+      responses:
+        '200':
+          description: Project summary
+          content: { application/json: { schema: { $ref: '#/components/schemas/ApiResponseProject' } } }
+  /api/v1/projects/{id}/status:
+    post:
+      operationId: changeProjectStatus
+      summary: Change a project status
+      security: [{ sessionCookie: [] }]
+      parameters: [{ name: id, in: path, required: true, schema: { type: string, format: uuid } }]
+      requestBody:
+        required: true
+        content: { application/json: { schema: { $ref: '#/components/schemas/ProjectStatusChange' } } }
+      responses:
+        '200':
+          description: Updated project
+          content: { application/json: { schema: { $ref: '#/components/schemas/ApiResponseProject' } } }
+  /api/v1/projects/{id}/milestones:
+    get:
+      operationId: listProjectMilestones
+      summary: List project milestones
+      security: [{ sessionCookie: [] }]
+      parameters: [{ name: id, in: path, required: true, schema: { type: string, format: uuid } }]
+      responses:
+        '200':
+          description: Milestones
+          content: { application/json: { schema: { $ref: '#/components/schemas/ApiResponseMilestones' } } }
+    post:
+      operationId: createProjectMilestone
+      summary: Add a milestone
+      security: [{ sessionCookie: [] }]
+      parameters: [{ name: id, in: path, required: true, schema: { type: string, format: uuid } }]
+      requestBody:
+        required: true
+        content: { application/json: { schema: { $ref: '#/components/schemas/MilestoneCreate' } } }
+      responses:
+        '200':
+          description: Created milestone
+          content: { application/json: { schema: { $ref: '#/components/schemas/ApiResponseMilestone' } } }
+  /api/v1/projects/{id}/tasks:
+    get:
+      operationId: listProjectTasks
+      summary: List project tasks
+      security: [{ sessionCookie: [] }]
+      parameters: [{ name: id, in: path, required: true, schema: { type: string, format: uuid } }]
+      responses:
+        '200':
+          description: Task page
+          content: { application/json: { schema: { $ref: '#/components/schemas/ApiResponseTaskPage' } } }
+    post:
+      operationId: createProjectTask
+      summary: Add a project task
+      security: [{ sessionCookie: [] }]
+      parameters: [{ name: id, in: path, required: true, schema: { type: string, format: uuid } }]
+      requestBody:
+        required: true
+        content: { application/json: { schema: { $ref: '#/components/schemas/TaskCreate' } } }
+      responses:
+        '200':
+          description: Created task
+          content: { application/json: { schema: { $ref: '#/components/schemas/ApiResponseTask' } } }
+  /api/v1/projects/{id}/timesheets:
+    get:
+      operationId: listProjectTimesheets
+      summary: List project timesheets
+      security: [{ sessionCookie: [] }]
+      parameters: [{ name: id, in: path, required: true, schema: { type: string, format: uuid } }]
+      responses:
+        '200':
+          description: Timesheet page
+          content: { application/json: { schema: { $ref: '#/components/schemas/ApiResponseTimesheetPage' } } }
+    post:
+      operationId: createProjectTimesheet
+      summary: Log project hours
+      security: [{ sessionCookie: [] }]
+      parameters: [{ name: id, in: path, required: true, schema: { type: string, format: uuid } }]
+      requestBody:
+        required: true
+        content: { application/json: { schema: { $ref: '#/components/schemas/TimesheetCreate' } } }
+      responses:
+        '200':
+          description: Created timesheet
+          content: { application/json: { schema: { $ref: '#/components/schemas/ApiResponseTimesheet' } } }
+  /api/v1/projects/{id}/expenses:
+    post:
+      operationId: createProjectExpense
+      summary: Record a project expense
+      security: [{ sessionCookie: [] }]
+      parameters: [{ name: id, in: path, required: true, schema: { type: string, format: uuid } }]
+      requestBody:
+        required: true
+        content: { application/json: { schema: { $ref: '#/components/schemas/ExpenseCreate' } } }
+      responses:
+        '200':
+          description: Created expense
+          content: { application/json: { schema: { $ref: '#/components/schemas/ApiResponseExpense' } } }
+  /api/v1/projects/{id}/billing-basis:
+    get:
+      operationId: listProjectBillingBasis
+      summary: List pending billable project basis
+      security: [{ sessionCookie: [] }]
+      parameters: [{ name: id, in: path, required: true, schema: { type: string, format: uuid } }]
+      responses:
+        '200':
+          description: Pending billing basis rows
+          content: { application/json: { schema: { $ref: '#/components/schemas/ApiResponseBillingBasis' } } }
   /api/v1/organizations/settings:
     get:
       operationId: getOrganizationSettings
@@ -1597,6 +1734,145 @@ components:
         requestId:
           type: string
           example: req_01J123456789
+    ProjectCreate:
+      type: object
+      required: [name, targetDate]
+      properties:
+        name: { type: string, minLength: 1, maxLength: 160 }
+        description: { type: string, maxLength: 1000 }
+        customerId: { type: string, format: uuid }
+        salesOrderId: { type: string, format: uuid }
+        managerUserId: { type: string }
+        targetDate: { type: string, format: date }
+        budgetRevenue: { type: number, minimum: 0 }
+        budgetCost: { type: number, minimum: 0 }
+        currencyCode: { type: string, minLength: 3, maxLength: 3 }
+    ProjectStatusChange:
+      type: object
+      required: [status]
+      properties:
+        status: { type: string, enum: [PLANNED, ACTIVE, AT_RISK, COMPLETED, ARCHIVED] }
+    MilestoneCreate:
+      type: object
+      required: [name]
+      properties:
+        name: { type: string, maxLength: 160 }
+        sequenceNo: { type: integer, minimum: 1 }
+        targetDate: { type: string, format: date }
+    TaskCreate:
+      type: object
+      required: [title]
+      properties:
+        title: { type: string, maxLength: 200 }
+        description: { type: string, maxLength: 1000 }
+        milestoneId: { type: string, format: uuid }
+        assigneeUserId: { type: string }
+        priority: { type: string, enum: [LOW, MEDIUM, HIGH] }
+        dueDate: { type: string, format: date }
+        estimatedHours: { type: number, minimum: 0 }
+    TimesheetCreate:
+      type: object
+      required: [workDate, hours, costRate, billingRate]
+      properties:
+        taskId: { type: string, format: uuid }
+        workDate: { type: string, format: date }
+        hours: { type: number, exclusiveMinimum: 0 }
+        costRate: { type: number, minimum: 0 }
+        billingRate: { type: number, minimum: 0 }
+        billable: { type: boolean }
+        currencyCode: { type: string, minLength: 3, maxLength: 3 }
+        note: { type: string, maxLength: 500 }
+    ExpenseCreate:
+      type: object
+      required: [expenseDate, category, amount]
+      properties:
+        taskId: { type: string, format: uuid }
+        expenseDate: { type: string, format: date }
+        category: { type: string, maxLength: 64 }
+        amount: { type: number, exclusiveMinimum: 0 }
+        billable: { type: boolean }
+        currencyCode: { type: string, minLength: 3, maxLength: 3 }
+        description: { type: string, maxLength: 500 }
+    Project:
+      type: object
+      required: [id, number, name, targetDate, currencyCode, status, progressPercent, actualCost, actualHours, billableAmount]
+      properties:
+        id: { type: string, format: uuid }
+        number: { type: string }
+        name: { type: string }
+        customerId: { type: string, format: uuid }
+        salesOrderId: { type: string, format: uuid }
+        targetDate: { type: string, format: date }
+        budgetRevenue: { type: number }
+        budgetCost: { type: number }
+        currencyCode: { type: string }
+        status: { type: string }
+        progressPercent: { type: number }
+        actualCost: { type: number }
+        actualHours: { type: number }
+        billableAmount: { type: number }
+        completedTaskCount: { type: integer }
+        totalTaskCount: { type: integer }
+    Milestone:
+      type: object
+      properties: { id: { type: string }, projectId: { type: string }, name: { type: string }, sequenceNo: { type: integer }, targetDate: { type: string, format: date }, status: { type: string } }
+    Task:
+      type: object
+      properties: { id: { type: string }, projectId: { type: string }, title: { type: string }, assigneeUserId: { type: string }, priority: { type: string }, status: { type: string }, estimatedHours: { type: number }, actualHours: { type: number } }
+    Timesheet:
+      type: object
+      properties: { id: { type: string }, projectId: { type: string }, taskId: { type: string }, userId: { type: string }, workDate: { type: string, format: date }, hours: { type: number }, costAmount: { type: number }, billableAmount: { type: number }, billable: { type: boolean }, currencyCode: { type: string } }
+    Expense:
+      type: object
+      properties: { id: { type: string }, projectId: { type: string }, expenseDate: { type: string, format: date }, category: { type: string }, amount: { type: number }, billableAmount: { type: number }, billable: { type: boolean }, currencyCode: { type: string } }
+    BillingBasis:
+      type: object
+      properties: { type: { type: string }, id: { type: string }, date: { type: string, format: date }, taskId: { type: string }, description: { type: string }, quantity: { type: number }, amount: { type: number }, currencyCode: { type: string }, sourceUserId: { type: string } }
+    ProjectPage:
+      type: object
+      required: [content, page, size, totalElements, totalPages]
+      properties:
+        content: { type: array, items: { $ref: '#/components/schemas/Project' } }
+        page: { type: integer }
+        size: { type: integer }
+        totalElements: { type: integer, format: int64 }
+        totalPages: { type: integer }
+    TaskPage:
+      type: object
+      properties: { content: { type: array, items: { $ref: '#/components/schemas/Task' } }, page: { type: integer }, size: { type: integer }, totalElements: { type: integer, format: int64 }, totalPages: { type: integer } }
+    TimesheetPage:
+      type: object
+      properties: { content: { type: array, items: { $ref: '#/components/schemas/Timesheet' } }, page: { type: integer }, size: { type: integer }, totalElements: { type: integer, format: int64 }, totalPages: { type: integer } }
+    ApiResponseProject:
+      type: object
+      properties: { data: { $ref: '#/components/schemas/Project' }, requestId: { type: string } }
+    ApiResponseProjectPage:
+      type: object
+      properties: { data: { $ref: '#/components/schemas/ProjectPage' }, requestId: { type: string } }
+    ApiResponseMilestone:
+      type: object
+      properties: { data: { $ref: '#/components/schemas/Milestone' }, requestId: { type: string } }
+    ApiResponseMilestones:
+      type: object
+      properties: { data: { type: array, items: { $ref: '#/components/schemas/Milestone' } }, requestId: { type: string } }
+    ApiResponseTask:
+      type: object
+      properties: { data: { $ref: '#/components/schemas/Task' }, requestId: { type: string } }
+    ApiResponseTaskPage:
+      type: object
+      properties: { data: { $ref: '#/components/schemas/TaskPage' }, requestId: { type: string } }
+    ApiResponseTimesheet:
+      type: object
+      properties: { data: { $ref: '#/components/schemas/Timesheet' }, requestId: { type: string } }
+    ApiResponseTimesheetPage:
+      type: object
+      properties: { data: { $ref: '#/components/schemas/TimesheetPage' }, requestId: { type: string } }
+    ApiResponseExpense:
+      type: object
+      properties: { data: { $ref: '#/components/schemas/Expense' }, requestId: { type: string } }
+    ApiResponseBillingBasis:
+      type: object
+      properties: { data: { type: array, items: { $ref: '#/components/schemas/BillingBasis' } }, requestId: { type: string } }
     ApiError:
       type: object
       required: [code, messageKey, requestId]
