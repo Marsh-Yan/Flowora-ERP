@@ -7,6 +7,7 @@ import ProcurementView from '@/views/ProcurementView.vue'
 import SalesView from '@/views/SalesView.vue'
 import WorkflowView from '@/views/WorkflowView.vue'
 import FinanceView from '@/views/FinanceView.vue'
+import ProjectsView from '@/views/ProjectsView.vue'
 import { useAuthStore } from '@/stores/auth'
 
 const placeholderRoutes: RouteRecordRaw[] = [
@@ -67,6 +68,12 @@ const router = createRouter({
           name: 'finance',
           component: FinanceView,
           meta: { titleKey: 'nav.finance' },
+        },
+        {
+          path: 'projects',
+          name: 'projects',
+          component: ProjectsView,
+          meta: { titleKey: 'nav.projects' },
         },
         ...placeholderRoutes,
         {
