@@ -4,6 +4,7 @@ import com.flowora.erp.common.api.PageResponse;
 import com.flowora.erp.common.api.ResourceNotFoundException;
 import com.flowora.erp.identity.FloworaPrincipal;
 import com.flowora.erp.masterdata.ItemRepository;
+import com.flowora.erp.masterdata.ItemEntity;
 import com.flowora.erp.masterdata.OrganizationEntity;
 import com.flowora.erp.masterdata.OrganizationRepository;
 import com.flowora.erp.masterdata.WarehouseRepository;
@@ -135,6 +136,17 @@ public class InventoryService {
     }
 
     @Transactional
+    public BigDecimal issueForSales(FloworaPrincipal actor, String warehouseId, String itemId, BigDecimal quantity, String deliveryId) {
+        requireWarehouse(actor.organizationId(), warehouseId);
+        ItemEntity item = itemRepository.findByIdAndOrganizationId(clean(itemId), actor.organizationId())
+                .filter(entity -> entity.active())
+                .orElseThrow(() -> new ResourceNotFoundException("item", itemId));
+        if (!item.inventoryManaged()) return BigDecimal.ZERO;
+        BigDecimal appliedUnitCost = applyDelta(actor.organizationId(), warehouseId, itemId, quantity.negate(), BigDecimal.ZERO, InventoryMovementType.SHIPMENT, "SALES_DELIVERY", deliveryId, actor.userId());
+        return appliedUnitCost == null ? BigDecimal.ZERO : appliedUnitCost;
+    }
+
+    @Transactional
     public StockTransferResponse transfer(FloworaPrincipal actor, StockTransferRequest body) {
         if (body.sourceWarehouseId().equals(body.targetWarehouseId())) {
             throw new IllegalArgumentException("Source and target warehouses must be different");
@@ -224,23 +236,27 @@ public class InventoryService {
                 .orElseGet(() -> balanceRepository.save(new StockBalanceEntity(organizationId, warehouseId, itemId, BigDecimal.ZERO, defaultCost)));
     }
 
-    private void applyDelta(String organizationId, String warehouseId, String itemId, BigDecimal quantityDelta, BigDecimal unitCost, InventoryMovementType movementType, String documentType, String documentId, String actorUserId) {
-        if (ledgerRepository.existsByOrganizationIdAndDocumentTypeAndDocumentIdAndMovementType(organizationId, documentType, documentId, movementType)) return;
+    private BigDecimal applyDelta(String organizationId, String warehouseId, String itemId, BigDecimal quantityDelta, BigDecimal unitCost, InventoryMovementType movementType, String documentType, String documentId, String actorUserId) {
+        if (ledgerRepository.existsByOrganizationIdAndDocumentTypeAndDocumentIdAndMovementType(organizationId, documentType, documentId, movementType)) return null;
         StockBalanceEntity balance = lockedBalance(organizationId, warehouseId, itemId, unitCost);
         BigDecimal oldAverageCost = balance.averageCost();
         BigDecimal valueDelta;
+        BigDecimal appliedUnitCost;
         if (quantityDelta.signum() > 0) {
             balance.receive(quantityDelta, unitCost);
             valueDelta = quantityDelta.multiply(unitCost);
+            appliedUnitCost = unitCost;
         } else {
             BigDecimal decrease = quantityDelta.abs();
             balance.decrease(decrease);
             valueDelta = decrease.multiply(oldAverageCost).negate();
+            appliedUnitCost = oldAverageCost;
         }
         balanceRepository.save(balance);
         ledgerRepository.save(new StockLedgerEntryEntity(
-                organizationId, warehouseId, itemId, movementType, documentType, documentId, quantityDelta, quantityDelta.signum() > 0 ? unitCost : oldAverageCost, valueDelta, balance.quantity(), balance.inventoryValue(), actorUserId
+                organizationId, warehouseId, itemId, movementType, documentType, documentId, quantityDelta, appliedUnitCost, valueDelta, balance.quantity(), balance.inventoryValue(), actorUserId
         ));
+        return appliedUnitCost;
     }
 
     private BigDecimal approvalThreshold(String organizationId) {
