@@ -866,6 +866,274 @@ input {
   margin: 0 auto;
 }
 
+.workflow-page {
+  max-width: 1440px;
+  margin: 0 auto;
+}
+
+.workflow-heading {
+  align-items: flex-end;
+  margin-bottom: 22px;
+}
+
+.workflow-heading h1 {
+  margin: 10px 0 7px;
+  font-size: 28px;
+  letter-spacing: -0.04em;
+}
+
+.workflow-heading p,
+.workflow-toolbar p {
+  margin: 0;
+  color: var(--flowora-muted);
+  font-size: 12px;
+}
+
+.workflow-summary-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 16px;
+  margin-bottom: 18px;
+}
+
+.workflow-summary-card {
+  display: flex;
+  align-items: center;
+  gap: 13px;
+  border: 1px solid var(--flowora-border);
+  border-radius: 14px;
+}
+
+.workflow-summary-card :deep(.el-card__body) {
+  display: flex;
+  align-items: center;
+  gap: 13px;
+  width: 100%;
+  padding: 16px 18px;
+}
+
+.workflow-summary-card span {
+  display: block;
+  color: var(--flowora-muted);
+  font-size: 11px;
+}
+
+.workflow-summary-card strong {
+  display: block;
+  margin-top: 4px;
+  font-size: 22px;
+}
+
+.workflow-summary-icon {
+  display: grid;
+  place-items: center;
+  width: 38px;
+  height: 38px;
+  border-radius: 12px;
+  font-size: 17px;
+}
+
+.workflow-layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1.65fr) minmax(300px, 0.75fr);
+  gap: 18px;
+}
+
+.workflow-task-card,
+.workflow-notification-card {
+  min-width: 0;
+  border: 1px solid var(--flowora-border);
+  border-radius: 16px;
+}
+
+.workflow-task-card :deep(.el-card__body),
+.workflow-notification-card :deep(.el-card__body) {
+  padding: 20px;
+}
+
+.workflow-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 15px;
+  margin-bottom: 18px;
+}
+
+.workflow-toolbar h2 {
+  margin: 0 0 6px;
+  font-size: 15px;
+}
+
+.workflow-toolbar .el-segmented {
+  flex: 0 0 auto;
+}
+
+.workflow-table {
+  width: 100%;
+}
+
+.workflow-task-title,
+.notification-item-copy {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  min-width: 0;
+}
+
+.workflow-task-title strong {
+  overflow: hidden;
+  color: var(--flowora-ink);
+  font-size: 12px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.workflow-task-title span,
+.workflow-drawer-meta span {
+  color: var(--flowora-muted);
+  font-size: 10px;
+}
+
+.workflow-actions {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  white-space: nowrap;
+}
+
+.notification-list {
+  min-height: 250px;
+}
+
+.notification-item {
+  display: flex;
+  gap: 10px;
+  width: 100%;
+  padding: 13px 0;
+  border: 0;
+  border-bottom: 1px solid #f0f2f6;
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+  text-align: left;
+}
+
+.notification-item:last-child {
+  border-bottom: 0;
+}
+
+.notification-item-icon {
+  display: grid;
+  place-items: center;
+  flex: 0 0 auto;
+  width: 30px;
+  height: 30px;
+  border-radius: 9px;
+  background: #ececff;
+  color: var(--flowora-primary);
+}
+
+.notification-item-copy strong {
+  color: #536074;
+  font-size: 11px;
+  font-weight: 650;
+}
+
+.notification-item-copy span {
+  overflow: hidden;
+  color: #7d899a;
+  font-size: 10px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.notification-item-copy small {
+  color: #a4adbb;
+  font-size: 9px;
+}
+
+.notification-item.unread .notification-item-copy strong::before {
+  display: inline-block;
+  width: 5px;
+  height: 5px;
+  margin: 0 5px 2px 0;
+  border-radius: 50%;
+  background: #ed6d78;
+  content: "";
+}
+
+.workflow-drawer-meta {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 25px;
+}
+
+.workflow-drawer h3 {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  margin: 25px 0 13px;
+  font-size: 13px;
+}
+
+.workflow-timeline-item {
+  display: flex;
+  gap: 10px;
+  padding: 0 0 15px;
+}
+
+.workflow-timeline-dot {
+  flex: 0 0 auto;
+  width: 8px;
+  height: 8px;
+  margin-top: 4px;
+  border-radius: 50%;
+  background: var(--flowora-primary);
+  box-shadow: 0 0 0 4px #ececff;
+}
+
+.workflow-timeline-item div {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.workflow-timeline-item strong {
+  color: #536074;
+  font-size: 11px;
+}
+
+.workflow-timeline-item span,
+.workflow-comment small {
+  color: #a0a9b7;
+  font-size: 10px;
+}
+
+.workflow-comment {
+  margin-bottom: 10px;
+  padding: 11px 12px;
+  border-radius: 10px;
+  background: #f7f8fb;
+}
+
+.workflow-comment strong {
+  color: #596579;
+  font-size: 11px;
+}
+
+.workflow-comment p {
+  margin: 7px 0;
+  color: #707d90;
+  font-size: 11px;
+  line-height: 1.6;
+}
+
+.workflow-comment-button {
+  width: 100%;
+  margin-top: 10px;
+}
+
 .master-data-heading {
   align-items: flex-end;
   margin-bottom: 22px;
@@ -972,7 +1240,9 @@ input {
   }
 
   .master-data-heading,
-  .master-data-toolbar {
+  .master-data-toolbar,
+  .workflow-heading,
+  .workflow-toolbar {
     align-items: flex-start;
     flex-direction: column;
   }
@@ -1021,6 +1291,15 @@ input {
   .master-data-form-grid,
   .settings-form {
     grid-template-columns: 1fr;
+  }
+
+  .workflow-summary-grid,
+  .workflow-layout {
+    grid-template-columns: 1fr;
+  }
+
+  .workflow-toolbar .el-segmented {
+    width: 100%;
   }
 
   .login-card {
