@@ -2,6 +2,7 @@ package com.flowora.erp.sales;
 
 import com.flowora.erp.common.api.PageResponse;
 import com.flowora.erp.common.api.ResourceNotFoundException;
+import com.flowora.erp.finance.AccountingService;
 import com.flowora.erp.identity.FloworaPrincipal;
 import com.flowora.erp.inventory.InventoryService;
 import com.flowora.erp.masterdata.CustomerEntity;
@@ -48,6 +49,7 @@ public class SalesService {
     private final WarehouseRepository warehouseRepository;
     private final InventoryService inventoryService;
     private final WorkflowService workflowService;
+    private final AccountingService accountingService;
 
     public SalesService(
             SalesQuoteRepository quoteRepository,
@@ -62,7 +64,8 @@ public class SalesService {
             ItemRepository itemRepository,
             WarehouseRepository warehouseRepository,
             InventoryService inventoryService,
-            WorkflowService workflowService
+            WorkflowService workflowService,
+            AccountingService accountingService
     ) {
         this.quoteRepository = quoteRepository;
         this.quoteLineRepository = quoteLineRepository;
@@ -77,6 +80,7 @@ public class SalesService {
         this.warehouseRepository = warehouseRepository;
         this.inventoryService = inventoryService;
         this.workflowService = workflowService;
+        this.accountingService = accountingService;
     }
 
     @Transactional(readOnly = true)
@@ -149,6 +153,7 @@ public class SalesService {
         ));
         orderLineRepository.save(new SalesOrderLineEntity(actor.organizationId(), order.id(), body.itemId(), body.quantity(), body.unitPrice(), body.discountRate(), body.taxRate()));
         receivableRepository.save(new ReceivableEntity(actor.organizationId(), nextNumber("AR"), order.id(), customer.id(), "SALES_ORDER", order.id(), order.currencyCode(), total, dueDate));
+        accountingService.postSalesOrder(actor.organizationId(), actor.userId(), order.id(), total, order.currencyCode(), order.orderDate());
         if (quote != null) quote.markConverted();
         if (quote != null) quoteRepository.save(quote);
         return orderResponse(order);
@@ -168,6 +173,7 @@ public class SalesService {
         DeliveryEntity delivery = deliveryRepository.save(new DeliveryEntity(actor.organizationId(), nextNumber("DO"), order.id(), order.warehouseId(), actor.userId()));
         BigDecimal unitCost = item.inventoryManaged() ? inventoryService.issueForSales(actor, order.warehouseId(), item.id(), body.quantity(), delivery.id()) : item.averageCost();
         deliveryLineRepository.save(new DeliveryLineEntity(actor.organizationId(), delivery.id(), line.id(), line.itemId(), body.quantity(), unitCost));
+        accountingService.postSalesDelivery(actor.organizationId(), actor.userId(), delivery.id(), body.quantity().multiply(unitCost), order.currencyCode(), LocalDate.now());
         orderLineRepository.save(line);
         order.updateFulfillment(line.remainingQuantity().signum() == 0, line.fulfilledQuantity().signum() > 0);
         orderRepository.save(order);
@@ -198,6 +204,7 @@ public class SalesService {
                 actor.organizationId(), nextNumber("PM"), receivable.id(), receivable.customerId(), body.amount(), receivable.currencyCode(), body.method(), body.paymentDate(), clean(body.reference()), actor.userId()
         ));
         receivableRepository.save(receivable);
+        accountingService.postCustomerPayment(actor.organizationId(), actor.userId(), payment.id(), payment.amount(), payment.currencyCode(), payment.paymentDate());
         return paymentResponse(payment);
     }
 

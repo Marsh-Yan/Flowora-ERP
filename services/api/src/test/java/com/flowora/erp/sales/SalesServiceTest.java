@@ -31,6 +31,7 @@ import static org.mockito.Mockito.when;
 
 @ExtendWith(MockitoExtension.class)
 class SalesServiceTest {
+    @Mock private com.flowora.erp.finance.AccountingService accountingService;
     @Mock private SalesQuoteRepository quoteRepository;
     @Mock private SalesQuoteLineRepository quoteLineRepository;
     @Mock private SalesOrderRepository orderRepository;
