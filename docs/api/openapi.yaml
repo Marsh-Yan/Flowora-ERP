@@ -721,6 +721,150 @@ paths:
       responses:
         '200':
           description: Adjustment rejected
+  /api/v1/sales/quotes:
+    get:
+      operationId: listSalesQuotes
+      summary: List sales quotes
+      security:
+        - sessionCookie: []
+      parameters:
+        - $ref: '#/components/parameters/Query'
+        - $ref: '#/components/parameters/Page'
+        - $ref: '#/components/parameters/Size'
+      responses:
+        '200':
+          description: Sales quote page
+    post:
+      operationId: createSalesQuote
+      summary: Create and submit a sales quote for approval
+      security:
+        - sessionCookie: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SalesQuoteCreate'
+      responses:
+        '200':
+          description: Created sales quote
+  /api/v1/sales/quotes/{id}/approve:
+    post:
+      operationId: approveSalesQuote
+      summary: Approve a submitted sales quote
+      security:
+        - sessionCookie: []
+      parameters:
+        - $ref: '#/components/parameters/Id'
+      responses:
+        '200':
+          description: Approved sales quote
+  /api/v1/sales/quotes/{id}/reject:
+    post:
+      operationId: rejectSalesQuote
+      summary: Reject a submitted sales quote
+      security:
+        - sessionCookie: []
+      parameters:
+        - $ref: '#/components/parameters/Id'
+      responses:
+        '200':
+          description: Rejected sales quote
+  /api/v1/sales/orders:
+    get:
+      operationId: listSalesOrders
+      summary: List sales orders with fulfillment and receivable balances
+      security:
+        - sessionCookie: []
+      parameters:
+        - $ref: '#/components/parameters/Query'
+        - $ref: '#/components/parameters/Page'
+        - $ref: '#/components/parameters/Size'
+      responses:
+        '200':
+          description: Sales order page
+    post:
+      operationId: createSalesOrder
+      summary: Create a confirmed sales order and receivable basis
+      security:
+        - sessionCookie: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SalesOrderCreate'
+      responses:
+        '200':
+          description: Created sales order
+  /api/v1/sales/deliveries:
+    get:
+      operationId: listSalesDeliveries
+      summary: List posted deliveries
+      security:
+        - sessionCookie: []
+      parameters:
+        - $ref: '#/components/parameters/Query'
+        - $ref: '#/components/parameters/Page'
+        - $ref: '#/components/parameters/Size'
+      responses:
+        '200':
+          description: Delivery page
+    post:
+      operationId: postSalesDelivery
+      summary: Post part or all of a sales order delivery
+      security:
+        - sessionCookie: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/DeliveryCreate'
+      responses:
+        '200':
+          description: Delivery posted and inventory issued when applicable
+  /api/v1/sales/receivables:
+    get:
+      operationId: listSalesReceivables
+      summary: List customer receivable bases
+      security:
+        - sessionCookie: []
+      parameters:
+        - $ref: '#/components/parameters/Query'
+        - $ref: '#/components/parameters/Page'
+        - $ref: '#/components/parameters/Size'
+      responses:
+        '200':
+          description: Receivable page
+  /api/v1/sales/receivables/{id}/payments:
+    get:
+      operationId: listReceivablePayments
+      summary: List payments for a receivable
+      security:
+        - sessionCookie: []
+      parameters:
+        - $ref: '#/components/parameters/Id'
+        - $ref: '#/components/parameters/Page'
+        - $ref: '#/components/parameters/Size'
+      responses:
+        '200':
+          description: Payment page
+  /api/v1/sales/payments:
+    post:
+      operationId: postCustomerPayment
+      summary: Post a customer payment against a receivable
+      security:
+        - sessionCookie: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PaymentCreate'
+      responses:
+        '200':
+          description: Customer payment posted
 components:
   parameters:
     Id:
@@ -778,6 +922,51 @@ components:
       in: cookie
       name: SESSION
   schemas:
+    SalesQuoteCreate:
+      type: object
+      required: [customerId, itemId, quantity, unitPrice, discountRate, taxRate, currencyCode, validUntil]
+      properties:
+        customerId: { type: string, format: uuid }
+        itemId: { type: string, format: uuid }
+        quantity: { type: number, format: double, minimum: 0.0001 }
+        unitPrice: { type: number, format: double, minimum: 0 }
+        discountRate: { type: number, format: double, minimum: 0, maximum: 100 }
+        taxRate: { type: number, format: double, minimum: 0, maximum: 100 }
+        currencyCode: { type: string, minLength: 3, maxLength: 3 }
+        validUntil: { type: string, format: date }
+        note: { type: string, maxLength: 500 }
+    SalesOrderCreate:
+      type: object
+      required: [customerId, warehouseId, itemId, quantity, unitPrice, discountRate, taxRate, currencyCode]
+      properties:
+        quoteId: { type: string, format: uuid, nullable: true }
+        customerId: { type: string, format: uuid }
+        warehouseId: { type: string, format: uuid }
+        itemId: { type: string, format: uuid }
+        quantity: { type: number, format: double, minimum: 0.0001 }
+        unitPrice: { type: number, format: double, minimum: 0 }
+        discountRate: { type: number, format: double, minimum: 0, maximum: 100 }
+        taxRate: { type: number, format: double, minimum: 0, maximum: 100 }
+        currencyCode: { type: string, minLength: 3, maxLength: 3 }
+        dueDate: { type: string, format: date, nullable: true }
+        note: { type: string, maxLength: 500 }
+    DeliveryCreate:
+      type: object
+      required: [salesOrderId, salesOrderLineId, warehouseId, quantity]
+      properties:
+        salesOrderId: { type: string, format: uuid }
+        salesOrderLineId: { type: string, format: uuid }
+        warehouseId: { type: string, format: uuid }
+        quantity: { type: number, format: double, minimum: 0.0001 }
+    PaymentCreate:
+      type: object
+      required: [receivableId, amount, method, paymentDate]
+      properties:
+        receivableId: { type: string, format: uuid }
+        amount: { type: number, format: double, minimum: 0.0001 }
+        method: { type: string, enum: [BANK, CASH, OTHER] }
+        paymentDate: { type: string, format: date }
+        reference: { type: string, maxLength: 120 }
     PurchaseRequestCreate:
       type: object
       required: [supplierId, warehouseId, itemId, quantity, estimatedUnitCost]
