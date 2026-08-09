@@ -15,5 +15,7 @@ describe('Flowora locale resources', () => {
     expect(Object.keys(zh.nav)).toEqual(Object.keys(en.nav))
     expect(zh.common.appName).toBe('Flowora ERP')
     expect(en.common.appName).toBe('Flowora ERP')
+    expect(i18n.global.t('auth.usernamePlaceholder', 'zh-CN')).toBe('you@example.com')
+    expect(i18n.global.t('auth.usernamePlaceholder', 'en-US')).toBe('you@example.com')
   })
 })

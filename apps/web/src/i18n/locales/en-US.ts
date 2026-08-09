@@ -81,7 +81,7 @@ export default {
     subtitle: 'Use a demo account to continue to your operating workspace.',
     username: 'Username',
     password: 'Password',
-    usernamePlaceholder: 'you@example.com',
+    usernamePlaceholder: "you{'@'}example.com",
     passwordPlaceholder: 'Enter your password',
     usernameRequired: 'Please enter your username',
     passwordRequired: 'Please enter your password',
