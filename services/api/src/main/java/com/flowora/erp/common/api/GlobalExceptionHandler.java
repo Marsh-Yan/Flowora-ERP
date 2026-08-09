@@ -3,6 +3,7 @@ package com.flowora.erp.common.api;
 import jakarta.servlet.http.HttpServletRequest;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
+import org.springframework.security.access.AccessDeniedException;
 import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
@@ -103,6 +104,19 @@ public class GlobalExceptionHandler {
                 "WORKFLOW_FORBIDDEN",
                 "errors.workflowForbidden",
                 Map.of("reason", exception.getMessage() == null ? "Workflow action is not allowed" : exception.getMessage()),
+                RequestIdFilter.get(request)
+        ));
+    }
+
+    @ExceptionHandler(AccessDeniedException.class)
+    public ResponseEntity<ApiError> handleAccessDenied(
+            AccessDeniedException exception,
+            HttpServletRequest request
+    ) {
+        return ResponseEntity.status(HttpStatus.FORBIDDEN).body(new ApiError(
+                "AUTH_FORBIDDEN",
+                "errors.authForbidden",
+                Map.of(),
                 RequestIdFilter.get(request)
         ));
     }
