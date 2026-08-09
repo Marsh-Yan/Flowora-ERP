@@ -80,7 +80,7 @@ export default {
     subtitle: '使用演示账号进入你的经营工作台。',
     username: '账号',
     password: '密码',
-    usernamePlaceholder: 'you@example.com',
+    usernamePlaceholder: "you{'@'}example.com",
     passwordPlaceholder: '请输入密码',
     usernameRequired: '请输入账号',
     passwordRequired: '请输入密码',
