@@ -27,6 +27,7 @@ import java.util.Optional;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.when;
 
 @ExtendWith(MockitoExtension.class)
@@ -90,6 +91,22 @@ class InventoryServiceTest {
         assertThat(result.status()).isEqualTo(StockAdjustmentStatus.PENDING_APPROVAL);
         assertThat(result.workflowTaskId()).isEqualTo("task-1");
         verify(workflowService).createTask(any(), any(), any());
+    }
+
+    @Test
+    void repeatedSalesIssueWithTheSameDocumentDoesNotTouchTheStockBalance() {
+        FloworaPrincipal actor = actor();
+        when(warehouseRepository.findByIdAndOrganizationId("warehouse-a", "org-a")).thenReturn(Optional.of(warehouse()));
+        when(itemRepository.findByIdAndOrganizationId("item-a", "org-a")).thenReturn(Optional.of(item()));
+        when(ledgerRepository.existsByOrganizationIdAndDocumentTypeAndDocumentIdAndMovementType(
+                "org-a", "SALES_DELIVERY", "delivery-demo", InventoryMovementType.SHIPMENT
+        )).thenReturn(true);
+
+        BigDecimal appliedUnitCost = service.issueForSales(actor, "warehouse-a", "item-a", new BigDecimal("4"), "delivery-demo");
+
+        assertThat(appliedUnitCost).isZero();
+        verify(balanceRepository, never()).findForUpdate(any(), any(), any());
+        verify(ledgerRepository, never()).save(any(StockLedgerEntryEntity.class));
     }
 
     private FloworaPrincipal actor() {

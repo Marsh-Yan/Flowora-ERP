@@ -3,6 +3,8 @@ package com.flowora.erp.inventory;
 import com.flowora.erp.finance.AccountingService;
 import com.flowora.erp.common.api.PageResponse;
 import com.flowora.erp.common.api.ResourceNotFoundException;
+import com.flowora.erp.common.api.WorkflowStateConflictException;
+import com.flowora.erp.common.idempotency.IdempotencyService;
 import com.flowora.erp.identity.FloworaPrincipal;
 import com.flowora.erp.masterdata.ItemRepository;
 import com.flowora.erp.masterdata.ItemEntity;
@@ -61,6 +63,7 @@ public class InventoryService {
     private final ApprovalPolicy approvalPolicy;
     private final WorkflowService workflowService;
     private final AccountingService accountingService;
+    private final IdempotencyService idempotencyService;
 
     public InventoryService(
             PurchaseOrderRepository orderRepository,
@@ -79,7 +82,8 @@ public class InventoryService {
             OrganizationRepository organizationRepository,
             ApprovalPolicy approvalPolicy,
             WorkflowService workflowService,
-            AccountingService accountingService
+            AccountingService accountingService,
+            IdempotencyService idempotencyService
     ) {
         this.orderRepository = orderRepository;
         this.orderLineRepository = orderLineRepository;
@@ -98,6 +102,7 @@ public class InventoryService {
         this.approvalPolicy = approvalPolicy;
         this.workflowService = workflowService;
         this.accountingService = accountingService;
+        this.idempotencyService = idempotencyService;
     }
 
     @Transactional(readOnly = true)
@@ -113,6 +118,11 @@ public class InventoryService {
 
     @Transactional
     public PurchaseReceiptResponse receive(FloworaPrincipal actor, PurchaseReceiptRequest body) {
+        return receive(actor, body, null);
+    }
+
+    @Transactional
+    public PurchaseReceiptResponse receive(FloworaPrincipal actor, PurchaseReceiptRequest body, String idempotencyKey) {
         PurchaseOrderEntity order = orderRepository.findByIdAndOrganizationId(body.purchaseOrderId(), actor.organizationId())
                 .orElseThrow(() -> new ResourceNotFoundException("purchaseOrder", body.purchaseOrderId()));
         if (!order.warehouseId().equals(body.warehouseId())) {
@@ -126,6 +136,7 @@ public class InventoryService {
         if (!orderLine.purchaseOrderId().equals(order.id())) {
             throw new IllegalArgumentException("Purchase order line does not belong to the purchase order");
         }
+        claimIdempotency(actor.organizationId(), "PURCHASE_RECEIPT", idempotencyKey);
         orderLine.receive(body.quantity());
         PurchaseReceiptEntity receipt = receiptRepository.save(new PurchaseReceiptEntity(
                 actor.organizationId(), nextNumber("GR"), order.id(), order.warehouseId(), actor.userId()
@@ -265,6 +276,12 @@ public class InventoryService {
                 organizationId, warehouseId, itemId, movementType, documentType, documentId, quantityDelta, appliedUnitCost, valueDelta, balance.quantity(), balance.inventoryValue(), actorUserId
         ));
         return appliedUnitCost;
+    }
+
+    private void claimIdempotency(String organizationId, String operation, String idempotencyKey) {
+        if (idempotencyService != null && !idempotencyService.claim(organizationId, operation, idempotencyKey)) {
+            throw new WorkflowStateConflictException("Idempotency key has already been processed for " + operation);
+        }
     }
 
     private BigDecimal approvalThreshold(String organizationId) {

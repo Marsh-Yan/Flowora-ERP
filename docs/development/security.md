@@ -17,3 +17,10 @@ This repository is intended for public GitHub hosting. Never commit real persona
 - Commit only empty or clearly unusable environment variable examples.
 - Inspect git diff before every commit.
 - Rotate credentials immediately if a leak is suspected.
+## Phase 09 hardening
+
+- Session cookies use `HttpOnly` and `SameSite=Lax`; set `FLOWORA_COOKIE_SECURE=true` whenever the API is served over HTTPS.
+- CORS remains allow-list based through `flowora.cors.allowed-origins`.
+- Demo reset is available only in the explicitly enabled `demo` profile and is protected by the `ADMIN` role.
+- Organization-scoped queries and the demo reset script preserve the organization boundary.
+- Error responses expose a stable code and request ID, but no stack trace or credential material.

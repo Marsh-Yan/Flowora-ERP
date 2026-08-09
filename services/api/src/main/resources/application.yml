@@ -3,6 +3,8 @@ spring:
     name: flowora-api
   profiles:
     default: standalone
+    group:
+      demo: local
   autoconfigure:
     exclude:
       - org.springframework.boot.autoconfigure.jdbc.DataSourceAutoConfiguration
@@ -19,7 +21,7 @@ server:
       cookie:
         http-only: true
         same-site: lax
-        secure: false
+        secure: ${FLOWORA_COOKIE_SECURE:false}
 
 management:
   endpoints:
@@ -33,3 +35,5 @@ management:
 flowora:
   cors:
     allowed-origins: http://localhost:5173
+  demo:
+    enabled: false
