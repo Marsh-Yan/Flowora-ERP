@@ -315,6 +315,54 @@ input {
   white-space: nowrap;
 }
 
+.global-search-results {
+  display: grid;
+  gap: 4px;
+  max-height: 360px;
+  overflow: auto;
+}
+
+.global-search-hint {
+  display: block;
+  padding: 12px 8px;
+  color: var(--flowora-muted);
+  font-size: 12px;
+}
+
+.global-search-result {
+  display: grid;
+  gap: 3px;
+  width: 100%;
+  padding: 10px;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  text-align: left;
+  cursor: pointer;
+}
+
+.global-search-result:hover {
+  background: #f4f6ff;
+}
+
+.global-search-result-type {
+  color: var(--flowora-primary);
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.global-search-result strong {
+  color: var(--flowora-ink);
+  font-size: 12px;
+}
+
+.global-search-result small {
+  color: var(--flowora-muted);
+  font-size: 11px;
+}
+
 .locale-switcher,
 .icon-button {
   border: 0;
@@ -1390,5 +1438,18 @@ input {
 
   .workflow-row .el-tag {
     display: none;
+  }
+}
+
+@media print {
+  .app-sidebar,
+  .app-header,
+  .sidebar-footer,
+  .header-actions {
+    display: none !important;
+  }
+
+  .app-content {
+    padding: 0 !important;
   }
 }

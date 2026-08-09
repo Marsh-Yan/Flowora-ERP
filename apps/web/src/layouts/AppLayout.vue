@@ -1,5 +1,6 @@
 <script setup lang="ts">
-import { computed, type Component } from 'vue'
+/* global clearTimeout, setTimeout */
+import { computed, ref, watch, type Component } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useRoute, useRouter } from 'vue-router'
 import {
@@ -21,6 +22,7 @@ import {
 import LocaleSwitcher from '@/components/LocaleSwitcher.vue'
 import { useAppStore } from '@/stores/app'
 import { useAuthStore } from '@/stores/auth'
+import { searchWorkspace, type SearchResult } from '@/api/search'
 
 interface MenuItem {
   index: string
@@ -33,6 +35,11 @@ const route = useRoute()
 const router = useRouter()
 const appStore = useAppStore()
 const authStore = useAuthStore()
+const searchQuery = ref('')
+const searchFocused = ref(false)
+const searchLoading = ref(false)
+const searchResults = ref<SearchResult[]>([])
+let searchTimer: ReturnType<typeof setTimeout> | undefined
 
 const menuItems = computed<MenuItem[]>(() => [
   { index: '/dashboard', label: t('nav.dashboard'), icon: Odometer },
@@ -51,6 +58,27 @@ const currentTitle = computed(() => {
   return titleKey ? t(titleKey) : t('common.workspace')
 })
 
+const searchOpen = computed(() => searchFocused.value && searchQuery.value.trim().length > 0)
+
+watch(searchQuery, (value) => {
+  if (searchTimer) clearTimeout(searchTimer)
+  if (!value.trim()) {
+    searchResults.value = []
+    searchLoading.value = false
+    return
+  }
+  searchLoading.value = true
+  searchTimer = setTimeout(async () => {
+    try {
+      searchResults.value = await searchWorkspace(value)
+    } catch {
+      searchResults.value = []
+    } finally {
+      searchLoading.value = false
+    }
+  }, 280)
+})
+
 function navigate(path: string) {
   router.push(path)
 }
@@ -58,6 +86,12 @@ function navigate(path: string) {
 async function handleLogout() {
   await authStore.logout()
   await router.replace({ name: 'login' })
+}
+
+function openSearchResult(result: SearchResult) {
+  searchQuery.value = ''
+  searchFocused.value = false
+  router.push(result.route)
 }
 </script>
 
@@ -123,11 +157,24 @@ async function handleLogout() {
           <strong>{{ currentTitle }}</strong>
         </div>
         <div class="header-actions">
-          <label class="search-box">
-            <el-icon><Search /></el-icon>
-            <input :placeholder="t('common.search')" />
-            <kbd>⌘ K</kbd>
-          </label>
+          <el-popover placement="bottom-start" :visible="searchOpen" :width="360" popper-class="global-search-popper">
+            <template #reference>
+              <label class="search-box">
+                <el-icon><Search /></el-icon>
+                <input v-model="searchQuery" :placeholder="t('common.search')" @focus="searchFocused = true" />
+                <kbd>Ctrl K</kbd>
+              </label>
+            </template>
+            <div class="global-search-results">
+              <span v-if="searchLoading" class="global-search-hint">{{ t('common.searchLoading') }}</span>
+              <span v-else-if="!searchResults.length" class="global-search-hint">{{ t('common.searchNoResults') }}</span>
+              <button v-for="result in searchResults" v-else :key="`${result.type}-${result.id}`" type="button" class="global-search-result" @click="openSearchResult(result)">
+                <span class="global-search-result-type">{{ t(`common.searchTypes.${result.type}`, result.type) }}</span>
+                <strong>{{ result.title }}</strong>
+                <small>{{ result.subtitle }}</small>
+              </button>
+            </div>
+          </el-popover>
           <LocaleSwitcher />
           <button class="icon-button notification-button" type="button" :aria-label="t('common.notifications')">
             <el-icon><Bell /></el-icon>
