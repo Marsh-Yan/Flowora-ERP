@@ -8,7 +8,7 @@ The default `standalone` profile is intentionally database-free and does not exp
 $env:DB_USERNAME = 'your-local-user'
 $env:DB_PASSWORD = 'your-local-password'
 $env:FLOWORA_DEMO_SEED_ON_START = 'true'
-java -jar services/api/target/flowora-api-0.1.0-SNAPSHOT.jar --spring.profiles.active=demo
+java -jar services/api/target/flowora-api-1.0.0.jar --spring.profiles.active=demo
 ```
 
 The `demo` profile activates the existing `local` database profile and seeds `org-demo` after Flyway has completed. The seed is deterministic: restarting with `FLOWORA_DEMO_SEED_ON_START=true` replaces the demo dataset with the same known state. Set it to `false` when the database should be preserved across restarts.

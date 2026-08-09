@@ -54,6 +54,19 @@ pnpm verify:web
 mvn -B -pl services/api -am test
 ```
 
+## 1.0 release verification
+
+The release gate is available from the repository root:
+
+```text
+pnpm verify:release
+```
+
+It runs the web checks, API tests, and API package build. The release checklist and manual business-loop acceptance steps are documented in:
+
+- [1.0.0 release notes](docs/releases/1.0.0.md)
+- [Release verification](docs/development/release-verification.md)
+
 ## 项目规范 / Project process
 
 详见：
