@@ -1,7 +1,7 @@
 openapi: 3.0.3
 info:
   title: Flowora ERP API
-  version: 0.1.0
+  version: 1.0.0
   description: |
     Stable API contract for the Flowora ERP demo.
     User-facing text is represented by message keys.

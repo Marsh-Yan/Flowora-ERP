@@ -1,6 +1,6 @@
 {
   "name": "flowora-erp",
-  "version": "0.1.0",
+  "version": "1.0.0",
   "private": true,
   "description": "Flowora ERP - international enterprise resource planning demo.",
   "packageManager": "pnpm@11.9.0",
@@ -13,6 +13,7 @@
     "verify:web": "pnpm lint:web && pnpm typecheck:web && pnpm test:web && pnpm build:web",
     "test:api": "mvn -B -pl services/api -am test",
     "build:api": "mvn -B -pl services/api -am package",
-    "verify": "pnpm verify:web && pnpm test:api"
+    "verify": "pnpm verify:web && pnpm test:api",
+    "verify:release": "pnpm verify:web && pnpm test:api && pnpm build:api"
   }
 }
