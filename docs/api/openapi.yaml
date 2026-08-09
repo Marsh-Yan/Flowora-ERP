@@ -222,6 +222,17 @@ paths:
         '200':
           description: Pending billing basis rows
           content: { application/json: { schema: { $ref: '#/components/schemas/ApiResponseBillingBasis' } } }
+  /api/v1/search:
+    get:
+      operationId: searchWorkspace
+      summary: Search organization-scoped customers, sales orders and projects
+      security: [{ sessionCookie: [] }]
+      parameters:
+        - { name: query, in: query, required: true, schema: { type: string, minLength: 1 } }
+      responses:
+        '200':
+          description: Search results
+          content: { application/json: { schema: { $ref: '#/components/schemas/ApiResponseSearch' } } }
   /api/v1/organizations/settings:
     get:
       operationId: getOrganizationSettings
@@ -1873,6 +1884,23 @@ components:
     ApiResponseBillingBasis:
       type: object
       properties: { data: { type: array, items: { $ref: '#/components/schemas/BillingBasis' } }, requestId: { type: string } }
+    SearchResult:
+      type: object
+      required: [type, id, title, subtitle, route]
+      properties:
+        type: { type: string, enum: [CUSTOMER, SALES_ORDER, PROJECT] }
+        id: { type: string }
+        title: { type: string }
+        subtitle: { type: string }
+        route: { type: string }
+    ApiResponseSearch:
+      type: object
+      properties:
+        data:
+          type: object
+          properties:
+            results: { type: array, items: { $ref: '#/components/schemas/SearchResult' } }
+        requestId: { type: string }
     ApiError:
       type: object
       required: [code, messageKey, requestId]

@@ -1,7 +1,8 @@
 <script setup lang="ts">
+/* global Blob, URL, document, window */
 import { onMounted, reactive, ref } from 'vue'
 import { ElMessage } from 'element-plus'
-import { Plus, Refresh } from '@element-plus/icons-vue'
+import { Download, Plus, Printer, Refresh } from '@element-plus/icons-vue'
 import { useI18n } from 'vue-i18n'
 import { listMasterData, type MasterDataRecord } from '@/api/master-data'
 import { listSalesOrders, type SalesOrder } from '@/api/sales'
@@ -34,7 +35,7 @@ import {
   type Timesheet,
 } from '@/api/projects'
 
-const { t } = useI18n()
+const { t, locale } = useI18n()
 const loading = ref(false)
 const activeTab = ref('milestones')
 const projects = ref<Project[]>([])
@@ -69,7 +70,26 @@ function today() {
 }
 
 function formatAmount(value: number | undefined, currency = '') {
-  return `${Number(value ?? 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })} ${currency}`.trim()
+  if (!currency) return Number(value ?? 0).toLocaleString(locale.value, { minimumFractionDigits: 2, maximumFractionDigits: 2 })
+  return new Intl.NumberFormat(locale.value, { style: 'currency', currency, maximumFractionDigits: 2 }).format(Number(value ?? 0))
+}
+
+function downloadCsv(filename: string, headers: string[], rows: Array<Array<string | number | undefined>>) {
+  const escape = (value: string | number | undefined) => `"${String(value ?? '').replaceAll('"', '""')}"`
+  const csv = `\uFEFF${[headers, ...rows].map((row) => row.map(escape).join(',')).join('\n')}`
+  const link = document.createElement('a')
+  link.href = URL.createObjectURL(new Blob([csv], { type: 'text/csv;charset=utf-8' }))
+  link.download = filename
+  link.click()
+  URL.revokeObjectURL(link.href)
+}
+
+function exportProjects() {
+  downloadCsv('flowora-projects.csv', ['Number', 'Name', 'Status', 'Target date', 'Progress', 'Actual cost', 'Actual hours', 'Billable amount'], projects.value.map((item) => [item.number, item.name, item.status, item.targetDate, item.progressPercent, item.actualCost, item.actualHours, item.billableAmount]))
+}
+
+function printProject() {
+  window.print()
 }
 
 function statusType(status: string) {
@@ -251,6 +271,8 @@ onMounted(load)
       </div>
       <div class="operations-actions">
         <el-button round plain :loading="loading" @click="load"><el-icon><Refresh /></el-icon>{{ t('projects.refresh') }}</el-button>
+        <el-button round plain @click="exportProjects"><el-icon><Download /></el-icon>{{ t('projects.exportCsv') }}</el-button>
+        <el-button round plain :disabled="!selectedProject" @click="printProject"><el-icon><Printer /></el-icon>{{ t('projects.print') }}</el-button>
         <el-button type="primary" round @click="openProject"><el-icon><Plus /></el-icon>{{ t('projects.create') }}</el-button>
       </div>
     </div>
@@ -317,4 +339,5 @@ onMounted(load)
 .tab-toolbar { display: flex; justify-content: flex-end; min-height: 30px; margin-bottom: 8px; }
 @media (max-width: 1120px) { .projects-layout { grid-template-columns: 1fr; } }
 @media (max-width: 760px) { .project-metrics { grid-template-columns: repeat(2, minmax(0, 1fr)); } .project-detail-heading { flex-direction: column; } .status-select { width: 100%; } }
+@media print { .projects-page .operations-heading, .projects-page .project-list-card, .projects-page .tab-toolbar, .app-sidebar, .app-header { display: none !important; } .projects-layout { display: block; } }
 </style>
