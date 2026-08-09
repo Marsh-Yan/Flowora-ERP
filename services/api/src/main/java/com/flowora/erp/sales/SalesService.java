@@ -2,6 +2,8 @@ package com.flowora.erp.sales;
 
 import com.flowora.erp.common.api.PageResponse;
 import com.flowora.erp.common.api.ResourceNotFoundException;
+import com.flowora.erp.common.api.WorkflowStateConflictException;
+import com.flowora.erp.common.idempotency.IdempotencyService;
 import com.flowora.erp.finance.AccountingService;
 import com.flowora.erp.identity.FloworaPrincipal;
 import com.flowora.erp.inventory.InventoryService;
@@ -50,6 +52,7 @@ public class SalesService {
     private final InventoryService inventoryService;
     private final WorkflowService workflowService;
     private final AccountingService accountingService;
+    private final IdempotencyService idempotencyService;
 
     public SalesService(
             SalesQuoteRepository quoteRepository,
@@ -65,7 +68,8 @@ public class SalesService {
             WarehouseRepository warehouseRepository,
             InventoryService inventoryService,
             WorkflowService workflowService,
-            AccountingService accountingService
+            AccountingService accountingService,
+            IdempotencyService idempotencyService
     ) {
         this.quoteRepository = quoteRepository;
         this.quoteLineRepository = quoteLineRepository;
@@ -81,6 +85,7 @@ public class SalesService {
         this.inventoryService = inventoryService;
         this.workflowService = workflowService;
         this.accountingService = accountingService;
+        this.idempotencyService = idempotencyService;
     }
 
     @Transactional(readOnly = true)
@@ -161,6 +166,11 @@ public class SalesService {
 
     @Transactional
     public DeliveryResponse deliver(FloworaPrincipal actor, DeliveryCreate body) {
+        return deliver(actor, body, null);
+    }
+
+    @Transactional
+    public DeliveryResponse deliver(FloworaPrincipal actor, DeliveryCreate body, String idempotencyKey) {
         SalesOrderEntity order = orderRepository.findByIdAndOrganizationId(body.salesOrderId(), actor.organizationId())
                 .orElseThrow(() -> new ResourceNotFoundException("salesOrder", body.salesOrderId()));
         if (order.status() == SalesOrderStatus.CANCELLED || order.status() == SalesOrderStatus.FULFILLED) throw new IllegalStateException("Sales order is not open for fulfillment");
@@ -169,6 +179,7 @@ public class SalesService {
                 .orElseThrow(() -> new ResourceNotFoundException("salesOrderLine", body.salesOrderLineId()));
         if (!line.salesOrderId().equals(order.id())) throw new IllegalArgumentException("Sales order line does not belong to the sales order");
         ItemEntity item = requireItem(actor.organizationId(), line.itemId());
+        claimIdempotency(actor.organizationId(), "SALES_DELIVERY", idempotencyKey);
         line.fulfill(body.quantity());
         DeliveryEntity delivery = deliveryRepository.save(new DeliveryEntity(actor.organizationId(), nextNumber("DO"), order.id(), order.warehouseId(), actor.userId()));
         BigDecimal unitCost = item.inventoryManaged() ? inventoryService.issueForSales(actor, order.warehouseId(), item.id(), body.quantity(), delivery.id()) : item.averageCost();
@@ -244,6 +255,12 @@ public class SalesService {
 
     private void requireWarehouse(String organizationId, String id) {
         warehouseRepository.findByIdAndOrganizationId(clean(id), organizationId).filter(entity -> entity.active()).orElseThrow(() -> new ResourceNotFoundException("warehouse", id));
+    }
+
+    private void claimIdempotency(String organizationId, String operation, String idempotencyKey) {
+        if (idempotencyService != null && !idempotencyService.claim(organizationId, operation, idempotencyKey)) {
+            throw new WorkflowStateConflictException("Idempotency key has already been processed for " + operation);
+        }
     }
 
     private String nextNumber(String prefix) { return prefix + "-" + UUID.randomUUID().toString().substring(0, 8).toUpperCase(); }

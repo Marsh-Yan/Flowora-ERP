@@ -24,6 +24,7 @@ import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
+import org.springframework.web.bind.annotation.RequestHeader;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
@@ -60,8 +61,9 @@ public class InventoryController {
 
     @PostMapping("/receipts")
     @PreAuthorize("hasAnyRole('ADMIN', 'WAREHOUSE')")
-    public ApiResponse<PurchaseReceiptResponse> receive(@Valid @RequestBody PurchaseReceiptRequest body, Authentication authentication, HttpServletRequest request) {
-        return response(service.receive(principal(authentication), body), request);
+    public ApiResponse<PurchaseReceiptResponse> receive(@Valid @RequestBody PurchaseReceiptRequest body, Authentication authentication, HttpServletRequest request,
+                                                        @RequestHeader(value = "Idempotency-Key", required = false) String idempotencyKey) {
+        return response(service.receive(principal(authentication), body, idempotencyKey), request);
     }
 
     @PostMapping("/transfers")

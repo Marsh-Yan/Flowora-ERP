@@ -1,0 +1,9 @@
+spring:
+  config:
+    activate:
+      on-profile: demo
+
+flowora:
+  demo:
+    enabled: true
+    seed-on-start: ${FLOWORA_DEMO_SEED_ON_START:true}

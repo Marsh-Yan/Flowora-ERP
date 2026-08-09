@@ -233,6 +233,30 @@ paths:
         '200':
           description: Search results
           content: { application/json: { schema: { $ref: '#/components/schemas/ApiResponseSearch' } } }
+  /api/v1/demo/status:
+    get:
+      operationId: getDemoDataStatus
+      summary: Get demo dataset counts
+      description: Available only when the demo profile is enabled and only to administrators.
+      security: [{ sessionCookie: [] }]
+      responses:
+        '200':
+          description: Current demo dataset status
+          content: { application/json: { schema: { $ref: '#/components/schemas/ApiResponseDemoDataStatus' } } }
+        '403':
+          description: Administrator role required
+  /api/v1/demo/reset:
+    post:
+      operationId: resetDemoData
+      summary: Reset the deterministic demo dataset
+      description: Available only when the demo profile is enabled. The reset is serialized by a database control-row lock.
+      security: [{ sessionCookie: [] }]
+      responses:
+        '200':
+          description: Demo data was reset
+          content: { application/json: { schema: { $ref: '#/components/schemas/ApiResponseDemoDataStatus' } } }
+        '403':
+          description: Administrator role required
   /api/v1/organizations/settings:
     get:
       operationId: getOrganizationSettings
@@ -793,6 +817,8 @@ paths:
       summary: Receive part or all of a purchase order line
       security:
         - sessionCookie: []
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKey'
       requestBody:
         required: true
         content:
@@ -963,6 +989,8 @@ paths:
       summary: Post part or all of a sales order delivery
       security:
         - sessionCookie: []
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKey'
       requestBody:
         required: true
         content:
@@ -1245,6 +1273,15 @@ components:
         minimum: 1
         maximum: 100
         default: 20
+    IdempotencyKey:
+      name: Idempotency-Key
+      in: header
+      required: false
+      description: Reuse the same key when retrying the same write request.
+      schema:
+        type: string
+        minLength: 1
+        maxLength: 128
   securitySchemes:
     sessionCookie:
       type: apiKey
@@ -1901,6 +1938,29 @@ components:
           properties:
             results: { type: array, items: { $ref: '#/components/schemas/SearchResult' } }
         requestId: { type: string }
+    ApiResponseDemoDataStatus:
+      type: object
+      properties:
+        data:
+          $ref: '#/components/schemas/DemoDataStatus'
+        requestId: { type: string }
+    DemoDataStatus:
+      type: object
+      required: [enabled, customers, suppliers, items, warehouses, purchaseOrders, receipts, salesOrders, deliveries, journalEntries, projects, resetCount]
+      properties:
+        enabled: { type: boolean }
+        customers: { type: integer, format: int64 }
+        suppliers: { type: integer, format: int64 }
+        items: { type: integer, format: int64 }
+        warehouses: { type: integer, format: int64 }
+        purchaseOrders: { type: integer, format: int64 }
+        receipts: { type: integer, format: int64 }
+        salesOrders: { type: integer, format: int64 }
+        deliveries: { type: integer, format: int64 }
+        journalEntries: { type: integer, format: int64 }
+        projects: { type: integer, format: int64 }
+        lastResetAt: { type: string, format: date-time, nullable: true }
+        resetCount: { type: integer, format: int64 }
     ApiError:
       type: object
       required: [code, messageKey, requestId]

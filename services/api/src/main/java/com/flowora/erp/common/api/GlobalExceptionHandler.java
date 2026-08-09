@@ -107,6 +107,19 @@ public class GlobalExceptionHandler {
         ));
     }
 
+    @ExceptionHandler(IllegalStateException.class)
+    public ResponseEntity<ApiError> handleStateConflict(
+            IllegalStateException exception,
+            HttpServletRequest request
+    ) {
+        return ResponseEntity.status(HttpStatus.CONFLICT).body(new ApiError(
+                "STATE_CONFLICT",
+                "errors.stateConflict",
+                Map.of("reason", exception.getMessage() == null ? "The current state does not allow this operation" : exception.getMessage()),
+                RequestIdFilter.get(request)
+        ));
+    }
+
     @ExceptionHandler(Exception.class)
     public ResponseEntity<ApiError> handleUnexpectedException(
             Exception exception,

@@ -1,10 +1,12 @@
 <script setup lang="ts">
 /* global HTMLInputElement, Event, fetch, URL, document */
 import { computed, onMounted, reactive, ref } from 'vue'
-import { ElMessage, type FormInstance } from 'element-plus'
+import { ElMessage, ElMessageBox, type FormInstance } from 'element-plus'
 import { Download, EditPen, Plus, Upload, Delete } from '@element-plus/icons-vue'
 import { useI18n } from 'vue-i18n'
 import axios from 'axios'
+import { useAuthStore } from '@/stores/auth'
+import { getDemoStatus, resetDemoData, type DemoDataStatus } from '@/api/demo'
 import {
   deactivateMasterData,
   getOrganizationSettings,
@@ -36,6 +38,7 @@ interface ResourceDefinition {
 }
 
 const { t } = useI18n()
+const authStore = useAuthStore()
 const panel = ref<PanelKey>('customers')
 const query = ref('')
 const page = ref(1)
@@ -49,6 +52,8 @@ const editingId = ref<string>()
 const formRef = ref<FormInstance>()
 const fileInput = ref<HTMLInputElement>()
 const form = reactive<Record<string, unknown>>({})
+const demoStatus = ref<DemoDataStatus>()
+const demoResetting = ref(false)
 
 const resources = computed<ResourceDefinition[]>(() => [
   {
@@ -175,6 +180,7 @@ const activeDefinition = computed(() => resources.value.find((item) => item.key 
 const isSettings = computed(() => panel.value === 'settings')
 const supportsImport = computed(() => ['customers', 'suppliers', 'items', 'warehouses'].includes(panel.value))
 const supportsExport = computed(() => !isSettings.value)
+const canResetDemo = computed(() => authStore.user?.roles.includes('ADMIN') === true)
 const panelTabs = computed(() => [...resources.value.map((item) => ({ key: item.key as PanelKey, label: item.label })), { key: 'settings' as PanelKey, label: t('masterData.organizationSettings') }])
 
 async function loadRows() {
@@ -182,6 +188,7 @@ async function loadRows() {
     settingsLoading.value = true
     try {
       Object.assign(form, await getOrganizationSettings())
+      if (canResetDemo.value) demoStatus.value = await getDemoStatus()
     } finally {
       settingsLoading.value = false
     }
@@ -196,6 +203,23 @@ async function loadRows() {
     ElMessage.error(t('masterData.loadFailed'))
   } finally {
     loading.value = false
+  }
+}
+
+async function resetDemo() {
+  try {
+    await ElMessageBox.confirm(t('masterData.demoResetConfirm'), t('masterData.demoResetTitle'), {
+      type: 'warning',
+      confirmButtonText: t('masterData.demoResetConfirmButton'),
+      cancelButtonText: t('masterData.cancel'),
+    })
+    demoResetting.value = true
+    demoStatus.value = await resetDemoData()
+    ElMessage.success(t('masterData.demoResetDone'))
+  } catch (error: unknown) {
+    if (error !== 'cancel' && error !== 'close') ElMessage.error(t('masterData.demoResetFailed'))
+  } finally {
+    demoResetting.value = false
   }
 }
 
@@ -365,6 +389,19 @@ onMounted(() => void loadRows())
             <el-input-number v-model="form.defaultTaxRate" :min="0" :max="100" :precision="4" />
           </el-form-item>
         </el-form>
+        <el-divider />
+        <div v-if="canResetDemo" class="demo-reset-panel">
+          <div>
+            <strong>{{ t('masterData.demoDataTitle') }}</strong>
+            <p>{{ t('masterData.demoDataDescription') }}</p>
+            <small v-if="demoStatus">
+              {{ t('masterData.demoDataSummary', { customers: demoStatus.customers, suppliers: demoStatus.suppliers, items: demoStatus.items, projects: demoStatus.projects }) }}
+            </small>
+          </div>
+          <el-button type="warning" plain :loading="demoResetting" @click="resetDemo">
+            {{ t('masterData.demoReset') }}
+          </el-button>
+        </div>
       </template>
 
       <template v-else>
@@ -415,3 +452,28 @@ onMounted(() => void loadRows())
     </el-dialog>
   </section>
 </template>
+
+<style scoped>
+.demo-reset-panel {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 24px;
+}
+
+.demo-reset-panel p {
+  margin: 6px 0;
+  color: var(--el-text-color-secondary);
+}
+
+.demo-reset-panel small {
+  color: var(--el-text-color-placeholder);
+}
+
+@media (max-width: 640px) {
+  .demo-reset-panel {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+}
+</style>
