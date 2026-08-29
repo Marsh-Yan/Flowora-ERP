@@ -33,6 +33,10 @@ management:
       show-details: never
 
 flowora:
+  release:
+    version: ${FLOWORA_RELEASE_VERSION:2.0.0-SNAPSHOT}
+    stage: ${FLOWORA_RELEASE_STAGE:M0}
+    v2-business-writes-enabled: ${FLOWORA_V2_BUSINESS_WRITES_ENABLED:false}
   cors:
     allowed-origins: http://localhost:5173
   demo:

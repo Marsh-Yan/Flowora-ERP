@@ -24,7 +24,7 @@ chore: update build tooling
 
 ```powershell
 pnpm verify:web
-mvn -B -pl services/api -am test
+.\mvnw.cmd -B -pl services/api -am test
 ```
 
 ## 环境变量
