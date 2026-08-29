@@ -36,6 +36,9 @@ DELETE FROM flowora_purchase_order WHERE organization_id = 'org-demo';
 DELETE FROM flowora_purchase_request_line WHERE organization_id = 'org-demo';
 DELETE FROM flowora_purchase_request WHERE organization_id = 'org-demo';
 DELETE FROM flowora_account WHERE organization_id = 'org-demo';
+DELETE FROM flowora_tax_component WHERE organization_id = 'org-demo';
+DELETE FROM flowora_tax_rule WHERE organization_id = 'org-demo';
+DELETE FROM flowora_stock_location WHERE organization_id = 'org-demo';
 DELETE FROM flowora_tax_rate WHERE organization_id = 'org-demo';
 DELETE FROM flowora_exchange_rate WHERE organization_id = 'org-demo';
 DELETE FROM flowora_currency WHERE organization_id = 'org-demo';
@@ -44,12 +47,18 @@ DELETE FROM flowora_warehouse WHERE organization_id = 'org-demo';
 DELETE FROM flowora_customer WHERE organization_id = 'org-demo';
 DELETE FROM flowora_supplier WHERE organization_id = 'org-demo';
 DELETE FROM flowora_user_role WHERE user_id IN (SELECT id FROM flowora_user_account WHERE organization_id = 'org-demo');
+DELETE FROM flowora_membership_role WHERE membership_id IN (SELECT id FROM flowora_organization_membership WHERE organization_id = 'org-demo');
+DELETE FROM flowora_organization_membership WHERE organization_id = 'org-demo';
+DELETE FROM flowora_user_mfa WHERE user_id IN (SELECT id FROM flowora_user_account WHERE organization_id = 'org-demo');
+DELETE FROM flowora_password_reset_token WHERE user_id IN (SELECT id FROM flowora_user_account WHERE organization_id = 'org-demo');
+DELETE FROM flowora_password_history WHERE user_id IN (SELECT id FROM flowora_user_account WHERE organization_id = 'org-demo');
+DELETE FROM flowora_security_event WHERE organization_id = 'org-demo';
 DELETE FROM flowora_role WHERE organization_id = 'org-demo';
 DELETE FROM flowora_user_account WHERE organization_id = 'org-demo';
 
 UPDATE flowora_organization
 SET name = 'Demo Organization', base_currency_code = 'USD', timezone = 'UTC',
-    approval_threshold = 10000.0000, default_tax_rate = 0.0000, active = TRUE
+    approval_threshold = 10000.0000, default_tax_rate = 0.0000, status = 'ACTIVE', active = TRUE
 WHERE id = 'org-demo';
 
 INSERT INTO flowora_role (id, organization_id, code, name) VALUES
@@ -61,12 +70,12 @@ INSERT INTO flowora_role (id, organization_id, code, name) VALUES
     ('role-demo-management', 'org-demo', 'MANAGEMENT', 'Management approver');
 
 INSERT INTO flowora_user_account (id, organization_id, username, display_name, password_hash, active) VALUES
-    ('user-demo-admin', 'org-demo', 'admin@demo.flowora', 'Demo Administrator', 'demo-profile-only', TRUE),
-    ('user-demo-operator', 'org-demo', 'operator@demo.flowora', 'Demo Operator', 'demo-profile-only', TRUE),
-    ('user-demo-warehouse', 'org-demo', 'warehouse@demo.flowora', 'Demo Warehouse', 'demo-profile-only', TRUE),
-    ('user-demo-finance', 'org-demo', 'finance@demo.flowora', 'Demo Finance', 'demo-profile-only', TRUE),
-    ('user-demo-project', 'org-demo', 'project@demo.flowora', 'Demo Project Manager', 'demo-profile-only', TRUE),
-    ('user-demo-manager', 'org-demo', 'manager@demo.flowora', 'Demo Manager', 'demo-profile-only', TRUE);
+    ('user-demo-admin', 'org-demo', 'admin@demo.flowora', 'Demo Administrator', '$2a$10$oyrk/gPZzUYrj9bWmX3e3.sl0ck5DXIv4kkllY3M2zlfp7MxbqHMe', TRUE),
+    ('user-demo-operator', 'org-demo', 'operator@demo.flowora', 'Demo Operator', '$2a$10$oyrk/gPZzUYrj9bWmX3e3.sl0ck5DXIv4kkllY3M2zlfp7MxbqHMe', TRUE),
+    ('user-demo-warehouse', 'org-demo', 'warehouse@demo.flowora', 'Demo Warehouse', '$2a$10$oyrk/gPZzUYrj9bWmX3e3.sl0ck5DXIv4kkllY3M2zlfp7MxbqHMe', TRUE),
+    ('user-demo-finance', 'org-demo', 'finance@demo.flowora', 'Demo Finance', '$2a$10$oyrk/gPZzUYrj9bWmX3e3.sl0ck5DXIv4kkllY3M2zlfp7MxbqHMe', TRUE),
+    ('user-demo-project', 'org-demo', 'project@demo.flowora', 'Demo Project Manager', '$2a$10$oyrk/gPZzUYrj9bWmX3e3.sl0ck5DXIv4kkllY3M2zlfp7MxbqHMe', TRUE),
+    ('user-demo-manager', 'org-demo', 'manager@demo.flowora', 'Demo Manager', '$2a$10$oyrk/gPZzUYrj9bWmX3e3.sl0ck5DXIv4kkllY3M2zlfp7MxbqHMe', TRUE);
 
 INSERT INTO flowora_user_role (user_id, role_id) VALUES
     ('user-demo-admin', 'role-demo-admin'),
@@ -76,6 +85,22 @@ INSERT INTO flowora_user_role (user_id, role_id) VALUES
     ('user-demo-project', 'role-demo-project'),
     ('user-demo-manager', 'role-demo-management');
 
+
+INSERT INTO flowora_organization_membership (id, organization_id, user_id, status, default_organization) VALUES
+    ('membership-user-demo-admin', 'org-demo', 'user-demo-admin', 'ACTIVE', TRUE),
+    ('membership-user-demo-operator', 'org-demo', 'user-demo-operator', 'ACTIVE', TRUE),
+    ('membership-user-demo-warehouse', 'org-demo', 'user-demo-warehouse', 'ACTIVE', TRUE),
+    ('membership-user-demo-finance', 'org-demo', 'user-demo-finance', 'ACTIVE', TRUE),
+    ('membership-user-demo-project', 'org-demo', 'user-demo-project', 'ACTIVE', TRUE),
+    ('membership-user-demo-manager', 'org-demo', 'user-demo-manager', 'ACTIVE', TRUE);
+
+INSERT INTO flowora_membership_role (membership_id, role_id) VALUES
+    ('membership-user-demo-admin', 'role-demo-admin'),
+    ('membership-user-demo-operator', 'role-demo-business'),
+    ('membership-user-demo-warehouse', 'role-demo-warehouse'),
+    ('membership-user-demo-finance', 'role-demo-finance'),
+    ('membership-user-demo-project', 'role-demo-project'),
+    ('membership-user-demo-manager', 'role-demo-management');
 INSERT INTO flowora_currency (id, organization_id, code, name, symbol, decimal_places, active) VALUES
     ('currency-demo-usd', 'org-demo', 'USD', 'US Dollar', '$', 2, TRUE),
     ('currency-demo-cny', 'org-demo', 'CNY', 'Chinese Yuan', '¥', 2, TRUE),

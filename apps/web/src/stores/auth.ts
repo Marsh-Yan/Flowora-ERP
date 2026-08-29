@@ -8,7 +8,18 @@ export interface AuthUser {
   displayName: string
   organizationId: string
   organizationName: string
+  departmentId: string | null
+  dataScope: 'ALL' | 'DEPARTMENT' | 'SELF' | 'ASSIGNED'
+  permissions: string[]
+  mustChangePassword: boolean
   roles: string[]
+}
+
+export interface OrganizationOption {
+  id: string
+  name: string
+  defaultOrganization: boolean
+  departmentId: string | null
 }
 
 interface ApiResponse<T> {
@@ -19,10 +30,11 @@ interface ApiResponse<T> {
 export const useAuthStore = defineStore('auth', () => {
   const user = ref<AuthUser | null>(null)
   const initialized = ref(false)
+  const organizations = ref<OrganizationOption[]>([])
   const loading = ref(false)
 
   async function ensureCsrf() {
-    await apiClient.get<ApiResponse<{ token: string }>>('/v1/auth/csrf')
+    await apiClient.get<ApiResponse<{ token: string }>>('/v2/session/csrf')
   }
 
   async function ensureSession() {
@@ -31,7 +43,7 @@ export const useAuthStore = defineStore('auth', () => {
     }
 
     try {
-      const response = await apiClient.get<ApiResponse<AuthUser>>('/v1/auth/me')
+      const response = await apiClient.get<ApiResponse<AuthUser>>('/v2/session/me')
       user.value = response.data.data
     } catch {
       user.value = null
@@ -42,11 +54,11 @@ export const useAuthStore = defineStore('auth', () => {
     return user.value !== null
   }
 
-  async function login(username: string, password: string) {
+  async function login(username: string, password: string, mfaCode?: string) {
     loading.value = true
     try {
       await ensureCsrf()
-      const response = await apiClient.post<ApiResponse<AuthUser>>('/v1/auth/login', { username, password })
+      const response = await apiClient.post<ApiResponse<AuthUser>>('/v2/session/login', { username, password, mfaCode })
       user.value = response.data.data
       initialized.value = true
     } finally {
@@ -57,12 +69,32 @@ export const useAuthStore = defineStore('auth', () => {
   async function logout() {
     try {
       await ensureCsrf()
-      await apiClient.post('/v1/auth/logout')
+      await apiClient.post('/v2/session/logout')
     } finally {
       user.value = null
       initialized.value = true
+      organizations.value = []
     }
   }
 
-  return { user, initialized, loading, ensureSession, login, logout }
+
+  function hasPermission(permission?: string) {
+    return !permission || user.value?.permissions.includes(permission) === true
+  }
+
+  async function loadOrganizations() {
+    const response = await apiClient.get<ApiResponse<OrganizationOption[]>>('/v2/session/organizations')
+    organizations.value = response.data.data
+    return organizations.value
+  }
+
+  async function switchOrganization(organizationId: string) {
+    await ensureCsrf()
+    const response = await apiClient.post<ApiResponse<AuthUser>>('/v2/session/switch-organization', {
+      organizationId,
+    })
+    user.value = response.data.data
+    return user.value
+  }
+  return { user, organizations, initialized, loading, ensureCsrf, ensureSession, login, logout, hasPermission, loadOrganizations, switchOrganization }
 })

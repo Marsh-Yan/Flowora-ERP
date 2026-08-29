@@ -12,9 +12,11 @@ const router = useRouter()
 const route = useRoute()
 const authStore = useAuthStore()
 const formRef = ref<FormInstance>()
+const mfaRequired = ref(false)
 const form = reactive({
   username: 'operator@demo.flowora',
   password: 'Demo123!',
+  mfaCode: '',
 })
 
 const rules = reactive<FormRules<typeof form>>({
@@ -28,11 +30,16 @@ async function submit() {
   if (!valid) return
 
   try {
-    await authStore.login(form.username, form.password)
+    await authStore.login(form.username, form.password, form.mfaCode || undefined)
     const redirect = typeof route.query.redirect === 'string' ? route.query.redirect : '/dashboard'
     await router.replace(redirect)
   } catch (error: unknown) {
     const messageKey = axios.isAxiosError(error) ? error.response?.data?.messageKey : undefined
+    const code = axios.isAxiosError(error) ? error.response?.data?.code : undefined
+    if (code === 'MFA_REQUIRED') {
+      mfaRequired.value = true
+      return
+    }
     ElMessage.error(messageKey ? t(messageKey) : t('auth.loginFailed'))
   }
 }
@@ -74,6 +81,19 @@ async function submit() {
           </el-input>
         </el-form-item>
         <el-button class="login-submit" type="primary" size="large" :loading="authStore.loading" @click="submit">
+        <el-form-item v-if="mfaRequired" :label="t('auth.mfaCode')" prop="mfaCode">
+          <el-input
+            v-model="form.mfaCode"
+            size="large"
+            inputmode="numeric"
+            maxlength="19"
+            autocomplete="one-time-code"
+            :placeholder="t('auth.mfaCodePlaceholder')"
+            @keyup.enter="submit"
+          >
+            <template #prefix><el-icon><Lock /></el-icon></template>
+          </el-input>
+        </el-form-item>
           {{ t('auth.signIn') }}
           <el-icon><ArrowRight /></el-icon>
         </el-button>

@@ -43,6 +43,6 @@ public class OrganizationSettingsController {
         if (authentication != null && authentication.getPrincipal() instanceof FloworaPrincipal principal) {
             return principal.organizationId();
         }
-        return "org-demo";
+        throw new org.springframework.security.access.AccessDeniedException("Organization context required");
     }
 }

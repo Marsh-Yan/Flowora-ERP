@@ -26,3 +26,7 @@ spring:
   flyway:
     enabled: true
     locations: classpath:db/migration
+
+flowora:
+  security:
+    mfa-encryption-key: ${FLOWORA_MFA_ENCRYPTION_KEY}

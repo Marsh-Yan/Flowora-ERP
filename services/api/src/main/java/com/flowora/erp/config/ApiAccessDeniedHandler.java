@@ -27,9 +27,10 @@ public class ApiAccessDeniedHandler implements AccessDeniedHandler {
     ) throws IOException {
         response.setStatus(HttpServletResponse.SC_FORBIDDEN);
         response.setContentType(MediaType.APPLICATION_JSON_VALUE);
+        boolean v2 = request.getRequestURI().startsWith("/api/v2/");
         response.getWriter().write(objectMapper.writeValueAsString(new ApiError(
-                "AUTH_FORBIDDEN",
-                "errors.authForbidden",
+                v2 ? "PERMISSION_DENIED" : "AUTH_FORBIDDEN",
+                v2 ? "errors.permissionDenied" : "errors.authForbidden",
                 Map.of(),
                 RequestIdFilter.get(request)
         )));

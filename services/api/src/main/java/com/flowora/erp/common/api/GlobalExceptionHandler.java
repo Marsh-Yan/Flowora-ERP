@@ -13,13 +13,26 @@ import java.util.Map;
 
 @RestControllerAdvice
 public class GlobalExceptionHandler {
+    @ExceptionHandler(PlatformApiException.class)
+    public ResponseEntity<ApiError> handlePlatformApiException(
+            PlatformApiException exception,
+            HttpServletRequest request
+    ) {
+        return ResponseEntity.status(exception.status()).body(new ApiError(
+                exception.code(),
+                exception.messageKey(),
+                exception.args(),
+                RequestIdFilter.get(request)
+        ));
+    }
+
     @ExceptionHandler(InvalidCredentialsException.class)
     public ResponseEntity<ApiError> handleInvalidCredentials(
             InvalidCredentialsException exception,
             HttpServletRequest request
     ) {
         return ResponseEntity.status(HttpStatus.UNAUTHORIZED).body(new ApiError(
-                "AUTH_INVALID_CREDENTIALS",
+                v2(request) ? "INVALID_CREDENTIALS" : "AUTH_INVALID_CREDENTIALS",
                 "errors.authInvalidCredentials",
                 Map.of(),
                 RequestIdFilter.get(request)
@@ -62,9 +75,12 @@ public class GlobalExceptionHandler {
                 args.putIfAbsent(error.getField(), error.getDefaultMessage())
         );
         return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(new ApiError(
-                "VALIDATION_ERROR",
+                v2(request) ? "VALIDATION_FAILED" : "VALIDATION_ERROR",
                 "errors.validation",
                 args,
+                exception.getBindingResult().getFieldErrors().stream()
+                        .map(error -> new ApiFieldError(error.getField(), "INVALID", "errors.validation"))
+                        .toList(),
                 RequestIdFilter.get(request)
         ));
     }
@@ -114,7 +130,7 @@ public class GlobalExceptionHandler {
             HttpServletRequest request
     ) {
         return ResponseEntity.status(HttpStatus.FORBIDDEN).body(new ApiError(
-                "AUTH_FORBIDDEN",
+                v2(request) ? "PERMISSION_DENIED" : "AUTH_FORBIDDEN",
                 "errors.authForbidden",
                 Map.of(),
                 RequestIdFilter.get(request)
@@ -147,5 +163,9 @@ public class GlobalExceptionHandler {
                 requestId
         );
         return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body(error);
+    }
+
+    private boolean v2(HttpServletRequest request) {
+        return request.getRequestURI().startsWith("/api/v2/");
     }
 }
