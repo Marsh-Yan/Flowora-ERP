@@ -26,7 +26,7 @@ docs/              Product and engineering documentation
 - Node.js 24+
 - pnpm 11+
 - Java 25 LTS
-- Maven 3.9+
+- Maven 由仓库内 Wrapper 固定为 3.9.16，无需单独安装
 - MySQL 8.0+
 - Redis 7+
 
@@ -44,14 +44,14 @@ pnpm dev:web
 默认启动只加载健康检查，不要求数据库服务。连接 MySQL/Redis 时使用 `local` profile：
 
 ```powershell
-mvn -pl services/api -am spring-boot:run -Dspring-boot.run.profiles=local
+.\mvnw.cmd -pl services/api -am spring-boot:run -Dspring-boot.run.profiles=local
 ```
 
 ## 质量检查 / Verification
 
 ```powershell
 pnpm verify:web
-mvn -B -pl services/api -am test
+.\mvnw.cmd -B -pl services/api -am test
 ```
 
 ## 1.0 release verification
@@ -71,11 +71,16 @@ It runs the web checks, API tests, and API package build. The release checklist 
 
 详见：
 
+- [2.0 产品需求文档](docs/product/prd-2.0.md)
+- [2.0 开发实施规划](docs/development/development-plan-2.0.md)
+- [2.0 阶段目标与审核门禁](docs/development/stage-gates-2.0.md)
 - [项目章程](docs/product/project-charter.md)
 - [技术架构 ADR](docs/architecture/adr-0001-stack.md)
+- [2.0 演进策略 ADR](docs/architecture/adr-0002-version-2-evolution.md)
 - [开发工作流](docs/development/workflow.md)
 - [安全与隐私规范](docs/development/security.md)
 - [OpenAPI 契约](docs/api/openapi.yaml)
+- [OpenAPI v2 契约](docs/api/openapi-v2.yaml)
 
 ## License
 

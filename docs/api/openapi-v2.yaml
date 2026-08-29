@@ -1,0 +1,63 @@
+openapi: 3.0.3
+info:
+  title: Flowora ERP API v2
+  version: 2.0.0-SNAPSHOT
+  description: |
+    Incremental API contract for Flowora ERP 2.0.
+    Existing v1 authentication, session and lossless reads remain available
+    during the migration period. Business capabilities are added here only
+    after their stage gate is approved.
+servers:
+  - url: http://localhost:8080
+paths:
+  /api/v2/system/version:
+    get:
+      operationId: getApiVersion
+      summary: Get the active Flowora product and API version
+      responses:
+        "200":
+          description: Version and compatibility information
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiResponseVersionInfo"
+components:
+  schemas:
+    ApiResponseVersionInfo:
+      type: object
+      required: [data, requestId]
+      properties:
+        data:
+          $ref: "#/components/schemas/VersionInfo"
+        requestId:
+          type: string
+    VersionInfo:
+      type: object
+      required:
+        - productVersion
+        - apiVersion
+        - legacyApiVersion
+        - deliveryStage
+        - v2BusinessWritesEnabled
+        - compatibility
+      properties:
+        productVersion:
+          type: string
+          example: 2.0.0-SNAPSHOT
+        apiVersion:
+          type: string
+          example: v2
+        legacyApiVersion:
+          type: string
+          example: v1
+        deliveryStage:
+          type: string
+          example: M0
+        v2BusinessWritesEnabled:
+          type: boolean
+          description: Whether v2 business writes are enabled in this delivery stage.
+        compatibility:
+          type: array
+          items:
+            type: string
+          example: [v1-auth-session, v1-lossless-read]

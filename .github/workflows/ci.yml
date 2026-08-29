@@ -54,4 +54,4 @@ jobs:
           java-version: 25
           cache: maven
       - name: Test and package
-        run: mvn -B -pl services/api -am test package
+        run: ./mvnw -B -pl services/api -am test package
