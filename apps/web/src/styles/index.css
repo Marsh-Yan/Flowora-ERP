@@ -1453,3 +1453,91 @@ input {
     padding: 0 !important;
   }
 }
+
+.module-page {
+  display: grid;
+  gap: 24px;
+}
+
+.module-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 24px;
+}
+
+.module-header h1 {
+  margin: 6px 0 8px;
+  font-size: clamp(1.75rem, 3vw, 2.35rem);
+}
+
+.module-header p {
+  max-width: 720px;
+  margin: 0;
+  color: var(--text-secondary);
+}
+
+.kpi-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 16px;
+}
+
+.kpi-card,
+.content-card {
+  border: 1px solid var(--border-color);
+  border-radius: 16px;
+  background: var(--surface-color);
+}
+
+.kpi-card {
+  display: grid;
+  gap: 10px;
+  padding: 20px;
+}
+
+.kpi-card span {
+  color: var(--text-secondary);
+}
+
+.kpi-card strong {
+  font-size: 2rem;
+}
+
+.security-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 20px;
+}
+
+.mfa-enrollment,
+.recovery-codes {
+  display: grid;
+  gap: 12px;
+  margin-top: 16px;
+}
+
+.recovery-codes {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.workspace-selector .workspace-switcher {
+  flex: 1;
+  min-width: 0;
+}
+
+.workspace-selector .el-select__wrapper {
+  background: transparent;
+  box-shadow: none;
+}
+
+@media (max-width: 900px) {
+  .kpi-grid,
+  .security-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .module-header {
+    flex-direction: column;
+  }
+}

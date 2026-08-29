@@ -27,9 +27,10 @@ public class ApiAuthenticationEntryPoint implements AuthenticationEntryPoint {
     ) throws IOException {
         response.setStatus(HttpServletResponse.SC_UNAUTHORIZED);
         response.setContentType(MediaType.APPLICATION_JSON_VALUE);
+        boolean v2 = request.getRequestURI().startsWith("/api/v2/");
         response.getWriter().write(objectMapper.writeValueAsString(new ApiError(
-                "AUTH_REQUIRED",
-                "errors.authRequired",
+                v2 ? "AUTHENTICATION_REQUIRED" : "AUTH_REQUIRED",
+                v2 ? "errors.authenticationRequired" : "errors.authRequired",
                 Map.of(),
                 RequestIdFilter.get(request)
         )));

@@ -1,63 +1,232 @@
 openapi: 3.0.3
 info:
-  title: Flowora ERP API v2
+  title: Flowora ERP API v2 M1
   version: 2.0.0-SNAPSHOT
-  description: |
-    Incremental API contract for Flowora ERP 2.0.
-    Existing v1 authentication, session and lossless reads remain available
-    during the migration period. Business capabilities are added here only
-    after their stage gate is approved.
+  description: M1 contract for persistent identity, organization isolation, RBAC and master data.
 servers:
   - url: http://localhost:8080
+security:
+  - sessionCookie: []
 paths:
   /api/v2/system/version:
     get:
       operationId: getApiVersion
-      summary: Get the active Flowora product and API version
+      security: []
       responses:
-        "200":
-          description: Version and compatibility information
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/ApiResponseVersionInfo"
+        "200": { $ref: "#/components/responses/Success" }
+
+  /api/v2/session/csrf:
+    get:
+      operationId: getCsrfToken
+      security: []
+      responses:
+        "200": { $ref: "#/components/responses/Success" }
+  /api/v2/session/login:
+    post:
+      operationId: loginV2
+      security: []
+      parameters: [{ $ref: "#/components/parameters/CsrfHeader" }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/LoginRequest" }
+      responses:
+        "200": { $ref: "#/components/responses/Success" }
+        "401": { $ref: "#/components/responses/Error" }
+        "423": { $ref: "#/components/responses/Error" }
+  /api/v2/session/me:
+    get:
+      operationId: getSessionUser
+      responses:
+        "200": { $ref: "#/components/responses/Success" }
+  /api/v2/session/organizations:
+    get:
+      operationId: listAvailableOrganizations
+      responses:
+        "200": { $ref: "#/components/responses/Success" }
+  /api/v2/session/switch-organization:
+    post:
+      operationId: switchOrganization
+      parameters: [{ $ref: "#/components/parameters/CsrfHeader" }]
+      responses:
+        "200": { $ref: "#/components/responses/Success" }
+        "403": { $ref: "#/components/responses/Error" }
+  /api/v2/session/change-password:
+    post:
+      operationId: changePassword
+      parameters: [{ $ref: "#/components/parameters/CsrfHeader" }]
+      responses:
+        "200": { $ref: "#/components/responses/Success" }
+        "400": { $ref: "#/components/responses/Error" }
+  /api/v2/session/logout:
+    post:
+      operationId: logoutV2
+      parameters: [{ $ref: "#/components/parameters/CsrfHeader" }]
+      responses:
+        "200": { $ref: "#/components/responses/Success" }
+  /api/v2/session/active:
+    get:
+      operationId: listActiveSessions
+      responses:
+        "200": { $ref: "#/components/responses/Success" }
+  /api/v2/session/active/{sessionId}/revoke:
+    post:
+      operationId: revokeSession
+      parameters:
+        - { $ref: "#/components/parameters/SessionId" }
+        - { $ref: "#/components/parameters/CsrfHeader" }
+      responses:
+        "200": { $ref: "#/components/responses/Success" }
+  /api/v2/session/mfa/enroll:
+    post:
+      operationId: startMfaEnrollment
+      parameters: [{ $ref: "#/components/parameters/CsrfHeader" }]
+      responses:
+        "200": { $ref: "#/components/responses/Success" }
+  /api/v2/session/mfa/confirm:
+    post:
+      operationId: confirmMfaEnrollment
+      parameters: [{ $ref: "#/components/parameters/CsrfHeader" }]
+      responses:
+        "200": { $ref: "#/components/responses/Success" }
+  /api/v2/session/mfa/disable:
+    post:
+      operationId: disableMfa
+      parameters: [{ $ref: "#/components/parameters/CsrfHeader" }]
+      responses:
+        "200": { $ref: "#/components/responses/Success" }
+  /api/v2/organizations:
+    get:
+      operationId: listOrganizations
+      responses:
+        "200": { $ref: "#/components/responses/Success" }
+    post:
+      operationId: createOrganization
+      parameters: [{ $ref: "#/components/parameters/CsrfHeader" }]
+      responses:
+        "200": { $ref: "#/components/responses/Success" }
+        "403": { $ref: "#/components/responses/Error" }
+  /api/v2/departments:
+    get:
+      operationId: listDepartments
+      responses:
+        "200": { $ref: "#/components/responses/Success" }
+    post:
+      operationId: createDepartment
+      parameters: [{ $ref: "#/components/parameters/CsrfHeader" }]
+      responses:
+        "200": { $ref: "#/components/responses/Success" }
+  /api/v2/users:
+    get:
+      operationId: listUsers
+      responses:
+        "200": { $ref: "#/components/responses/Success" }
+    post:
+      operationId: createUser
+      parameters: [{ $ref: "#/components/parameters/CsrfHeader" }]
+      responses:
+        "200": { $ref: "#/components/responses/Success" }
+  /api/v2/roles:
+    get:
+      operationId: listRoles
+      responses:
+        "200": { $ref: "#/components/responses/Success" }
+    post:
+      operationId: createRole
+      parameters: [{ $ref: "#/components/parameters/CsrfHeader" }]
+      responses:
+        "200": { $ref: "#/components/responses/Success" }
+  /api/v2/permissions:
+    get:
+      operationId: listPermissions
+      responses:
+        "200": { $ref: "#/components/responses/Success" }
+  /api/v2/masters/locations:
+    get:
+      operationId: listStockLocations
+      responses:
+        "200": { $ref: "#/components/responses/Success" }
+    post:
+      operationId: createStockLocation
+      parameters: [{ $ref: "#/components/parameters/CsrfHeader" }]
+      responses:
+        "200": { $ref: "#/components/responses/Success" }
+  /api/v2/masters/locations/{locationId}:
+    put:
+      operationId: updateStockLocation
+      parameters:
+        - { name: locationId, in: path, required: true, schema: { type: string } }
+        - { $ref: "#/components/parameters/IfMatch" }
+        - { $ref: "#/components/parameters/CsrfHeader" }
+      responses:
+        "200": { $ref: "#/components/responses/Success" }
+        "409": { $ref: "#/components/responses/Error" }
+  /api/v2/masters/items/{itemId}/tracking:
+    put:
+      operationId: updateItemTracking
+      parameters:
+        - { name: itemId, in: path, required: true, schema: { type: string } }
+        - { $ref: "#/components/parameters/IfMatch" }
+        - { $ref: "#/components/parameters/CsrfHeader" }
+      responses:
+        "200": { $ref: "#/components/responses/Success" }
+        "409": { $ref: "#/components/responses/Error" }
+  /api/v2/masters/tax-rules:
+    get:
+      operationId: listTaxRules
+      responses:
+        "200": { $ref: "#/components/responses/Success" }
+    post:
+      operationId: createTaxRule
+      parameters: [{ $ref: "#/components/parameters/CsrfHeader" }]
+      responses:
+        "200": { $ref: "#/components/responses/Success" }
 components:
+  securitySchemes:
+    sessionCookie: { type: apiKey, in: cookie, name: SESSION }
+  parameters:
+    CsrfHeader: { name: X-XSRF-TOKEN, in: header, required: true, schema: { type: string } }
+    IfMatch: { name: If-Match, in: header, required: true, schema: { type: integer, format: int64 } }
+    SessionId: { name: sessionId, in: path, required: true, schema: { type: string } }
+  responses:
+    Success:
+      description: Successful response with request correlation ID
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/ApiResponse" }
+    Error:
+      description: Stable, localized API error
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/ApiError" }
   schemas:
-    ApiResponseVersionInfo:
+    ApiResponse:
       type: object
       required: [data, requestId]
       properties:
-        data:
-          $ref: "#/components/schemas/VersionInfo"
-        requestId:
-          type: string
-    VersionInfo:
+        data: {}
+        requestId: { type: string }
+    ApiError:
       type: object
-      required:
-        - productVersion
-        - apiVersion
-        - legacyApiVersion
-        - deliveryStage
-        - v2BusinessWritesEnabled
-        - compatibility
+      required: [code, messageKey, args, fieldErrors, requestId]
       properties:
-        productVersion:
-          type: string
-          example: 2.0.0-SNAPSHOT
-        apiVersion:
-          type: string
-          example: v2
-        legacyApiVersion:
-          type: string
-          example: v1
-        deliveryStage:
-          type: string
-          example: M0
-        v2BusinessWritesEnabled:
-          type: boolean
-          description: Whether v2 business writes are enabled in this delivery stage.
-        compatibility:
-          type: array
-          items:
-            type: string
-          example: [v1-auth-session, v1-lossless-read]
+        code: { type: string }
+        messageKey: { type: string }
+        args: { type: object, additionalProperties: true }
+        fieldErrors: { type: array, items: { $ref: "#/components/schemas/FieldError" } }
+        requestId: { type: string }
+    FieldError:
+      type: object
+      required: [field, code, messageKey]
+      properties:
+        field: { type: string }
+        code: { type: string }
+        messageKey: { type: string }
+    LoginRequest:
+      type: object
+      required: [username, password]
+      properties:
+        username: { type: string, maxLength: 190 }
+        password: { type: string, format: password }
+        mfaCode: { type: string, description: Six-digit TOTP or one-time recovery code. }

@@ -35,8 +35,12 @@ management:
 flowora:
   release:
     version: ${FLOWORA_RELEASE_VERSION:2.0.0-SNAPSHOT}
-    stage: ${FLOWORA_RELEASE_STAGE:M0}
+    stage: ${FLOWORA_RELEASE_STAGE:M1}
     v2-business-writes-enabled: ${FLOWORA_V2_BUSINESS_WRITES_ENABLED:false}
+  security:
+    max-login-failures: ${FLOWORA_MAX_LOGIN_FAILURES:5}
+    login-lock-minutes: ${FLOWORA_LOGIN_LOCK_MINUTES:15}
+    password-history: ${FLOWORA_PASSWORD_HISTORY:5}
   cors:
     allowed-origins: http://localhost:5173
   demo:

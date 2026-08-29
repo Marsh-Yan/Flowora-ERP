@@ -47,6 +47,11 @@ pnpm dev:web
 .\mvnw.cmd -pl services/api -am spring-boot:run -Dspring-boot.run.profiles=local
 ```
 
+M1 的数据库认证和 MFA 要求设置 DB_USERNAME、DB_PASSWORD、REDIS_PASSWORD
+以及至少 32 个字符的 FLOWORA_MFA_ENCRYPTION_KEY。生产环境还必须设置
+FLOWORA_COOKIE_SECURE=true。
+
+
 ## 质量检查 / Verification
 
 ```powershell
@@ -74,6 +79,7 @@ It runs the web checks, API tests, and API package build. The release checklist 
 - [2.0 产品需求文档](docs/product/prd-2.0.md)
 - [2.0 开发实施规划](docs/development/development-plan-2.0.md)
 - [2.0 阶段目标与审核门禁](docs/development/stage-gates-2.0.md)
+- [2.0 M1 验收说明](docs/releases/2.0.0-m1.md)
 - [项目章程](docs/product/project-charter.md)
 - [技术架构 ADR](docs/architecture/adr-0001-stack.md)
 - [2.0 演进策略 ADR](docs/architecture/adr-0002-version-2-evolution.md)

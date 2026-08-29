@@ -32,10 +32,12 @@ import java.math.BigDecimal;
 import java.time.LocalDate;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 
+import java.util.Set;
 @Service
 public class MasterDataService {
     private static final int MAX_PAGE_SIZE = 100;
@@ -360,33 +362,66 @@ public class MasterDataService {
     @Transactional
     public ImportResult importResource(String organizationId, String resource, MultipartFile file) {
         List<List<String>> rows = CsvSupport.read(file);
-        if (rows.isEmpty()) {
-            return new ImportResult(0, 0, List.of());
-        }
-        List<String> headers = rows.getFirst().stream().map(value -> value.trim().toLowerCase(Locale.ROOT)).toList();
-        int imported = 0;
-        int rejected = 0;
+        if (rows.isEmpty()) return new ImportResult(0, 0, List.of());
+
+        List<String> headers = rows.getFirst().stream()
+                .map(value -> value.trim().toLowerCase(Locale.ROOT))
+                .toList();
+        List<Object> commands = new ArrayList<>();
         List<Map<String, Object>> errors = new ArrayList<>();
+        Set<String> batchCodes = new HashSet<>();
+
         for (int index = 1; index < rows.size(); index++) {
             try {
                 List<String> row = rows.get(index);
-                switch (resource) {
-                    case "customers" -> createCustomer(organizationId, customerFromCsv(row, headers));
-                    case "suppliers" -> createSupplier(organizationId, supplierFromCsv(row, headers));
-                    case "items" -> createItem(organizationId, itemFromCsv(row, headers));
-                    case "warehouses" -> createWarehouse(organizationId, warehouseFromCsv(row, headers));
+                Object command = switch (resource) {
+                    case "customers" -> customerFromCsv(row, headers);
+                    case "suppliers" -> supplierFromCsv(row, headers);
+                    case "items" -> itemFromCsv(row, headers);
+                    case "warehouses" -> warehouseFromCsv(row, headers);
                     default -> throw new IllegalArgumentException("Unsupported import resource: " + resource);
+                };
+                String commandCode = switch (command) {
+                    case CustomerRequest item -> code(item.code());
+                    case SupplierRequest item -> code(item.code());
+                    case ItemRequest item -> code(item.code());
+                    case WarehouseRequest item -> code(item.code());
+                    default -> throw new IllegalStateException("Unsupported import command");
+                };
+                boolean exists = switch (resource) {
+                    case "customers" -> customerRepository.existsByOrganizationIdAndCode(organizationId, commandCode);
+                    case "suppliers" -> supplierRepository.existsByOrganizationIdAndCode(organizationId, commandCode);
+                    case "items" -> itemRepository.existsByOrganizationIdAndCode(organizationId, commandCode);
+                    case "warehouses" -> warehouseRepository.existsByOrganizationIdAndCode(organizationId, commandCode);
+                    default -> false;
+                };
+                if (!batchCodes.add(commandCode) || exists) {
+                    throw conflict(resource, commandCode);
                 }
-                imported++;
+                commands.add(command);
             } catch (RuntimeException exception) {
-                rejected++;
                 Map<String, Object> error = new LinkedHashMap<>();
                 error.put("row", index + 1);
-                error.put("message", exception.getMessage());
+                error.put("field", exception instanceof MasterDataConflictException ? "code" : "row");
+                error.put("code", exception instanceof MasterDataConflictException ? "DUPLICATE_CODE" : "VALIDATION_FAILED");
                 errors.add(error);
             }
         }
-        return new ImportResult(imported, rejected, errors);
+
+        if (!errors.isEmpty()) {
+            return new ImportResult(0, errors.size(), errors);
+        }
+
+        commands.forEach(command -> {
+            switch (command) {
+                case CustomerRequest item -> createCustomer(organizationId, item);
+                case SupplierRequest item -> createSupplier(organizationId, item);
+                case ItemRequest item -> createItem(organizationId, item);
+                case WarehouseRequest item -> createWarehouse(organizationId, item);
+                default -> throw new IllegalStateException("Unsupported import command");
+            }
+        });
+        return new ImportResult(commands.size(), 0, List.of());
     }
 
     @Transactional(readOnly = true)

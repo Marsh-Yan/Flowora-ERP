@@ -8,6 +8,8 @@ import SalesView from '@/views/SalesView.vue'
 import WorkflowView from '@/views/WorkflowView.vue'
 import FinanceView from '@/views/FinanceView.vue'
 import ProjectsView from '@/views/ProjectsView.vue'
+import PlatformSettingsView from '@/views/PlatformSettingsView.vue'
+import AccountSecurityView from '@/views/AccountSecurityView.vue'
 import { useAuthStore } from '@/stores/auth'
 
 const placeholderRoutes: RouteRecordRaw[] = [
@@ -43,39 +45,51 @@ const router = createRouter({
           path: 'workflow',
           name: 'workflow',
           component: WorkflowView,
-          meta: { titleKey: 'nav.workflow' },
+          meta: { titleKey: 'nav.workflow', permission: 'workflow:view' },
         },
         {
           path: 'sales',
           name: 'sales',
           component: SalesView,
-          meta: { titleKey: 'nav.sales' },
+          meta: { titleKey: 'nav.sales', permission: 'sales:view' },
         },
         {
           path: 'procurement',
           name: 'procurement',
           component: ProcurementView,
-          meta: { titleKey: 'nav.procurement' },
+          meta: { titleKey: 'nav.procurement', permission: 'procurement:view' },
         },
         {
           path: 'inventory',
           name: 'inventory',
           component: InventoryView,
-          meta: { titleKey: 'nav.inventory' },
+          meta: { titleKey: 'nav.inventory', permission: 'inventory:view' },
         },
         {
           path: 'finance',
           name: 'finance',
           component: FinanceView,
-          meta: { titleKey: 'nav.finance' },
+          meta: { titleKey: 'nav.finance', permission: 'finance:view' },
         },
         {
           path: 'projects',
           name: 'projects',
           component: ProjectsView,
-          meta: { titleKey: 'nav.projects' },
+          meta: { titleKey: 'nav.projects', permission: 'project:view' },
         },
         ...placeholderRoutes,
+        {
+          path: 'platform',
+          name: 'platform-settings',
+          component: PlatformSettingsView,
+          meta: { titleKey: 'nav.platform', permission: 'organization:view' },
+        },
+        {
+          path: 'account/security',
+          name: 'account-security',
+          component: AccountSecurityView,
+          meta: { titleKey: 'nav.accountSecurity' },
+        },
         {
           path: 'settings',
           name: 'settings',
@@ -103,6 +117,11 @@ router.beforeEach(async (to) => {
   }
 
   return true
+  const permission = to.meta.permission as string | undefined
+  if (!authStore.hasPermission(permission)) {
+    return { name: 'dashboard', query: { denied: permission } }
+  }
+
 })
 
 export default router

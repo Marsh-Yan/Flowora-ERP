@@ -1,6 +1,6 @@
 <script setup lang="ts">
 /* global clearTimeout, setTimeout */
-import { computed, ref, watch, type Component } from 'vue'
+import { computed, onMounted, ref, watch, type Component } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useRoute, useRouter } from 'vue-router'
 import {
@@ -28,6 +28,7 @@ interface MenuItem {
   index: string
   label: string
   icon: Component
+  permission?: string
 }
 
 const { t } = useI18n()
@@ -39,19 +40,23 @@ const searchQuery = ref('')
 const searchFocused = ref(false)
 const searchLoading = ref(false)
 const searchResults = ref<SearchResult[]>([])
+const organizationChanging = ref(false)
 let searchTimer: ReturnType<typeof setTimeout> | undefined
 
-const menuItems = computed<MenuItem[]>(() => [
-  { index: '/dashboard', label: t('nav.dashboard'), icon: Odometer },
-  { index: '/sales', label: t('nav.sales'), icon: Tickets },
-  { index: '/procurement', label: t('nav.procurement'), icon: ShoppingCart },
-  { index: '/inventory', label: t('nav.inventory'), icon: Box },
-  { index: '/finance', label: t('nav.finance'), icon: DataAnalysis },
-  { index: '/projects', label: t('nav.projects'), icon: List },
-  { index: '/workflow', label: t('nav.workflow'), icon: Connection },
-  { index: '/analytics', label: t('nav.analytics'), icon: DataAnalysis },
-  { index: '/settings', label: t('nav.settings'), icon: Setting },
-])
+const menuItems = computed<MenuItem[]>(() =>
+  [
+    { index: '/dashboard', label: t('nav.dashboard'), icon: Odometer },
+    { index: '/sales', label: t('nav.sales'), icon: Tickets, permission: 'sales:view' },
+    { index: '/procurement', label: t('nav.procurement'), icon: ShoppingCart, permission: 'procurement:view' },
+    { index: '/inventory', label: t('nav.inventory'), icon: Box, permission: 'inventory:view' },
+    { index: '/finance', label: t('nav.finance'), icon: DataAnalysis, permission: 'finance:view' },
+    { index: '/projects', label: t('nav.projects'), icon: List, permission: 'project:view' },
+    { index: '/workflow', label: t('nav.workflow'), icon: Connection, permission: 'workflow:view' },
+    { index: '/analytics', label: t('nav.analytics'), icon: DataAnalysis },
+    { index: '/platform', label: t('nav.platform'), icon: Setting, permission: 'organization:view' },
+    { index: '/settings', label: t('nav.settings'), icon: Setting, permission: 'master:view' },
+  ].filter((item) => authStore.hasPermission(item.permission)),
+)
 
 const currentTitle = computed(() => {
   const titleKey = route.meta.titleKey as string | undefined
@@ -83,6 +88,25 @@ function navigate(path: string) {
   router.push(path)
 }
 
+async function handleOrganizationChange(organizationId: string) {
+  if (!organizationId || organizationId === authStore.user?.organizationId) return
+  organizationChanging.value = true
+  try {
+    await authStore.switchOrganization(organizationId)
+    await router.replace({ name: 'dashboard' })
+  } finally {
+    organizationChanging.value = false
+  }
+}
+
+async function handleProfileCommand(command: string) {
+  if (command === 'security') {
+    await router.push({ name: 'account-security' })
+  } else if (command === 'logout') {
+    await handleLogout()
+  }
+}
+
 async function handleLogout() {
   await authStore.logout()
   await router.replace({ name: 'login' })
@@ -93,7 +117,10 @@ function openSearchResult(result: SearchResult) {
   searchFocused.value = false
   router.push(result.route)
 }
+
+onMounted(() => authStore.loadOrganizations())
 </script>
+
 
 <template>
   <el-container class="app-shell">
@@ -108,11 +135,19 @@ function openSearchResult(result: SearchResult) {
 
       <div v-if="!appStore.sidebarCollapsed" class="workspace-selector">
         <div class="workspace-avatar">{{ authStore.user?.organizationName.slice(0, 2).toUpperCase() }}</div>
-        <div class="workspace-info">
-          <strong>{{ authStore.user?.organizationName }}</strong>
-          <span>{{ t('common.active') }}</span>
-        </div>
-        <el-icon><Expand /></el-icon>
+        <el-select
+          :model-value="authStore.user?.organizationId"
+          :loading="organizationChanging"
+          class="workspace-switcher"
+          @change="handleOrganizationChange"
+        >
+          <el-option
+            v-for="organization in authStore.organizations"
+            :key="organization.id"
+            :label="organization.name"
+            :value="organization.id"
+          />
+        </el-select>
       </div>
 
       <el-menu
@@ -180,13 +215,21 @@ function openSearchResult(result: SearchResult) {
             <el-icon><Bell /></el-icon>
             <span class="notification-dot" />
           </button>
-          <button class="profile-chip profile-button" type="button" :aria-label="t('common.logout')" @click="handleLogout">
-            <div class="profile-avatar"><el-icon><UserFilled /></el-icon></div>
-            <div class="profile-copy">
-              <strong>{{ authStore.user?.displayName }}</strong>
-              <span>{{ authStore.user?.roles[0] }}</span>
-            </div>
-          </button>
+          <el-dropdown trigger="click" @command="handleProfileCommand">
+            <button class="profile-chip profile-button" type="button" :aria-label="t('nav.accountSecurity')">
+              <div class="profile-avatar"><el-icon><UserFilled /></el-icon></div>
+              <div class="profile-copy">
+                <strong>{{ authStore.user?.displayName }}</strong>
+                <span>{{ authStore.user?.roles[0] }}</span>
+              </div>
+            </button>
+            <template #dropdown>
+              <el-dropdown-menu>
+                <el-dropdown-item command="security">{{ t('nav.accountSecurity') }}</el-dropdown-item>
+                <el-dropdown-item divided command="logout">{{ t('common.logout') }}</el-dropdown-item>
+              </el-dropdown-menu>
+            </template>
+          </el-dropdown>
         </div>
       </el-header>
 

@@ -1,6 +1,7 @@
 package com.flowora.erp.identity;
 
 import com.flowora.erp.common.api.InvalidCredentialsException;
+import org.springframework.context.annotation.Profile;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.security.core.userdetails.UserDetails;
 import org.springframework.security.core.userdetails.UserDetailsService;
@@ -11,7 +12,8 @@ import java.util.List;
 import java.util.Map;
 
 @Component
-public class DemoUserStore implements UserDetailsService {
+@Profile("!local")
+public class DemoUserStore implements UserDetailsService, IdentityAuthenticator {
     private static final String DEMO_PASSWORD = "Demo123!";
     private final Map<String, DemoUser> users;
     private final PasswordEncoder passwordEncoder;

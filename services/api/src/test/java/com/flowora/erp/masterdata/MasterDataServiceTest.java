@@ -20,6 +20,7 @@ import java.util.List;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.never;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -87,10 +88,9 @@ class MasterDataServiceTest {
     }
 
     @Test
-    void importsValidCustomersAndReportsInvalidRows() {
+    void rejectsTheWholeImportWhenAnyCustomerRowIsInvalid() {
         when(customerRepository.existsByOrganizationIdAndCode("org-a", "C-001")).thenReturn(false);
         when(customerRepository.existsByOrganizationIdAndCode("org-a", "C-002")).thenReturn(false);
-        when(customerRepository.save(any(CustomerEntity.class))).thenAnswer(invocation -> invocation.getArgument(0));
         MockMultipartFile csv = new MockMultipartFile(
                 "file",
                 "customers.csv",
@@ -103,9 +103,32 @@ class MasterDataServiceTest {
 
         ImportResult result = service.importResource("org-a", "customers", csv);
 
-        assertThat(result.imported()).isEqualTo(2);
+        assertThat(result.imported()).isZero();
         assertThat(result.rejected()).isEqualTo(1);
         assertThat(result.errors()).hasSize(1);
         assertThat(result.errors().getFirst().get("row")).isEqualTo(3);
+        assertThat(result.errors().getFirst().get("code")).isEqualTo("VALIDATION_FAILED");
+        verify(customerRepository, never()).save(any(CustomerEntity.class));
+    }
+
+    @Test
+    void rejectsDuplicateCodesInOneImportWithoutWritingPartialData() {
+        when(customerRepository.existsByOrganizationIdAndCode("org-a", "C-001")).thenReturn(false);
+        MockMultipartFile csv = new MockMultipartFile(
+                "file",
+                "customers.csv",
+                "text/csv",
+                ("code,name,currencyCode,paymentTermsDays,active\n" +
+                        "C-001,Acme,USD,30,true\n" +
+                        "c-001,Duplicate,USD,30,true\n").getBytes()
+        );
+
+        ImportResult result = service.importResource("org-a", "customers", csv);
+
+        assertThat(result.imported()).isZero();
+        assertThat(result.rejected()).isEqualTo(1);
+        assertThat(result.errors().getFirst()).containsEntry("row", 3).containsEntry("field", "code")
+                .containsEntry("code", "DUPLICATE_CODE");
+        verify(customerRepository, never()).save(any(CustomerEntity.class));
     }
 }

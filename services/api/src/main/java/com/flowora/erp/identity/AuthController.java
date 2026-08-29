@@ -25,10 +25,10 @@ import java.util.Map;
 @RestController
 @RequestMapping("/api/v1/auth")
 public class AuthController {
-    private final DemoUserStore userStore;
+    private final IdentityAuthenticator userStore;
     private final SecurityContextRepository securityContextRepository = new HttpSessionSecurityContextRepository();
 
-    public AuthController(DemoUserStore userStore) {
+    public AuthController(IdentityAuthenticator userStore) {
         this.userStore = userStore;
     }
 
@@ -77,7 +77,9 @@ public class AuthController {
             String displayName,
             String organizationId,
             String organizationName,
-            List<String> roles
+            List<String> roles,
+            List<String> permissions,
+            boolean mustChangePassword
     ) {
         static AuthUserResponse from(FloworaPrincipal principal) {
             return new AuthUserResponse(
@@ -86,7 +88,9 @@ public class AuthController {
                     principal.displayName(),
                     principal.organizationId(),
                     principal.organizationName(),
-                    principal.roles()
+                    principal.roles(),
+                    principal.permissions(),
+                    principal.mustChangePassword()
             );
         }
     }
