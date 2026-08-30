@@ -12,6 +12,8 @@ final class DemoPermissionCatalog {
             "sales:submit", "procurement:view", "procurement:create", "procurement:submit",
             "inventory:view", "inventory:create", "inventory:post", "finance:view",
             "finance:create", "finance:post", "workflow:view", "workflow:approve",
+            "workflow:submit", "workflow:configure", "workflow:delegate", "workflow:admin",
+            "collaboration:comment", "attachment:view", "attachment:upload",
             "project:view", "project:create"
     );
 
@@ -20,7 +22,9 @@ final class DemoPermissionCatalog {
 
     static List<String> forRoles(List<String> roles) {
         if (roles.contains("ADMIN")) return ALL;
-        Set<String> result = new LinkedHashSet<>(List.of("master:view", "workflow:view"));
+        Set<String> result = new LinkedHashSet<>(List.of(
+                "master:view", "workflow:view", "workflow:submit", "workflow:delegate",
+                "collaboration:comment", "attachment:view", "attachment:upload"));
         if (roles.contains("BUSINESS")) result.addAll(List.of(
                 "master:create", "master:edit", "master:export", "sales:view", "sales:create",
                 "sales:submit", "procurement:view", "procurement:create", "procurement:submit"));

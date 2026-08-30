@@ -2,6 +2,7 @@ package com.flowora.erp.sales;
 
 import com.flowora.erp.common.api.PageResponse;
 import com.flowora.erp.common.api.ResourceNotFoundException;
+import com.flowora.erp.common.api.PlatformApiException;
 import com.flowora.erp.common.api.WorkflowStateConflictException;
 import com.flowora.erp.common.idempotency.IdempotencyService;
 import com.flowora.erp.finance.AccountingService;
@@ -18,6 +19,9 @@ import com.flowora.erp.workflow.WorkflowDtos.TaskRequest;
 import com.flowora.erp.workflow.WorkflowResourceType;
 import com.flowora.erp.workflow.WorkflowService;
 import com.flowora.erp.workflow.WorkflowTaskStatus;
+import com.flowora.erp.workflow.v2.WorkflowEngineService;
+import com.flowora.erp.workflow.v2.WorkflowV2Dtos.StartRequest;
+import org.springframework.beans.factory.annotation.Autowired;
 import com.flowora.erp.sales.SalesDtos.DeliveryCreate;
 import com.flowora.erp.sales.SalesDtos.DeliveryResponse;
 import com.flowora.erp.sales.SalesDtos.PaymentCreate;
@@ -33,6 +37,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.math.BigDecimal;
+import java.util.Map;
 import java.time.LocalDate;
 import java.util.UUID;
 
@@ -52,6 +57,7 @@ public class SalesService {
     private final InventoryService inventoryService;
     private final WorkflowService workflowService;
     private final AccountingService accountingService;
+    private WorkflowEngineService workflowEngineService;
     private final IdempotencyService idempotencyService;
 
     public SalesService(
@@ -88,6 +94,11 @@ public class SalesService {
         this.idempotencyService = idempotencyService;
     }
 
+    @Autowired(required = false)
+    void setWorkflowEngineService(WorkflowEngineService workflowEngineService) {
+        this.workflowEngineService = workflowEngineService;
+    }
+
     @Transactional(readOnly = true)
     public PageResponse<SalesQuoteResponse> quotes(String organizationId, String query, Pageable pageable) {
         Page<SalesQuoteEntity> page = quoteRepository.search(organizationId, clean(query), pageable);
@@ -104,6 +115,10 @@ public class SalesService {
                 actor.organizationId(), nextNumber("QT"), customer.id(), SalesQuoteStatus.DRAFT, clean(body.currencyCode()).toUpperCase(), body.validUntil(), total, clean(body.note()), actor.userId()
         ));
         quoteLineRepository.save(new SalesQuoteLineEntity(actor.organizationId(), quote.id(), body.itemId(), body.quantity(), body.unitPrice(), body.discountRate(), body.taxRate()));
+        if (startM2Workflow(actor, quote, body, total, requestId)) {
+            return quoteResponse(quoteRepository.save(quote));
+        }
+
         var task = workflowService.createTask(actor, new TaskRequest(
                 WorkflowResourceType.SALES_QUOTE, quote.id(), "Approve sales quote " + quote.number(), body.note(), total, null, null
         ), requestId);
@@ -111,6 +126,31 @@ public class SalesService {
         return quoteResponse(quoteRepository.save(quote));
     }
 
+
+    private boolean startM2Workflow(
+            FloworaPrincipal actor,
+            SalesQuoteEntity quote,
+            SalesQuoteCreate body,
+            BigDecimal total,
+            String requestId
+    ) {
+        if (workflowEngineService == null) return false;
+        try {
+            var instance = workflowEngineService.start(actor, new StartRequest(
+                    "SALES_QUOTE", quote.id(), 1, actor.userId(), total,
+                    body.currencyCode(), Map.of(
+                            "discount", body.discountRate(),
+                            "documentStatus", "SUBMITTED",
+                            "customerId", body.customerId()
+                    )
+            ), requestId);
+            quote.submitForWorkflow(instance.id());
+            return true;
+        } catch (PlatformApiException exception) {
+            if ("WORKFLOW_TEMPLATE_NOT_FOUND".equals(exception.code())) return false;
+            throw exception;
+        }
+    }
     @Transactional
     public SalesQuoteResponse approveQuote(FloworaPrincipal actor, String quoteId, String requestId) {
         SalesQuoteEntity quote = quoteRepository.findByIdAndOrganizationId(quoteId, actor.organizationId())

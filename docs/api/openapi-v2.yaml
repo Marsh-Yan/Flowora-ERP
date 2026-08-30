@@ -1,8 +1,8 @@
 openapi: 3.0.3
 info:
-  title: Flowora ERP API v2 M1
+  title: Flowora ERP API v2 M2
   version: 2.0.0-SNAPSHOT
-  description: M1 contract for persistent identity, organization isolation, RBAC and master data.
+  description: M2 contract for identity, master data, versioned workflows, collaboration, attachments and reliable notifications.
 servers:
   - url: http://localhost:8080
 security:
@@ -180,6 +180,105 @@ paths:
     post:
       operationId: createTaxRule
       parameters: [{ $ref: "#/components/parameters/CsrfHeader" }]
+      responses:
+        "200": { $ref: "#/components/responses/Success" }
+  /api/v2/workflows/templates:
+    get:
+      operationId: listWorkflowTemplates
+      responses:
+        "200": { $ref: "#/components/responses/Success" }
+    post:
+      operationId: createWorkflowTemplate
+      parameters: [{ $ref: "#/components/parameters/CsrfHeader" }]
+      responses:
+        "200": { $ref: "#/components/responses/Success" }
+        "403": { $ref: "#/components/responses/Error" }
+  /api/v2/workflows/templates/{templateId}/versions:
+    post:
+      operationId: createWorkflowVersion
+      parameters:
+        - { name: templateId, in: path, required: true, schema: { type: string } }
+        - { $ref: "#/components/parameters/CsrfHeader" }
+      responses:
+        "200": { $ref: "#/components/responses/Success" }
+  /api/v2/workflows/instances:
+    post:
+      operationId: startWorkflowInstance
+      parameters: [{ $ref: "#/components/parameters/CsrfHeader" }]
+      responses:
+        "200": { $ref: "#/components/responses/Success" }
+  /api/v2/workflows/instances/{instanceId}/decisions:
+    get:
+      operationId: listWorkflowDecisions
+      parameters: [{ name: instanceId, in: path, required: true, schema: { type: string } }]
+      responses:
+        "200": { $ref: "#/components/responses/Success" }
+  /api/v2/workflows/tasks:
+    get:
+      operationId: listWorkflowTasksV2
+      parameters:
+        - { name: view, in: query, schema: { type: string, enum: [MINE, STARTED, PROCESSED] } }
+        - { name: overdue, in: query, schema: { type: boolean, default: false } }
+      responses:
+        "200": { $ref: "#/components/responses/Success" }
+  /api/v2/workflows/tasks/{taskId}/actions:
+    post:
+      operationId: actOnWorkflowTaskV2
+      parameters:
+        - { name: taskId, in: path, required: true, schema: { type: string } }
+        - { $ref: "#/components/parameters/IfMatch" }
+        - { $ref: "#/components/parameters/CsrfHeader" }
+      responses:
+        "200": { $ref: "#/components/responses/Success" }
+        "409": { $ref: "#/components/responses/Error" }
+  /api/v2/workflows/delegations:
+    get:
+      operationId: listWorkflowDelegations
+      responses:
+        "200": { $ref: "#/components/responses/Success" }
+    post:
+      operationId: createWorkflowDelegation
+      parameters: [{ $ref: "#/components/parameters/CsrfHeader" }]
+      responses:
+        "200": { $ref: "#/components/responses/Success" }
+  /api/v2/workflows/outbox/{eventId}/replay:
+    post:
+      operationId: replayWorkflowOutboxEvent
+      parameters:
+        - { name: eventId, in: path, required: true, schema: { type: string } }
+        - { $ref: "#/components/parameters/CsrfHeader" }
+      responses:
+        "200": { $ref: "#/components/responses/Success" }
+  /api/v2/collaboration/resources/{resourceType}/{resourceId}/comments:
+    get:
+      operationId: listResourceCommentsV2
+      responses:
+        "200": { $ref: "#/components/responses/Success" }
+    post:
+      operationId: addResourceCommentV2
+      parameters: [{ $ref: "#/components/parameters/CsrfHeader" }]
+      responses:
+        "200": { $ref: "#/components/responses/Success" }
+  /api/v2/collaboration/resources/{resourceType}/{resourceId}/attachments:
+    get:
+      operationId: listResourceAttachments
+      responses:
+        "200": { $ref: "#/components/responses/Success" }
+    post:
+      operationId: uploadResourceAttachment
+      parameters: [{ $ref: "#/components/parameters/CsrfHeader" }]
+      responses:
+        "200": { $ref: "#/components/responses/Success" }
+        "400": { $ref: "#/components/responses/Error" }
+  /api/v2/collaboration/attachments/{attachmentId}/content:
+    get:
+      operationId: downloadResourceAttachment
+      responses:
+        "200": { description: Protected attachment stream }
+        "403": { $ref: "#/components/responses/Error" }
+  /api/v2/collaboration/notifications:
+    get:
+      operationId: listNotificationsV2
       responses:
         "200": { $ref: "#/components/responses/Success" }
 components:

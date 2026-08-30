@@ -2,11 +2,15 @@ package com.flowora.erp.procurement;
 
 import com.flowora.erp.common.api.PageResponse;
 import com.flowora.erp.common.api.ResourceNotFoundException;
+import com.flowora.erp.common.api.PlatformApiException;
 import com.flowora.erp.identity.FloworaPrincipal;
 import com.flowora.erp.masterdata.ItemEntity;
 import com.flowora.erp.masterdata.ItemRepository;
 import com.flowora.erp.masterdata.SupplierRepository;
 import com.flowora.erp.masterdata.WarehouseRepository;
+import com.flowora.erp.workflow.v2.WorkflowEngineService;
+import com.flowora.erp.workflow.v2.WorkflowV2Dtos.StartRequest;
+import org.springframework.beans.factory.annotation.Autowired;
 import com.flowora.erp.procurement.ProcurementDtos.PurchaseOrderCreate;
 import com.flowora.erp.procurement.ProcurementDtos.PurchaseOrderResponse;
 import com.flowora.erp.procurement.ProcurementDtos.PurchaseRequestCreate;
@@ -17,6 +21,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.math.BigDecimal;
+import java.util.Map;
 import java.util.UUID;
 
 @Service
@@ -28,6 +33,7 @@ public class ProcurementService {
     private final SupplierRepository supplierRepository;
     private final WarehouseRepository warehouseRepository;
     private final ItemRepository itemRepository;
+    private WorkflowEngineService workflowEngineService;
 
     public ProcurementService(
             PurchaseRequestRepository requestRepository,
@@ -47,6 +53,11 @@ public class ProcurementService {
         this.itemRepository = itemRepository;
     }
 
+    @Autowired(required = false)
+    void setWorkflowEngineService(WorkflowEngineService workflowEngineService) {
+        this.workflowEngineService = workflowEngineService;
+    }
+
     @Transactional(readOnly = true)
     public PageResponse<PurchaseRequestResponse> requests(String organizationId, String query, Pageable pageable) {
         Page<PurchaseRequestEntity> page = requestRepository.search(organizationId, clean(query), pageable);
@@ -62,12 +73,40 @@ public class ProcurementService {
                 actor.organizationId(), nextNumber("PR"), clean(body.supplierId()), clean(body.warehouseId()), actor.userId(), clean(body.note())
         );
         request.submit();
-        request.approve();
         requestRepository.save(request);
         PurchaseRequestLineEntity line = requestLineRepository.save(new PurchaseRequestLineEntity(
                 actor.organizationId(), request.id(), clean(body.itemId()), body.quantity(), body.estimatedUnitCost()
         ));
+        if (!startM2Workflow(actor, request, body)) {
+            request.approve();
+            requestRepository.save(request);
+        }
         return requestResponse(request, line);
+    }
+
+    private boolean startM2Workflow(
+            FloworaPrincipal actor,
+            PurchaseRequestEntity request,
+            PurchaseRequestCreate body
+    ) {
+        if (workflowEngineService == null) return false;
+        try {
+            var instance = workflowEngineService.start(actor, new StartRequest(
+                    "PURCHASE_REQUEST", request.id(), 1, actor.userId(),
+                    body.quantity().multiply(body.estimatedUnitCost()), "CNY",
+                    Map.of(
+                            "supplierId", body.supplierId(),
+                            "warehouseId", body.warehouseId(),
+                            "documentStatus", "SUBMITTED"
+                    )
+            ), "purchase-request-" + UUID.randomUUID());
+            request.submitForWorkflow(instance.id());
+            requestRepository.save(request);
+            return true;
+        } catch (PlatformApiException exception) {
+            if ("WORKFLOW_TEMPLATE_NOT_FOUND".equals(exception.code())) return false;
+            throw exception;
+        }
     }
 
     @Transactional(readOnly = true)

@@ -5,6 +5,7 @@ import com.flowora.erp.common.api.RequestIdFilter;
 import com.flowora.erp.identity.FloworaPrincipal;
 import jakarta.servlet.http.HttpServletRequest;
 import org.springframework.security.access.prepost.PreAuthorize;
+import org.springframework.context.annotation.Conditional;
 import org.springframework.security.core.Authentication;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PostMapping;
@@ -12,6 +13,7 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
 @RestController
+@Conditional(DemoDataEnabledCondition.class)
 @RequestMapping("/api/v1/demo")
 public class DemoDataController {
     private final DemoDataService service;

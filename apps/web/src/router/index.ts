@@ -116,12 +116,13 @@ router.beforeEach(async (to) => {
     return { name: 'login', query: { redirect: to.fullPath } }
   }
 
-  return true
   const permission = to.meta.permission as string | undefined
   if (!authStore.hasPermission(permission)) {
     return { name: 'dashboard', query: { denied: permission } }
   }
 
+
+  return true
 })
 
 export default router

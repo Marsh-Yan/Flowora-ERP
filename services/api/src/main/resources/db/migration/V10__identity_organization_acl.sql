@@ -80,7 +80,7 @@ CREATE TABLE flowora_permission (
     resource_code VARCHAR(64) NOT NULL,
     action_code VARCHAR(32) NOT NULL,
     description VARCHAR(255) NOT NULL,
-    sensitive BOOLEAN NOT NULL DEFAULT FALSE,
+    `sensitive` BOOLEAN NOT NULL DEFAULT FALSE,
     created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
     CONSTRAINT uq_flowora_permission_resource_action UNIQUE (resource_code, action_code)
 );
@@ -178,7 +178,7 @@ SELECT membership.id, user_role.role_id
 FROM flowora_user_role user_role
 JOIN flowora_organization_membership membership ON membership.user_id = user_role.user_id;
 
-INSERT INTO flowora_permission (code, resource_code, action_code, description, sensitive) VALUES
+INSERT INTO flowora_permission (code, resource_code, action_code, description, `sensitive`) VALUES
     ('organization:view', 'organization', 'view', 'View organizations and settings', FALSE),
     ('organization:configure', 'organization', 'configure', 'Configure organizations and departments', TRUE),
     ('user:view', 'user', 'view', 'View users and memberships', FALSE),
