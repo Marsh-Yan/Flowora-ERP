@@ -5,15 +5,20 @@ import { ArrowRight, Plus, Refresh } from '@element-plus/icons-vue'
 import { useI18n } from 'vue-i18n'
 import { listMasterData, type MasterDataRecord } from '@/api/master-data'
 import { createStockAdjustment, listStockBalances, listStockLedger, receivePurchaseOrder, transferStock, type StockBalance, type StockLedgerEntry } from '@/api/inventory'
+import { listAvailability, traceInventory, type Availability, type TraceResult } from '@/api/trade'
 import { listPurchaseOrders, type PurchaseOrder } from '@/api/procurement'
 
 const { t, locale } = useI18n()
-const activeTab = ref<'balances' | 'ledger'>('balances')
+const activeTab = ref<'balances' | 'advanced' | 'ledger' | 'trace'>('balances')
 const loading = ref(false)
 const dialogVisible = ref(false)
 const dialogType = ref<'receipt' | 'adjustment' | 'transfer'>('receipt')
 const balances = ref<StockBalance[]>([])
 const ledger = ref<StockLedgerEntry[]>([])
+const availability = ref<Availability[]>([])
+const traceResult = ref<TraceResult | null>(null)
+const traceItemId = ref('')
+const traceLoading = ref(false)
 const orders = ref<PurchaseOrder[]>([])
 const warehouses = ref<MasterDataRecord[]>([])
 const items = ref<MasterDataRecord[]>([])
@@ -32,18 +37,20 @@ function formatDate(value: string) {
 async function load() {
   loading.value = true
   try {
-    const [balancePage, ledgerPage, orderPage, warehousePage, itemPage] = await Promise.all([
+    const [balancePage, ledgerPage, orderPage, warehousePage, itemPage, availabilityRows] = await Promise.all([
       listStockBalances(),
       listStockLedger(),
       listPurchaseOrders(),
       listMasterData('warehouses', '', 0, 100),
       listMasterData('items', '', 0, 100),
+      listAvailability(),
     ])
     balances.value = balancePage.content
     ledger.value = ledgerPage.content
     orders.value = orderPage.content.filter((order) => order.remainingQuantity > 0 && order.status !== 'CANCELLED')
     warehouses.value = warehousePage.content
     items.value = itemPage.content
+    availability.value = availabilityRows
   } catch {
     ElMessage.error(t('inventory.loadFailed'))
   } finally {
@@ -79,6 +86,18 @@ async function submit() {
   }
 }
 
+
+async function runTrace() {
+  if (!traceItemId.value) return
+  traceLoading.value = true
+  try {
+    traceResult.value = await traceInventory(traceItemId.value)
+  } catch {
+    ElMessage.error(t('inventory.loadFailed'))
+  } finally {
+    traceLoading.value = false
+  }
+}
 onMounted(load)
 </script>
 
@@ -115,6 +134,31 @@ onMounted(load)
             <el-table-column prop="inventoryValue" :label="t('inventory.inventoryValue')" width="160" />
           </el-table>
           <el-empty v-if="!balances.length && !loading" :description="t('inventory.emptyBalances')" />
+        </el-tab-pane>
+        <el-tab-pane :label="t('inventory.advanced', 'Available stock')" name="advanced">
+          <el-table v-loading="loading" :data="availability" empty-text="">
+            <el-table-column :label="t('inventory.warehouse')" min-width="150"><template #default="{ row }">{{ masterName(warehouses, row.warehouseId) }}</template></el-table-column>
+            <el-table-column prop="locationId" :label="t('inventory.location', 'Location')" min-width="120" />
+            <el-table-column :label="t('inventory.item')" min-width="150"><template #default="{ row }">{{ masterName(items, row.itemId) }}</template></el-table-column>
+            <el-table-column prop="lotId" :label="t('inventory.lot', 'Lot')" min-width="120" />
+            <el-table-column prop="serialId" :label="t('inventory.serial', 'Serial')" min-width="120" />
+            <el-table-column prop="onHand" :label="t('inventory.onHand', 'On hand')" width="110" />
+            <el-table-column prop="reserved" :label="t('inventory.reserved', 'Reserved')" width="110" />
+            <el-table-column prop="available" :label="t('inventory.available', 'Available')" width="110" />
+            <el-table-column :label="t('inventory.frozen', 'Frozen')" width="100"><template #default="{ row }"><el-tag :type="row.frozen ? 'danger' : 'success'">{{ row.frozen ? 'Yes' : 'No' }}</el-tag></template></el-table-column>
+          </el-table>
+        </el-tab-pane>
+        <el-tab-pane :label="t('inventory.trace', 'Trace')" name="trace">
+          <div class="operations-actions">
+            <el-select v-model="traceItemId" filterable :placeholder="t('inventory.item')" style="width: 280px"><el-option v-for="row in items" :key="row.id" :label="row.name" :value="row.id" /></el-select>
+            <el-button type="primary" :loading="traceLoading" @click="runTrace">{{ t('inventory.trace', 'Trace') }}</el-button>
+          </div>
+          <el-timeline v-if="traceResult" style="margin-top: 24px">
+            <el-timeline-item v-for="movement in traceResult.movements" :key="movement.id" :timestamp="formatDate(movement.postedAt)" placement="top">
+              <el-card shadow="never"><strong>{{ movement.number }} · {{ movement.movementType }}</strong><p>{{ movement.sourceType }} / {{ movement.sourceId }}</p><el-tag v-for="line in movement.lines" :key="line.id" style="margin-right: 8px">{{ line.quantity }} × {{ masterName(items, line.itemId) }}</el-tag></el-card>
+            </el-timeline-item>
+          </el-timeline>
+          <el-empty v-else :description="t('inventory.traceHint', 'Choose an item to inspect its movement chain')" />
         </el-tab-pane>
         <el-tab-pane :label="t('inventory.ledger')" name="ledger">
           <el-table v-loading="loading" :data="ledger" empty-text="">

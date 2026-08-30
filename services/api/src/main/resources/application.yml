@@ -35,7 +35,7 @@ management:
 flowora:
   release:
     version: ${FLOWORA_RELEASE_VERSION:2.0.0-SNAPSHOT}
-    stage: ${FLOWORA_RELEASE_STAGE:M2}
+    stage: ${FLOWORA_RELEASE_STAGE:M3}
     v2-business-writes-enabled: ${FLOWORA_V2_BUSINESS_WRITES_ENABLED:false}
   security:
     max-login-failures: ${FLOWORA_MAX_LOGIN_FAILURES:5}

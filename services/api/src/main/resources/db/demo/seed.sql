@@ -3,6 +3,22 @@
 SET FOREIGN_KEY_CHECKS = 0;
 
 DELETE FROM flowora_idempotency_record WHERE organization_id = 'org-demo';
+DELETE FROM flowora_financial_source_event WHERE organization_id = 'org-demo';
+DELETE FROM flowora_stock_count_line WHERE organization_id = 'org-demo';
+DELETE FROM flowora_stock_count WHERE organization_id = 'org-demo';
+DELETE FROM flowora_sales_return_line WHERE organization_id = 'org-demo';
+DELETE FROM flowora_sales_return WHERE organization_id = 'org-demo';
+DELETE FROM flowora_purchase_return_line WHERE organization_id = 'org-demo';
+DELETE FROM flowora_purchase_return WHERE organization_id = 'org-demo';
+DELETE FROM flowora_trade_source_line_link WHERE organization_id = 'org-demo';
+DELETE FROM flowora_stock_reservation WHERE organization_id = 'org-demo';
+DELETE FROM flowora_stock_movement_line WHERE organization_id = 'org-demo';
+DELETE FROM flowora_stock_movement WHERE organization_id = 'org-demo';
+DELETE FROM flowora_stock_freeze WHERE organization_id = 'org-demo';
+DELETE FROM flowora_inventory_balance_v2 WHERE organization_id = 'org-demo';
+DELETE FROM flowora_inventory_serial WHERE organization_id = 'org-demo';
+DELETE FROM flowora_inventory_lot WHERE organization_id = 'org-demo';
+
 DELETE FROM flowora_delivery_attempt WHERE outbox_event_id IN (SELECT id FROM flowora_outbox_event WHERE organization_id = 'org-demo');
 DELETE FROM flowora_outbox_event WHERE organization_id = 'org-demo';
 DELETE FROM flowora_mention WHERE organization_id = 'org-demo';

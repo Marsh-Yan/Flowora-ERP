@@ -7,7 +7,6 @@ import {
   approveSalesQuote,
   createDelivery,
   createPayment,
-  createSalesOrder,
   createSalesQuote,
   listReceivables,
   listSalesOrders,
@@ -20,6 +19,7 @@ import { listMasterData, type MasterDataRecord } from '@/api/master-data'
 
 const { t } = useI18n()
 const activeTab = ref<'quotes' | 'orders' | 'receivables'>('quotes')
+import { createSalesOrderV2 } from '@/api/trade'
 const loading = ref(false)
 const dialogVisible = ref(false)
 const dialogType = ref<'quote' | 'order'>('quote')
@@ -34,7 +34,7 @@ const customers = ref<MasterDataRecord[]>([])
 const warehouses = ref<MasterDataRecord[]>([])
 const items = ref<MasterDataRecord[]>([])
 const quoteForm = reactive({ customerId: '', itemId: '', quantity: 1, unitPrice: 0, discountRate: 0, taxRate: 0, currencyCode: 'USD', validUntil: '', note: '' })
-const orderForm = reactive({ quoteId: '', customerId: '', warehouseId: '', itemId: '', quantity: 1, unitPrice: 0, discountRate: 0, taxRate: 0, currencyCode: 'USD', dueDate: '', note: '' })
+const orderForm = reactive({ quoteId: '', customerId: '', warehouseId: '', currencyCode: 'USD', dueDate: '', note: '', lines: [{ itemId: '', quantity: 1, unitPrice: 0, discountRate: 0, taxRate: 0 }] })
 const deliveryForm = reactive({ quantity: 1 })
 const paymentForm = reactive({ amount: 0, method: 'BANK' as 'BANK' | 'CASH' | 'OTHER', paymentDate: '', reference: '' })
 
@@ -94,12 +94,16 @@ function applyQuoteToOrder(id: string) {
   const quote = quotes.value.find((item) => item.id === id)
   if (!quote) return
   orderForm.customerId = quote.customerId
-  orderForm.itemId = quote.itemId
-  orderForm.quantity = quote.quantity
-  orderForm.unitPrice = quote.unitPrice
-  orderForm.discountRate = quote.discountRate
-  orderForm.taxRate = quote.taxRate
+  orderForm.lines.splice(0, orderForm.lines.length, { itemId: quote.itemId, quantity: quote.quantity, unitPrice: quote.unitPrice, discountRate: quote.discountRate, taxRate: quote.taxRate })
   orderForm.currencyCode = quote.currencyCode
+}
+
+function addOrderLine() {
+  orderForm.lines.push({ itemId: '', quantity: 1, unitPrice: 0, discountRate: 0, taxRate: 0 })
+}
+
+function removeOrderLine(index: number) {
+  if (orderForm.lines.length > 1) orderForm.lines.splice(index, 1)
 }
 
 async function submit() {
@@ -107,7 +111,7 @@ async function submit() {
     if (dialogType.value === 'quote') {
       await createSalesQuote({ ...quoteForm })
     } else {
-      await createSalesOrder({ ...orderForm, quoteId: orderForm.quoteId || undefined, dueDate: orderForm.dueDate || undefined })
+      await createSalesOrderV2({ customerId: orderForm.customerId, warehouseId: orderForm.warehouseId, currencyCode: orderForm.currencyCode, dueDate: orderForm.dueDate || undefined, note: orderForm.note || undefined, lines: orderForm.lines.map((line, index) => ({ ...line, sourceDocumentType: index === 0 && orderForm.quoteId ? 'SALES_QUOTE' : undefined, sourceDocumentId: index === 0 ? orderForm.quoteId || undefined : undefined, sourceLineId: index === 0 ? orderForm.quoteId || undefined : undefined })) })
     }
     dialogVisible.value = false
     ElMessage.success(t('sales.created'))
@@ -243,13 +247,17 @@ onMounted(load)
           <el-form-item :label="t('sales.sourceQuote')"><el-select v-model="orderForm.quoteId" clearable class="full-width" @change="applyQuoteToOrder"><el-option v-for="row in quotes.filter((item) => item.status === 'APPROVED')" :key="row.id" :label="row.number" :value="row.id" /></el-select></el-form-item>
           <el-form-item :label="t('sales.customer')"><el-select v-model="orderForm.customerId" class="full-width"><el-option v-for="row in customers" :key="row.id" :label="row.name" :value="row.id" /></el-select></el-form-item>
           <el-form-item :label="t('sales.warehouse')"><el-select v-model="orderForm.warehouseId" class="full-width"><el-option v-for="row in warehouses" :key="row.id" :label="row.name" :value="row.id" /></el-select></el-form-item>
-          <el-form-item :label="t('sales.item')"><el-select v-model="orderForm.itemId" class="full-width"><el-option v-for="row in items" :key="row.id" :label="row.name" :value="row.id" /></el-select></el-form-item>
-          <el-form-item :label="t('sales.quantity')"><el-input-number v-model="orderForm.quantity" :min="0.0001" :precision="4" class="full-width" /></el-form-item>
-          <el-form-item :label="t('sales.unitPrice')"><el-input-number v-model="orderForm.unitPrice" :min="0" :precision="4" class="full-width" /></el-form-item>
-          <el-form-item :label="t('sales.discountRate')"><el-input-number v-model="orderForm.discountRate" :min="0" :max="100" :precision="4" class="full-width" /></el-form-item>
-          <el-form-item :label="t('sales.taxRate')"><el-input-number v-model="orderForm.taxRate" :min="0" :max="100" :precision="4" class="full-width" /></el-form-item>
           <el-form-item :label="t('sales.dueDate')"><el-date-picker v-model="orderForm.dueDate" type="date" value-format="YYYY-MM-DD" class="full-width" /></el-form-item>
         </div>
+        <div v-for="(line, index) in orderForm.lines" :key="index" class="operations-form-grid trade-line-editor">
+          <el-form-item :label="`${t('sales.item')} #${index + 1}`"><el-select v-model="line.itemId" class="full-width"><el-option v-for="row in items" :key="row.id" :label="row.name" :value="row.id" /></el-select></el-form-item>
+          <el-form-item :label="t('sales.quantity')"><el-input-number v-model="line.quantity" :min="0.0001" :precision="4" class="full-width" /></el-form-item>
+          <el-form-item :label="t('sales.unitPrice')"><el-input-number v-model="line.unitPrice" :min="0" :precision="4" class="full-width" /></el-form-item>
+          <el-form-item :label="t('sales.discountRate')"><el-input-number v-model="line.discountRate" :min="0" :max="100" :precision="4" class="full-width" /></el-form-item>
+          <el-form-item :label="t('sales.taxRate')"><el-input-number v-model="line.taxRate" :min="0" :max="100" :precision="4" class="full-width" /></el-form-item>
+          <el-form-item><el-button :disabled="orderForm.lines.length === 1" @click="removeOrderLine(index)">−</el-button></el-form-item>
+        </div>
+        <el-button plain @click="addOrderLine"><el-icon><Plus /></el-icon>{{ t('sales.addLine', 'Add line') }}</el-button>
       </el-form>
       <template #footer><el-button @click="dialogVisible = false">{{ t('masterData.cancel') }}</el-button><el-button type="primary" @click="submit">{{ t('masterData.save') }}</el-button></template>
     </el-dialog>

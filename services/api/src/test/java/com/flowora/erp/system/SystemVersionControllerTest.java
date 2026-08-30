@@ -25,7 +25,7 @@ class SystemVersionControllerTest {
                 .andExpect(jsonPath("$.data.productVersion").value("2.0.0-SNAPSHOT"))
                 .andExpect(jsonPath("$.data.apiVersion").value("v2"))
                 .andExpect(jsonPath("$.data.legacyApiVersion").value("v1"))
-                .andExpect(jsonPath("$.data.deliveryStage").value("M2"))
+                .andExpect(jsonPath("$.data.deliveryStage").value("M3"))
                 .andExpect(jsonPath("$.data.v2BusinessWritesEnabled").value(false))
                 .andExpect(jsonPath("$.data.compatibility[0]").value("v1-auth-session"))
                 .andExpect(jsonPath("$.data.compatibility[1]").value("v1-lossless-read"))
