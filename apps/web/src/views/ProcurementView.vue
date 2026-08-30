@@ -3,7 +3,8 @@ import { onMounted, reactive, ref } from 'vue'
 import { ElMessage } from 'element-plus'
 import { Plus, Refresh } from '@element-plus/icons-vue'
 import { useI18n } from 'vue-i18n'
-import { createPurchaseOrder, createPurchaseRequest, listPurchaseOrders, listPurchaseRequests, type PurchaseOrder, type PurchaseRequest } from '@/api/procurement'
+import { createPurchaseRequest, listPurchaseOrders, listPurchaseRequests, type PurchaseOrder, type PurchaseRequest } from '@/api/procurement'
+import { createPurchaseOrderV2 } from '@/api/trade'
 import { listMasterData, type MasterDataRecord } from '@/api/master-data'
 
 const { t } = useI18n()
@@ -17,7 +18,7 @@ const suppliers = ref<MasterDataRecord[]>([])
 const warehouses = ref<MasterDataRecord[]>([])
 const items = ref<MasterDataRecord[]>([])
 const requestForm = reactive({ supplierId: '', warehouseId: '', itemId: '', quantity: 1, estimatedUnitCost: 0, note: '' })
-const orderForm = reactive({ purchaseRequestId: '', supplierId: '', warehouseId: '', itemId: '', quantity: 1, unitPrice: 0, taxRate: 0, expectedDate: '', note: '' })
+const orderForm = reactive({ purchaseRequestId: '', supplierId: '', warehouseId: '', currencyCode: 'CNY', expectedDate: '', note: '', lines: [{ itemId: '', quantity: 1, unitPrice: 0, discountRate: 0, taxRate: 0 }] })
 
 function statusType(status: PurchaseRequest['status']) {
   if (status === 'APPROVED') return 'success'
@@ -66,9 +67,7 @@ function openCreate(type: 'request' | 'order') {
       orderForm.purchaseRequestId = request.id
       orderForm.supplierId = request.supplierId
       orderForm.warehouseId = request.warehouseId
-      orderForm.itemId = request.itemId
-      orderForm.quantity = request.quantity
-      orderForm.unitPrice = request.estimatedUnitCost
+      orderForm.lines.splice(0, orderForm.lines.length, { itemId: request.itemId, quantity: request.quantity, unitPrice: request.estimatedUnitCost, discountRate: 0, taxRate: 0 })
     }
   }
 }
@@ -78,17 +77,23 @@ function applyRequestToOrder(id: string) {
   if (!request) return
   orderForm.supplierId = request.supplierId
   orderForm.warehouseId = request.warehouseId
-  orderForm.itemId = request.itemId
-  orderForm.quantity = request.quantity
-  orderForm.unitPrice = request.estimatedUnitCost
+  orderForm.lines.splice(0, orderForm.lines.length, { itemId: request.itemId, quantity: request.quantity, unitPrice: request.estimatedUnitCost, discountRate: 0, taxRate: 0 })
 }
 
+
+function addOrderLine() {
+  orderForm.lines.push({ itemId: '', quantity: 1, unitPrice: 0, discountRate: 0, taxRate: 0 })
+}
+
+function removeOrderLine(index: number) {
+  if (orderForm.lines.length > 1) orderForm.lines.splice(index, 1)
+}
 async function submit() {
   try {
     if (dialogType.value === 'request') {
       await createPurchaseRequest({ ...requestForm })
     } else {
-      await createPurchaseOrder({ ...orderForm, purchaseRequestId: orderForm.purchaseRequestId || undefined, expectedDate: orderForm.expectedDate || undefined })
+      await createPurchaseOrderV2({ supplierId: orderForm.supplierId, warehouseId: orderForm.warehouseId, currencyCode: orderForm.currencyCode, expectedDate: orderForm.expectedDate || undefined, note: orderForm.note || undefined, lines: orderForm.lines.map((line, index) => ({ ...line, sourceDocumentType: index === 0 && orderForm.purchaseRequestId ? 'PURCHASE_REQUEST' : undefined, sourceDocumentId: index === 0 ? orderForm.purchaseRequestId || undefined : undefined, sourceLineId: index === 0 ? orderForm.purchaseRequestId || undefined : undefined })) })
     }
     dialogVisible.value = false
     ElMessage.success(t('procurement.created'))
@@ -158,12 +163,17 @@ onMounted(load)
           <el-form-item :label="t('procurement.sourceRequest')"><el-select v-model="orderForm.purchaseRequestId" clearable class="full-width" @change="applyRequestToOrder"><el-option v-for="row in requests.filter((item) => item.status === 'APPROVED')" :key="row.id" :label="row.number" :value="row.id" /></el-select></el-form-item>
           <el-form-item :label="t('procurement.supplier')"><el-select v-model="orderForm.supplierId" class="full-width"><el-option v-for="row in suppliers" :key="row.id" :label="row.name" :value="row.id" /></el-select></el-form-item>
           <el-form-item :label="t('procurement.warehouse')"><el-select v-model="orderForm.warehouseId" class="full-width"><el-option v-for="row in warehouses" :key="row.id" :label="row.name" :value="row.id" /></el-select></el-form-item>
-          <el-form-item :label="t('procurement.item')"><el-select v-model="orderForm.itemId" class="full-width"><el-option v-for="row in items" :key="row.id" :label="row.name" :value="row.id" /></el-select></el-form-item>
-          <el-form-item :label="t('procurement.quantity')"><el-input-number v-model="orderForm.quantity" :min="0.0001" :precision="4" class="full-width" /></el-form-item>
-          <el-form-item :label="t('procurement.unitPrice')"><el-input-number v-model="orderForm.unitPrice" :min="0" :precision="4" class="full-width" /></el-form-item>
-          <el-form-item :label="t('procurement.taxRate')"><el-input-number v-model="orderForm.taxRate" :min="0" :max="100" :precision="4" class="full-width" /></el-form-item>
           <el-form-item :label="t('procurement.expectedDate')"><el-date-picker v-model="orderForm.expectedDate" type="date" value-format="YYYY-MM-DD" class="full-width" /></el-form-item>
         </div>
+        <div v-for="(line, index) in orderForm.lines" :key="index" class="operations-form-grid trade-line-editor">
+          <el-form-item :label="`${t('procurement.item')} #${index + 1}`"><el-select v-model="line.itemId" class="full-width"><el-option v-for="row in items" :key="row.id" :label="row.name" :value="row.id" /></el-select></el-form-item>
+          <el-form-item :label="t('procurement.quantity')"><el-input-number v-model="line.quantity" :min="0.0001" :precision="4" class="full-width" /></el-form-item>
+          <el-form-item :label="t('procurement.unitPrice')"><el-input-number v-model="line.unitPrice" :min="0" :precision="4" class="full-width" /></el-form-item>
+          <el-form-item :label="t('sales.discountRate')"><el-input-number v-model="line.discountRate" :min="0" :max="100" :precision="4" class="full-width" /></el-form-item>
+          <el-form-item :label="t('procurement.taxRate')"><el-input-number v-model="line.taxRate" :min="0" :max="100" :precision="4" class="full-width" /></el-form-item>
+          <el-form-item><el-button :disabled="orderForm.lines.length === 1" @click="removeOrderLine(index)">−</el-button></el-form-item>
+        </div>
+        <el-button plain @click="addOrderLine"><el-icon><Plus /></el-icon>{{ t('procurement.addLine', 'Add line') }}</el-button>
       </el-form>
       <template #footer><el-button @click="dialogVisible = false">{{ t('masterData.cancel') }}</el-button><el-button type="primary" @click="submit">{{ t('masterData.save') }}</el-button></template>
     </el-dialog>

@@ -1,8 +1,8 @@
 openapi: 3.0.3
 info:
-  title: Flowora ERP API v2 M2
+  title: Flowora ERP API v2 M3
   version: 2.0.0-SNAPSHOT
-  description: M2 contract for identity, master data, versioned workflows, collaboration, attachments and reliable notifications.
+  description: M3 contract for identity, master data, workflows, multi-line trade documents, advanced inventory, traceability and finance source events.
 servers:
   - url: http://localhost:8080
 security:
@@ -281,6 +281,182 @@ paths:
       operationId: listNotificationsV2
       responses:
         "200": { $ref: "#/components/responses/Success" }
+  /api/v2/sales/orders:
+    post:
+      operationId: createSalesOrderV2
+      parameters:
+        - { $ref: "#/components/parameters/IdempotencyKey" }
+        - { $ref: "#/components/parameters/CsrfHeader" }
+      responses:
+        "200": { $ref: "#/components/responses/Success" }
+        "409": { $ref: "#/components/responses/Error" }
+  /api/v2/sales/orders/{id}:
+    get:
+      operationId: getSalesOrderV2
+      parameters: [{ name: id, in: path, required: true, schema: { type: string } }]
+      responses:
+        "200": { $ref: "#/components/responses/Success" }
+  /api/v2/sales/orders/{id}/confirm:
+    post:
+      operationId: confirmSalesOrderV2
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string } }
+        - { name: version, in: query, required: true, schema: { type: integer, format: int64 } }
+        - { $ref: "#/components/parameters/CsrfHeader" }
+      responses:
+        "200": { $ref: "#/components/responses/Success" }
+        "409": { $ref: "#/components/responses/Error" }
+  /api/v2/procurement/orders:
+    post:
+      operationId: createPurchaseOrderV2
+      parameters:
+        - { $ref: "#/components/parameters/IdempotencyKey" }
+        - { $ref: "#/components/parameters/CsrfHeader" }
+      responses:
+        "200": { $ref: "#/components/responses/Success" }
+        "409": { $ref: "#/components/responses/Error" }
+  /api/v2/procurement/orders/{id}:
+    get:
+      operationId: getPurchaseOrderV2
+      parameters: [{ name: id, in: path, required: true, schema: { type: string } }]
+      responses:
+        "200": { $ref: "#/components/responses/Success" }
+  /api/v2/inventory/availability:
+    get:
+      operationId: listInventoryAvailability
+      parameters:
+        - { name: warehouseId, in: query, schema: { type: string } }
+        - { name: itemId, in: query, schema: { type: string } }
+      responses:
+        "200": { $ref: "#/components/responses/Success" }
+  /api/v2/inventory/receipts:
+    post:
+      operationId: postInventoryReceipt
+      parameters:
+        - { $ref: "#/components/parameters/IdempotencyKey" }
+        - { $ref: "#/components/parameters/CsrfHeader" }
+      responses:
+        "200": { $ref: "#/components/responses/Success" }
+  /api/v2/inventory/reservations:
+    post:
+      operationId: reserveInventory
+      parameters: [{ $ref: "#/components/parameters/CsrfHeader" }]
+      responses:
+        "200": { $ref: "#/components/responses/Success" }
+        "409": { $ref: "#/components/responses/Error" }
+  /api/v2/inventory/shipments:
+    post:
+      operationId: postInventoryShipment
+      parameters:
+        - { $ref: "#/components/parameters/IdempotencyKey" }
+        - { $ref: "#/components/parameters/CsrfHeader" }
+      responses:
+        "200": { $ref: "#/components/responses/Success" }
+  /api/v2/inventory/transfers:
+    post:
+      operationId: postInventoryTransfer
+      parameters:
+        - { $ref: "#/components/parameters/IdempotencyKey" }
+        - { $ref: "#/components/parameters/CsrfHeader" }
+      responses:
+        "200": { $ref: "#/components/responses/Success" }
+  /api/v2/inventory/freezes:
+    post:
+      operationId: freezeInventory
+      parameters: [{ $ref: "#/components/parameters/CsrfHeader" }]
+      responses:
+        "200": { $ref: "#/components/responses/Success" }
+  /api/v2/inventory/trace:
+    get:
+      operationId: traceInventory
+      parameters:
+        - { name: itemId, in: query, required: true, schema: { type: string } }
+        - { name: lotId, in: query, schema: { type: string } }
+        - { name: serialId, in: query, schema: { type: string } }
+      responses:
+        "200": { $ref: "#/components/responses/Success" }
+  /api/v2/sales/returns:
+    post:
+      operationId: postSalesReturn
+      parameters:
+        - { $ref: "#/components/parameters/IdempotencyKey" }
+        - { $ref: "#/components/parameters/CsrfHeader" }
+      responses:
+        "200": { $ref: "#/components/responses/Success" }
+  /api/v2/procurement/returns:
+    post:
+      operationId: postPurchaseReturn
+      parameters:
+        - { $ref: "#/components/parameters/IdempotencyKey" }
+        - { $ref: "#/components/parameters/CsrfHeader" }
+      responses:
+        "200": { $ref: "#/components/responses/Success" }
+  /api/v2/trade/financial-source-events:
+    get:
+      operationId: listTradeFinancialSourceEvents
+      responses:
+        "200": { $ref: "#/components/responses/Success" }
+  /api/v2/sales/orders/{id}/cancel:
+    post:
+      operationId: cancelSalesOrderV2
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string } }
+        - { name: version, in: query, required: true, schema: { type: integer, format: int64 } }
+        - { $ref: "#/components/parameters/CsrfHeader" }
+      responses:
+        "200": { $ref: "#/components/responses/Success" }
+        "409": { $ref: "#/components/responses/Error" }
+  /api/v2/procurement/orders/{id}/confirm:
+    post:
+      operationId: confirmPurchaseOrderV2
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string } }
+        - { name: version, in: query, required: true, schema: { type: integer, format: int64 } }
+        - { $ref: "#/components/parameters/CsrfHeader" }
+      responses:
+        "200": { $ref: "#/components/responses/Success" }
+        "409": { $ref: "#/components/responses/Error" }
+  /api/v2/procurement/orders/{id}/cancel:
+    post:
+      operationId: cancelPurchaseOrderV2
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string } }
+        - { name: version, in: query, required: true, schema: { type: integer, format: int64 } }
+        - { $ref: "#/components/parameters/CsrfHeader" }
+      responses:
+        "200": { $ref: "#/components/responses/Success" }
+        "409": { $ref: "#/components/responses/Error" }
+  /api/v2/inventory/reservations/{reservationId}/release:
+    post:
+      operationId: releaseInventoryReservation
+      parameters:
+        - { name: reservationId, in: path, required: true, schema: { type: string } }
+        - { $ref: "#/components/parameters/CsrfHeader" }
+      responses:
+        "200": { $ref: "#/components/responses/Success" }
+  /api/v2/inventory/reservations/expire:
+    post:
+      operationId: expireInventoryReservations
+      parameters: [{ $ref: "#/components/parameters/CsrfHeader" }]
+      responses:
+        "200": { $ref: "#/components/responses/Success" }
+  /api/v2/inventory/counts:
+    post:
+      operationId: postInventoryCount
+      parameters:
+        - { $ref: "#/components/parameters/IdempotencyKey" }
+        - { $ref: "#/components/parameters/CsrfHeader" }
+      responses:
+        "200": { $ref: "#/components/responses/Success" }
+        "409": { $ref: "#/components/responses/Error" }
+  /api/v2/inventory/freezes/{freezeId}/release:
+    post:
+      operationId: releaseInventoryFreeze
+      parameters:
+        - { name: freezeId, in: path, required: true, schema: { type: string } }
+        - { $ref: "#/components/parameters/CsrfHeader" }
+      responses:
+        "200": { $ref: "#/components/responses/Success" }
 components:
   securitySchemes:
     sessionCookie: { type: apiKey, in: cookie, name: SESSION }
@@ -288,6 +464,7 @@ components:
     CsrfHeader: { name: X-XSRF-TOKEN, in: header, required: true, schema: { type: string } }
     IfMatch: { name: If-Match, in: header, required: true, schema: { type: integer, format: int64 } }
     SessionId: { name: sessionId, in: path, required: true, schema: { type: string } }
+    IdempotencyKey: { name: Idempotency-Key, in: header, required: true, schema: { type: string, maxLength: 128 } }
   responses:
     Success:
       description: Successful response with request correlation ID
