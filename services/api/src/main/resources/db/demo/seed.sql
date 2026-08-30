@@ -3,6 +3,21 @@
 SET FOREIGN_KEY_CHECKS = 0;
 
 DELETE FROM flowora_idempotency_record WHERE organization_id = 'org-demo';
+DELETE FROM flowora_delivery_attempt WHERE outbox_event_id IN (SELECT id FROM flowora_outbox_event WHERE organization_id = 'org-demo');
+DELETE FROM flowora_outbox_event WHERE organization_id = 'org-demo';
+DELETE FROM flowora_mention WHERE organization_id = 'org-demo';
+DELETE FROM flowora_attachment WHERE organization_id = 'org-demo';
+DELETE FROM flowora_workflow_decision WHERE organization_id = 'org-demo';
+DELETE FROM flowora_workflow_approval_task WHERE organization_id = 'org-demo';
+DELETE FROM flowora_workflow_step_instance WHERE workflow_instance_id IN (SELECT id FROM flowora_workflow_instance WHERE organization_id = 'org-demo');
+DELETE FROM flowora_workflow_instance WHERE organization_id = 'org-demo';
+DELETE FROM flowora_workflow_delegation WHERE organization_id = 'org-demo';
+DELETE FROM flowora_workflow_transition_definition WHERE workflow_version_id IN (SELECT version.id FROM flowora_workflow_version version JOIN flowora_workflow_template template ON template.id = version.template_id WHERE template.organization_id = 'org-demo');
+DELETE FROM flowora_workflow_step_definition WHERE workflow_version_id IN (SELECT version.id FROM flowora_workflow_version version JOIN flowora_workflow_template template ON template.id = version.template_id WHERE template.organization_id = 'org-demo');
+UPDATE flowora_workflow_template SET current_version_id = NULL WHERE organization_id = 'org-demo';
+DELETE FROM flowora_workflow_version WHERE template_id IN (SELECT id FROM flowora_workflow_template WHERE organization_id = 'org-demo');
+DELETE FROM flowora_workflow_template WHERE organization_id = 'org-demo';
+
 DELETE FROM flowora_audit_event WHERE organization_id = 'org-demo';
 DELETE FROM flowora_activity_event WHERE organization_id = 'org-demo';
 DELETE FROM flowora_comment WHERE organization_id = 'org-demo';

@@ -118,7 +118,7 @@ public class PlatformDirectoryService {
     @Transactional(readOnly = true)
     public List<PermissionView> permissions() {
         return jdbcTemplate.query("""
-                SELECT code, resource_code, action_code, description, sensitive
+                SELECT code, resource_code, action_code, description, `sensitive`
                 FROM flowora_permission ORDER BY resource_code, action_code
                 """, (rs, row) -> new PermissionView(
                 rs.getString("code"), rs.getString("resource_code"), rs.getString("action_code"),

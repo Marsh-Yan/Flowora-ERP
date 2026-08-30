@@ -41,6 +41,9 @@ public class SalesQuoteEntity extends SalesEntity {
     @Column(name = "workflow_task_id", length = 36)
     private String workflowTaskId;
 
+    @Column(name = "workflow_instance_id", length = 36)
+    private String workflowInstanceId;
+
     @Column(name = "approved_at")
     private Instant approvedAt;
 
@@ -72,10 +75,16 @@ public class SalesQuoteEntity extends SalesEntity {
     public String requesterUserId() { return requesterUserId; }
     public String workflowTaskId() { return workflowTaskId; }
     public Instant approvedAt() { return approvedAt; }
+    public String workflowInstanceId() { return workflowInstanceId; }
     public Instant convertedAt() { return convertedAt; }
 
     public void submitForApproval(String workflowTaskId) {
         this.workflowTaskId = workflowTaskId;
+        this.status = SalesQuoteStatus.SUBMITTED;
+    }
+
+    public void submitForWorkflow(String workflowInstanceId) {
+        this.workflowInstanceId = workflowInstanceId;
         this.status = SalesQuoteStatus.SUBMITTED;
     }
 

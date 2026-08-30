@@ -33,6 +33,9 @@ public class PurchaseRequestEntity extends ProcurementEntity {
     @Column(name = "submitted_at")
     private Instant submittedAt;
 
+    @Column(name = "workflow_instance_id", length = 36)
+    private String workflowInstanceId;
+
     protected PurchaseRequestEntity() {
     }
 
@@ -53,12 +56,14 @@ public class PurchaseRequestEntity extends ProcurementEntity {
     public ProcurementDocumentStatus status() { return status; }
     public String note() { return note; }
     public Instant submittedAt() { return submittedAt; }
+    public String workflowInstanceId() { return workflowInstanceId; }
 
     public void submit() {
         status = ProcurementDocumentStatus.SUBMITTED;
         submittedAt = Instant.now();
     }
 
+    public void submitForWorkflow(String instanceId) { this.workflowInstanceId = instanceId; }
     public void approve() { status = ProcurementDocumentStatus.APPROVED; }
     public void reject() { status = ProcurementDocumentStatus.REJECTED; }
     public void cancel() { status = ProcurementDocumentStatus.CANCELLED; }
