@@ -458,6 +458,16 @@ export default {
       '61_90': '61–90 days',
       '90_PLUS': '90+ days',
     },
+    m4: {
+      title: 'Finance operations cockpit',
+      subtitle: 'Formal invoices, receipts and payments, posting, settlement and bank reconciliation in one place.',
+      receivables: 'Receivables', payables: 'Payables', netIncome: 'Net income', unmatched: 'Unmatched bank lines',
+      invoices: 'Formal invoices', payments: 'Receipts and payments', bank: 'Bank reconciliation',
+      newInvoice: 'New formal invoice', newPayment: 'New receipt / payment', type: 'Type', party: 'Customer / supplier',
+      quantity: 'Quantity', unitPrice: 'Unit price', taxRate: 'Tax rate (%)', reference: 'Reference', counterparty: 'Counterparty',
+      post: 'Post', posted: 'Document posted.', invoiceCreated: 'Invoice draft created.', paymentCreated: 'Payment draft created.',
+      loadFailed: 'Unable to load the M4 finance workspace.',
+    },
   },
   projects: {
     eyebrow: 'Project delivery',
@@ -538,6 +548,13 @@ export default {
     taskStatus: { TODO: 'To do', IN_PROGRESS: 'In progress', BLOCKED: 'Blocked', DONE: 'Done' },
     priorityValue: { LOW: 'Low', MEDIUM: 'Medium', HIGH: 'High' },
     basisType: { TIMESHEET: 'Timesheet', EXPENSE: 'Expense' },
+    m4: {
+      title: 'Billing and profitability',
+      subtitle: 'Turn approved delivery records into invoice drafts and track project profit.',
+      contract: 'Contract value', available: 'Available to bill', revenue: 'Posted revenue', cost: 'Posted cost',
+      grossProfit: 'Gross profit', closeEligible: 'Ready to close', saveBilling: 'Save billing setup',
+      createInvoice: 'Create invoice draft', invoiceCreated: 'Project invoice draft created.', saved: 'Billing setup saved.',
+    },
   },
   masterData: {
     eyebrow: 'Master data center',
