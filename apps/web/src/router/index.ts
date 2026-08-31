@@ -1,25 +1,5 @@
-import { createRouter, createWebHistory, type RouteRecordRaw } from 'vue-router'
-import AppLayout from '@/layouts/AppLayout.vue'
-import LoginView from '@/views/LoginView.vue'
-import MasterDataView from '@/views/MasterDataView.vue'
-import InventoryView from '@/views/InventoryView.vue'
-import ProcurementView from '@/views/ProcurementView.vue'
-import SalesView from '@/views/SalesView.vue'
-import WorkflowView from '@/views/WorkflowView.vue'
-import FinanceView from '@/views/FinanceView.vue'
-import ProjectsView from '@/views/ProjectsView.vue'
-import PlatformSettingsView from '@/views/PlatformSettingsView.vue'
-import AccountSecurityView from '@/views/AccountSecurityView.vue'
+import { createRouter, createWebHistory } from 'vue-router'
 import { useAuthStore } from '@/stores/auth'
-
-const placeholderRoutes: RouteRecordRaw[] = [
-  ['analytics', 'nav.analytics'],
-].map(([path, titleKey]) => ({
-  path,
-  name: path,
-  component: () => import('@/views/ModulePlaceholderView.vue'),
-  meta: { titleKey },
-}))
 
 const router = createRouter({
   history: createWebHistory(),
@@ -27,73 +7,78 @@ const router = createRouter({
     {
       path: '/login',
       name: 'login',
-      component: LoginView,
+      component: () => import('@/views/LoginView.vue'),
       meta: { public: true },
     },
     {
       path: '/',
-      component: AppLayout,
+      component: () => import('@/layouts/AppLayout.vue'),
       children: [
         { path: '', redirect: '/dashboard' },
         {
           path: 'dashboard',
           name: 'dashboard',
-          component: () => import('@/views/DashboardView.vue'),
+          component: () => import('@/views/RoleWorkspaceView.vue'),
           meta: { titleKey: 'nav.dashboard' },
         },
         {
           path: 'workflow',
           name: 'workflow',
-          component: WorkflowView,
+          component: () => import('@/views/WorkflowView.vue'),
           meta: { titleKey: 'nav.workflow', permission: 'workflow:view' },
         },
         {
           path: 'sales',
           name: 'sales',
-          component: SalesView,
+          component: () => import('@/views/SalesView.vue'),
           meta: { titleKey: 'nav.sales', permission: 'sales:view' },
         },
         {
           path: 'procurement',
           name: 'procurement',
-          component: ProcurementView,
+          component: () => import('@/views/ProcurementView.vue'),
           meta: { titleKey: 'nav.procurement', permission: 'procurement:view' },
         },
         {
           path: 'inventory',
           name: 'inventory',
-          component: InventoryView,
+          component: () => import('@/views/InventoryView.vue'),
           meta: { titleKey: 'nav.inventory', permission: 'inventory:view' },
         },
         {
           path: 'finance',
           name: 'finance',
-          component: FinanceView,
+          component: () => import('@/views/FinanceView.vue'),
           meta: { titleKey: 'nav.finance', permission: 'finance:view' },
         },
         {
           path: 'projects',
           name: 'projects',
-          component: ProjectsView,
+          component: () => import('@/views/ProjectsView.vue'),
           meta: { titleKey: 'nav.projects', permission: 'project:view' },
         },
-        ...placeholderRoutes,
+        {
+          path: 'analytics',
+          name: 'analytics',
+          component: () => import('@/views/AnalyticsView.vue'),
+          meta: { titleKey: 'nav.analytics', permission: 'analytics:view' },
+        },
         {
           path: 'platform',
           name: 'platform-settings',
-          component: PlatformSettingsView,
+          component: () => import('@/views/PlatformSettingsView.vue'),
           meta: { titleKey: 'nav.platform', permission: 'organization:view' },
         },
         {
           path: 'account/security',
           name: 'account-security',
-          component: AccountSecurityView,
+          component: () => import('@/views/AccountSecurityView.vue'),
           meta: { titleKey: 'nav.accountSecurity' },
         },
         {
           path: 'settings',
           name: 'settings',
-          component: MasterDataView,
+          component: () => import('@/views/MasterDataView.vue'),
           meta: { titleKey: 'nav.settings' },
         },
       ],

@@ -23,7 +23,7 @@ import java.util.List;
 import static com.flowora.erp.project.ProjectDtos.*;
 
 @RestController
-@RequestMapping("/api/v1/projects")
+@RequestMapping({"/api/v1/projects", "/api/v2/compat/projects"})
 public class ProjectController {
     private final ProjectService service;
 

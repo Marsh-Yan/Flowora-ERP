@@ -125,61 +125,61 @@ export interface ManualJournalInput {
 }
 
 export async function listJournalEntries(from?: string, to?: string, page = 0, size = 30) {
-  const response = await apiClient.get<ApiEnvelope<PageResponse<JournalEntry>>>('/v1/finance/journals', { params: { from, to, page, size } })
+  const response = await apiClient.get<ApiEnvelope<PageResponse<JournalEntry>>>('/v2/compat/finance/journals', { params: { from, to, page, size } })
   return response.data.data
 }
 
 export async function createManualJournal(payload: ManualJournalInput) {
-  const response = await apiClient.post<ApiEnvelope<JournalEntry>>('/v1/finance/journals/manual', payload)
+  const response = await apiClient.post<ApiEnvelope<JournalEntry>>('/v2/compat/finance/journals/manual', payload)
   return response.data.data
 }
 
 export async function listAccountingPeriods(page = 0, size = 24) {
-  const response = await apiClient.get<ApiEnvelope<PageResponse<AccountingPeriod>>>('/v1/finance/periods', { params: { page, size } })
+  const response = await apiClient.get<ApiEnvelope<PageResponse<AccountingPeriod>>>('/v2/compat/finance/periods', { params: { page, size } })
   return response.data.data
 }
 
 export async function closeAccountingPeriod(id: string) {
-  const response = await apiClient.post<ApiEnvelope<AccountingPeriod>>(`/v1/finance/periods/${id}/close`)
+  const response = await apiClient.post<ApiEnvelope<AccountingPeriod>>(`/v2/compat/finance/periods/${id}/close`)
   return response.data.data
 }
 
 export async function getTrialBalance(from?: string, to?: string) {
-  const response = await apiClient.get<ApiEnvelope<TrialBalanceResponse>>('/v1/finance/reports/trial-balance', { params: { from, to } })
+  const response = await apiClient.get<ApiEnvelope<TrialBalanceResponse>>('/v2/compat/finance/reports/trial-balance', { params: { from, to } })
   return response.data.data
 }
 
 export async function getIncomeStatement(from?: string, to?: string) {
-  const response = await apiClient.get<ApiEnvelope<FinancialStatementResponse>>('/v1/finance/reports/income-statement', { params: { from, to } })
+  const response = await apiClient.get<ApiEnvelope<FinancialStatementResponse>>('/v2/compat/finance/reports/income-statement', { params: { from, to } })
   return response.data.data
 }
 
 export async function getBalanceSheet(from?: string, to?: string) {
-  const response = await apiClient.get<ApiEnvelope<FinancialStatementResponse>>('/v1/finance/reports/balance-sheet', { params: { from, to } })
+  const response = await apiClient.get<ApiEnvelope<FinancialStatementResponse>>('/v2/compat/finance/reports/balance-sheet', { params: { from, to } })
   return response.data.data
 }
 
 export async function listPayables(query = '', page = 0, size = 30) {
-  const response = await apiClient.get<ApiEnvelope<PageResponse<Payable>>>('/v1/finance/payables', { params: { query, page, size } })
+  const response = await apiClient.get<ApiEnvelope<PageResponse<Payable>>>('/v2/compat/finance/payables', { params: { query, page, size } })
   return response.data.data
 }
 
 export async function listSupplierPayments(payableId: string, page = 0, size = 20) {
-  const response = await apiClient.get<ApiEnvelope<PageResponse<SupplierPayment>>>(`/v1/finance/payables/${payableId}/payments`, { params: { page, size } })
+  const response = await apiClient.get<ApiEnvelope<PageResponse<SupplierPayment>>>(`/v2/compat/finance/payables/${payableId}/payments`, { params: { page, size } })
   return response.data.data
 }
 
 export async function createSupplierPayment(payload: { payableId: string; amount: number; method: PaymentMethod; paymentDate: string; reference?: string }) {
-  const response = await apiClient.post<ApiEnvelope<SupplierPayment>>('/v1/finance/supplier-payments', payload)
+  const response = await apiClient.post<ApiEnvelope<SupplierPayment>>('/v2/compat/finance/supplier-payments', payload)
   return response.data.data
 }
 
 export async function getReceivableAging(asOf?: string) {
-  const response = await apiClient.get<ApiEnvelope<AgingRow[]>>('/v1/finance/reports/aging/receivables', { params: { asOf } })
+  const response = await apiClient.get<ApiEnvelope<AgingRow[]>>('/v2/compat/finance/reports/aging/receivables', { params: { asOf } })
   return response.data.data
 }
 
 export async function getPayableAging(asOf?: string) {
-  const response = await apiClient.get<ApiEnvelope<AgingRow[]>>('/v1/finance/reports/aging/payables', { params: { asOf } })
+  const response = await apiClient.get<ApiEnvelope<AgingRow[]>>('/v2/compat/finance/reports/aging/payables', { params: { asOf } })
   return response.data.data
 }

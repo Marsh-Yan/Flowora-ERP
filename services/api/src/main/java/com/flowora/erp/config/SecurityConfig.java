@@ -9,6 +9,7 @@ import org.springframework.security.config.annotation.web.builders.HttpSecurity;
 import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.security.web.SecurityFilterChain;
+import org.springframework.security.web.header.writers.ReferrerPolicyHeaderWriter;
 import org.springframework.security.web.csrf.CookieCsrfTokenRepository;
 import org.springframework.security.web.csrf.CsrfTokenRequestAttributeHandler;
 import org.springframework.web.cors.CorsConfiguration;
@@ -32,6 +33,12 @@ public class SecurityConfig {
         CsrfTokenRequestAttributeHandler csrfRequestHandler = new CsrfTokenRequestAttributeHandler();
         csrfRequestHandler.setCsrfRequestAttributeName(null);
         http
+                .headers(headers -> headers
+                        .contentSecurityPolicy(csp -> csp.policyDirectives("default-src 'self'; object-src 'none'; frame-ancestors 'none'; base-uri 'self'; img-src 'self' data:; font-src 'self' data:; style-src 'self' 'unsafe-inline'; connect-src 'self'"))
+                        .frameOptions(frame -> frame.deny())
+                        .referrerPolicy(referrer -> referrer.policy(ReferrerPolicyHeaderWriter.ReferrerPolicy.STRICT_ORIGIN_WHEN_CROSS_ORIGIN))
+                        .permissionsPolicyHeader(policy -> policy.policy("camera=(), microphone=(), geolocation=()"))
+                )
                 .cors(cors -> cors.configurationSource(corsConfigurationSource))
                 .csrf(csrf -> csrf
                         .csrfTokenRepository(csrfTokenRepository)
@@ -49,7 +56,7 @@ public class SecurityConfig {
                         .maximumSessions(3)
                 )
                 .authorizeHttpRequests(authorize -> authorize
-                        .requestMatchers(HttpMethod.GET, "/api/v1/health", "/api/v1/auth/csrf", "/actuator/health").permitAll()
+                        .requestMatchers(HttpMethod.GET, "/api/v1/health", "/api/v1/auth/csrf", "/actuator/health", "/actuator/health/**", "/actuator/prometheus").permitAll()
                         .requestMatchers(HttpMethod.GET, "/api/v2/system/version", "/api/v2/session/csrf").permitAll()
                         .requestMatchers(HttpMethod.POST, "/api/v1/auth/login", "/api/v2/session/login").permitAll()
                         .requestMatchers("/api/v1/auth/me", "/api/v1/auth/logout").authenticated()

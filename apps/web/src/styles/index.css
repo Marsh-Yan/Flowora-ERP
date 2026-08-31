@@ -1541,3 +1541,15 @@ input {
     flex-direction: column;
   }
 }
+
+.skip-link {
+  position: fixed;
+  left: 12px;
+  top: -60px;
+  z-index: 9999;
+  padding: 10px 14px;
+  border-radius: 8px;
+  background: var(--flowora-navy);
+  color: white;
+}
+.skip-link:focus { top: 12px; }

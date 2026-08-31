@@ -22,11 +22,11 @@ interface ApiResponse<T> {
 }
 
 export async function getDemoStatus() {
-  const response = await apiClient.get<ApiResponse<DemoDataStatus>>('/v1/demo/status')
+  const response = await apiClient.get<ApiResponse<DemoDataStatus>>('/v2/demo/status')
   return response.data.data
 }
 
 export async function resetDemoData() {
-  const response = await apiClient.post<ApiResponse<DemoDataStatus>>('/v1/demo/reset')
+  const response = await apiClient.post<ApiResponse<DemoDataStatus>>('/v2/demo/reset')
   return response.data.data
 }

@@ -27,7 +27,7 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
 @RestController
-@RequestMapping("/api/v1/workflow")
+@RequestMapping({"/api/v1/workflow", "/api/v2/compat/workflow"})
 public class WorkflowController {
     private final WorkflowService service;
 

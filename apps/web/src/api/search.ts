@@ -14,6 +14,6 @@ interface ApiEnvelope<T> {
 }
 
 export async function searchWorkspace(query: string) {
-  const response = await apiClient.get<ApiEnvelope<{ results: SearchResult[] }>>('/v1/search', { params: { query } })
+  const response = await apiClient.get<ApiEnvelope<{ results: SearchResult[] }>>('/v2/search', { params: { query } })
   return response.data.data.results
 }

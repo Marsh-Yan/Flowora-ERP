@@ -70,25 +70,25 @@ export interface PurchaseOrderInput {
 }
 
 export async function listPurchaseRequests(query = '', page = 0, size = 20) {
-  const response = await apiClient.get<ApiEnvelope<PageResponse<PurchaseRequest>>>('/v1/procurement/requests', { params: { query, page, size } })
+  const response = await apiClient.get<ApiEnvelope<PageResponse<PurchaseRequest>>>('/v2/compat/procurement/requests', { params: { query, page, size } })
   return response.data.data
 }
 
 export async function createPurchaseRequest(payload: PurchaseRequestInput) {
-  const response = await apiClient.post<ApiEnvelope<PurchaseRequest>>('/v1/procurement/requests', payload)
+  const response = await apiClient.post<ApiEnvelope<PurchaseRequest>>('/v2/compat/procurement/requests', payload)
   return response.data.data
 }
 
 export async function listPurchaseOrders(query = '', page = 0, size = 20) {
-  const response = await apiClient.get<ApiEnvelope<PageResponse<PurchaseOrder>>>('/v1/procurement/orders', { params: { query, page, size } })
+  const response = await apiClient.get<ApiEnvelope<PageResponse<PurchaseOrder>>>('/v2/compat/procurement/orders', { params: { query, page, size } })
   return response.data.data
 }
 
 export async function createPurchaseOrder(payload: PurchaseOrderInput) {
-  const response = await apiClient.post<ApiEnvelope<PurchaseOrder>>('/v1/procurement/orders', payload)
+  const response = await apiClient.post<ApiEnvelope<PurchaseOrder>>('/v2/compat/procurement/orders', payload)
   return response.data.data
 }
 
 export async function cancelPurchaseOrder(id: string) {
-  await apiClient.delete(`/v1/procurement/orders/${id}`)
+  await apiClient.delete(`/v2/compat/procurement/orders/${id}`)
 }

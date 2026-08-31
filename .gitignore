@@ -4,6 +4,7 @@ node_modules/
 
 # Project-local caches and build outputs
 .cache/
+.flowora/
 dist/
 coverage/
 target/

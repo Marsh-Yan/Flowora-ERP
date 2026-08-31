@@ -27,15 +27,19 @@ management:
   endpoints:
     web:
       exposure:
-        include: health,info
+        include: health,info,prometheus
   endpoint:
     health:
       show-details: never
+  metrics:
+    tags:
+      application: ${spring.application.name}
+
 
 flowora:
   release:
     version: ${FLOWORA_RELEASE_VERSION:2.0.0-SNAPSHOT}
-    stage: ${FLOWORA_RELEASE_STAGE:M4}
+    stage: ${FLOWORA_RELEASE_STAGE:M5}
     v2-business-writes-enabled: ${FLOWORA_V2_BUSINESS_WRITES_ENABLED:false}
   security:
     max-login-failures: ${FLOWORA_MAX_LOGIN_FAILURES:5}
@@ -48,6 +52,13 @@ flowora:
     root: ${FLOWORA_ATTACHMENT_ROOT:.flowora/attachments}
     max-bytes: ${FLOWORA_ATTACHMENT_MAX_BYTES:20971520}
     allowed-types: ${FLOWORA_ATTACHMENT_ALLOWED_TYPES:application/pdf,image/png,image/jpeg,text/plain,text/csv}
+  export:
+    root: ${FLOWORA_EXPORT_ROOT:.flowora/exports}
+    retention-hours: ${FLOWORA_EXPORT_RETENTION_HOURS:24}
+    maximum-rows: ${FLOWORA_EXPORT_MAXIMUM_ROWS:100000}
+    cleanup-delay-ms: ${FLOWORA_EXPORT_CLEANUP_DELAY_MS:3600000}
+  compatibility:
+    v1-read-only: ${FLOWORA_V1_READ_ONLY:true}
   cors:
     allowed-origins: http://localhost:5173
   demo:

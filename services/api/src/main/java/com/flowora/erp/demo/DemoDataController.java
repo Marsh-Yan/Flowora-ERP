@@ -14,7 +14,7 @@ import org.springframework.web.bind.annotation.RestController;
 
 @RestController
 @Conditional(DemoDataEnabledCondition.class)
-@RequestMapping("/api/v1/demo")
+@RequestMapping({"/api/v1/demo", "/api/v2/demo"})
 public class DemoDataController {
     private final DemoDataService service;
 

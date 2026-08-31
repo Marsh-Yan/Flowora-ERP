@@ -30,7 +30,7 @@ import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
 @RestController
-@RequestMapping("/api/v1/inventory")
+@RequestMapping({"/api/v1/inventory", "/api/v2/compat/inventory"})
 public class InventoryController {
     private final InventoryService service;
 

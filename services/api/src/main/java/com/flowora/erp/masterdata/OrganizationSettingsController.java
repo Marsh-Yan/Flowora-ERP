@@ -16,7 +16,7 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
 @RestController
-@RequestMapping("/api/v1/organizations/settings")
+@RequestMapping({"/api/v1/organizations/settings", "/api/v2/organizations/settings"})
 public class OrganizationSettingsController {
     private final MasterDataService service;
 

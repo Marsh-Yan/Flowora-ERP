@@ -2,6 +2,9 @@
 -- the flowora_demo_control row lock, so reset and startup seeding are repeatable.
 SET FOREIGN_KEY_CHECKS = 0;
 
+DELETE FROM flowora_export_job WHERE organization_id = 'org-demo';
+DELETE FROM flowora_saved_view WHERE organization_id = 'org-demo';
+
 DELETE FROM flowora_currency_revaluation_line WHERE organization_id = 'org-demo';
 DELETE FROM flowora_currency_revaluation WHERE organization_id = 'org-demo';
 DELETE FROM flowora_budget_line_v2 WHERE organization_id = 'org-demo';
@@ -180,6 +183,14 @@ SELECT 'role-demo-project', code FROM flowora_permission WHERE code IN
 
 INSERT INTO flowora_role_permission (role_id, permission_code)
 SELECT 'role-demo-management', code FROM flowora_permission WHERE action_code IN ('view','approve') OR code IN ('workflow:approve','finance:match-exception');
+
+INSERT IGNORE INTO flowora_role_permission(role_id,permission_code)
+SELECT id,'analytics:view' FROM flowora_role WHERE organization_id='org-demo';
+
+INSERT IGNORE INTO flowora_role_permission(role_id,permission_code)
+SELECT r.id,p.code FROM flowora_role r CROSS JOIN flowora_permission p
+WHERE r.organization_id='org-demo' AND r.code IN ('FINANCE','MANAGEMENT')
+  AND p.code IN ('analytics:export','analytics:cross-org');
 INSERT INTO flowora_currency (id, organization_id, code, name, symbol, decimal_places, active) VALUES
     ('currency-demo-usd', 'org-demo', 'USD', 'US Dollar', '$', 2, TRUE),
     ('currency-demo-cny', 'org-demo', 'CNY', 'Chinese Yuan', '¥', 2, TRUE),
