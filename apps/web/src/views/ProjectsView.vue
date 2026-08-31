@@ -4,6 +4,7 @@ import { onMounted, reactive, ref } from 'vue'
 import { ElMessage } from 'element-plus'
 import { Download, Plus, Printer, Refresh } from '@element-plus/icons-vue'
 import { useI18n } from 'vue-i18n'
+import ProjectFinancePanel from '@/components/projects/ProjectFinancePanel.vue'
 import { listMasterData, type MasterDataRecord } from '@/api/master-data'
 import { listSalesOrders, type SalesOrder } from '@/api/sales'
 import {
@@ -302,6 +303,7 @@ onMounted(load)
             <el-select :model-value="selectedProject.status" class="status-select" @update:model-value="updateStatus"><el-option v-for="status in statusOptions" :key="status" :label="label('projects.status', status)" :value="status" /></el-select>
           </div>
           <div class="project-metrics"><div><span>{{ t('projects.progress') }}</span><strong>{{ selectedProject.progressPercent }}%</strong></div><div><span>{{ t('projects.actualCost') }}</span><strong>{{ formatAmount(selectedProject.actualCost, selectedProject.currencyCode) }}</strong></div><div><span>{{ t('projects.actualHours') }}</span><strong>{{ selectedProject.actualHours }}</strong></div><div><span>{{ t('projects.billableAmount') }}</span><strong>{{ formatAmount(selectedProject.billableAmount, selectedProject.currencyCode) }}</strong></div></div>
+          <ProjectFinancePanel :project-id="selectedProject.id" />
           <el-tabs v-model="activeTab">
             <el-tab-pane :label="t('projects.milestones')" name="milestones"><div class="tab-toolbar"><el-button type="primary" plain size="small" @click="milestoneVisible = true"><el-icon><Plus /></el-icon>{{ t('projects.addMilestone') }}</el-button></div><el-table :data="milestones" size="small"><el-table-column prop="sequenceNo" label="#" width="55" /><el-table-column prop="name" :label="t('projects.name')" /><el-table-column prop="targetDate" :label="t('projects.targetDate')" width="125" /><el-table-column :label="t('projects.statusLabel')" width="135"><template #default="{ row }"><el-tag size="small" :type="statusType(row.status)">{{ label('projects.milestoneStatus', row.status) }}</el-tag></template></el-table-column></el-table></el-tab-pane>
             <el-tab-pane :label="t('projects.tasks')" name="tasks"><div class="tab-toolbar"><el-button type="primary" plain size="small" @click="taskVisible = true"><el-icon><Plus /></el-icon>{{ t('projects.addTask') }}</el-button></div><el-table :data="tasks" size="small"><el-table-column prop="title" :label="t('projects.task')" min-width="180" /><el-table-column prop="assigneeUserId" :label="t('projects.assignee')" width="130" /><el-table-column prop="estimatedHours" :label="t('projects.estimate')" width="95" /><el-table-column :label="t('projects.statusLabel')" width="140"><template #default="{ row }"><el-select size="small" :model-value="row.status" @update:model-value="updateTaskStatus(row, $event)"><el-option v-for="status in taskStatusOptions" :key="status" :label="label('projects.taskStatus', status)" :value="status" /></el-select></template></el-table-column></el-table></el-tab-pane>

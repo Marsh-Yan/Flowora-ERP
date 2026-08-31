@@ -1,8 +1,8 @@
 openapi: 3.0.3
 info:
-  title: Flowora ERP API v2 M3
+  title: Flowora ERP API v2 M4
   version: 2.0.0-SNAPSHOT
-  description: M3 contract for identity, master data, workflows, multi-line trade documents, advanced inventory, traceability and finance source events.
+  description: M4 contract for identity, master data, workflows, trade, advanced inventory, formal finance documents, settlement, bank reconciliation and project accounting.
 servers:
   - url: http://localhost:8080
 security:
@@ -457,6 +457,86 @@ paths:
         - { $ref: "#/components/parameters/CsrfHeader" }
       responses:
         "200": { $ref: "#/components/responses/Success" }
+  /api/v2/finance/invoices:
+    get:
+      operationId: listFormalInvoices
+      responses: { "200": { $ref: "#/components/responses/Success" } }
+    post:
+      operationId: createFormalInvoice
+      parameters:
+        - { $ref: "#/components/parameters/IdempotencyKey" }
+        - { $ref: "#/components/parameters/CsrfHeader" }
+      responses:
+        "200": { $ref: "#/components/responses/Success" }
+        "409": { $ref: "#/components/responses/Error" }
+  /api/v2/finance/invoices/{invoiceId}/post:
+    post:
+      operationId: postFormalInvoice
+      parameters:
+        - { name: invoiceId, in: path, required: true, schema: { type: string } }
+        - { name: version, in: query, required: true, schema: { type: integer, format: int64 } }
+        - { $ref: "#/components/parameters/CsrfHeader" }
+      responses: { "200": { $ref: "#/components/responses/Success" }, "409": { $ref: "#/components/responses/Error" } }
+  /api/v2/finance/payments:
+    get:
+      operationId: listFinancePayments
+      responses: { "200": { $ref: "#/components/responses/Success" } }
+    post:
+      operationId: createFinancePayment
+      parameters:
+        - { $ref: "#/components/parameters/IdempotencyKey" }
+        - { $ref: "#/components/parameters/CsrfHeader" }
+      responses: { "200": { $ref: "#/components/responses/Success" } }
+  /api/v2/finance/payments/{paymentId}/allocations:
+    post:
+      operationId: allocateFinancePayment
+      parameters:
+        - { name: paymentId, in: path, required: true, schema: { type: string } }
+        - { $ref: "#/components/parameters/CsrfHeader" }
+      responses: { "200": { $ref: "#/components/responses/Success" }, "409": { $ref: "#/components/responses/Error" } }
+  /api/v2/finance/journals:
+    get:
+      operationId: listPostedJournals
+      responses: { "200": { $ref: "#/components/responses/Success" } }
+  /api/v2/finance/bank/statements/import:
+    post:
+      operationId: importBankStatement
+      parameters: [{ $ref: "#/components/parameters/CsrfHeader" }]
+      responses: { "200": { $ref: "#/components/responses/Success" }, "409": { $ref: "#/components/responses/Error" } }
+  /api/v2/finance/bank/reconciliations:
+    get:
+      operationId: listBankReconciliations
+      responses: { "200": { $ref: "#/components/responses/Success" } }
+    post:
+      operationId: createBankReconciliation
+      parameters: [{ $ref: "#/components/parameters/CsrfHeader" }]
+      responses: { "200": { $ref: "#/components/responses/Success" } }
+  /api/v2/finance/reports/trial-balance:
+    get:
+      operationId: getTrialBalanceV2
+      responses: { "200": { $ref: "#/components/responses/Success" } }
+  /api/v2/finance/dashboard:
+    get:
+      operationId: getFinanceDashboard
+      responses: { "200": { $ref: "#/components/responses/Success" } }
+  /api/v2/projects/{projectId}/billing-basis:
+    get:
+      operationId: listProjectBillingBasisV2
+      parameters: [{ name: projectId, in: path, required: true, schema: { type: string } }]
+      responses: { "200": { $ref: "#/components/responses/Success" } }
+  /api/v2/projects/{projectId}/invoices:
+    post:
+      operationId: createProjectInvoice
+      parameters:
+        - { name: projectId, in: path, required: true, schema: { type: string } }
+        - { $ref: "#/components/parameters/IdempotencyKey" }
+        - { $ref: "#/components/parameters/CsrfHeader" }
+      responses: { "200": { $ref: "#/components/responses/Success" } }
+  /api/v2/projects/{projectId}/profitability:
+    get:
+      operationId: getProjectProfitability
+      parameters: [{ name: projectId, in: path, required: true, schema: { type: string } }]
+      responses: { "200": { $ref: "#/components/responses/Success" } }
 components:
   securitySchemes:
     sessionCookie: { type: apiKey, in: cookie, name: SESSION }

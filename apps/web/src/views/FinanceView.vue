@@ -3,6 +3,7 @@ import { computed, onMounted, reactive, ref } from 'vue'
 import { ElMessage } from 'element-plus'
 import { CreditCard, Plus, Refresh } from '@element-plus/icons-vue'
 import { useI18n } from 'vue-i18n'
+import FinanceClosurePanel from '@/components/finance/FinanceClosurePanel.vue'
 import {
   closeAccountingPeriod,
   createManualJournal,
@@ -182,6 +183,8 @@ onMounted(load)
         <el-button type="primary" round @click="openManualJournal"><el-icon><Plus /></el-icon>{{ t('finance.manualJournal') }}</el-button>
       </div>
     </div>
+
+    <FinanceClosurePanel />
 
     <div class="inventory-summary-grid">
       <el-card shadow="never"><span class="eyebrow">{{ t('finance.postedDebit') }}</span><strong>{{ formatAmount(postedTotal) }}</strong><small>{{ t('finance.postedDebitHint') }}</small></el-card>

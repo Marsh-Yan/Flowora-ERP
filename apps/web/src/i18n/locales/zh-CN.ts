@@ -457,6 +457,15 @@ export default {
       '61_90': '61–90 天',
       '90_PLUS': '90 天以上',
     },
+    m4: {
+      title: '财务运营工作台',
+      subtitle: '统一处理正式发票、收付款、过账、核销和银行对账。',
+      receivables: '应收余额', payables: '应付余额', netIncome: '净利润', unmatched: '未匹配银行流水',
+      invoices: '正式发票', payments: '收付款', bank: '银行对账', newInvoice: '新建正式发票', newPayment: '新建收付款',
+      type: '类型', party: '客户 / 供应商', quantity: '数量', unitPrice: '单价', taxRate: '税率（%）',
+      reference: '参考号', counterparty: '交易对方', post: '过账', posted: '单据已过账。',
+      invoiceCreated: '发票草稿已创建。', paymentCreated: '收付款草稿已创建。', loadFailed: 'M4 财务工作台加载失败。',
+    },
   },
   projects: {
     eyebrow: '项目交付',
@@ -480,6 +489,12 @@ export default {
     taskStatus: { TODO: '待开始', IN_PROGRESS: '进行中', BLOCKED: '已阻塞', DONE: '已完成' },
     priorityValue: { LOW: '低', MEDIUM: '中', HIGH: '高' },
     basisType: { TIMESHEET: '工时', EXPENSE: '费用' },
+    m4: {
+      title: '项目计费与利润', subtitle: '将已审批的交付记录生成发票草稿，并跟踪项目利润。',
+      contract: '合同金额', available: '待计费金额', revenue: '已过账收入', cost: '已过账成本', grossProfit: '毛利',
+      closeEligible: '可否结项', saveBilling: '保存计费配置', createInvoice: '生成发票草稿',
+      invoiceCreated: '项目发票草稿已创建。', saved: '项目计费配置已保存。',
+    },
   },
   masterData: {
     eyebrow: '主数据中心',

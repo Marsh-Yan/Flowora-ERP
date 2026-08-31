@@ -2,6 +2,27 @@
 -- the flowora_demo_control row lock, so reset and startup seeding are repeatable.
 SET FOREIGN_KEY_CHECKS = 0;
 
+DELETE FROM flowora_currency_revaluation_line WHERE organization_id = 'org-demo';
+DELETE FROM flowora_currency_revaluation WHERE organization_id = 'org-demo';
+DELETE FROM flowora_budget_line_v2 WHERE organization_id = 'org-demo';
+DELETE FROM flowora_budget_version WHERE organization_id = 'org-demo';
+DELETE FROM flowora_bank_reconciliation_link WHERE organization_id = 'org-demo';
+DELETE FROM flowora_bank_reconciliation WHERE organization_id = 'org-demo';
+DELETE FROM flowora_bank_statement_line WHERE organization_id = 'org-demo';
+DELETE FROM flowora_bank_account WHERE organization_id = 'org-demo';
+DELETE FROM flowora_allocation_reversal WHERE organization_id = 'org-demo';
+DELETE FROM flowora_payment_allocation WHERE organization_id = 'org-demo';
+DELETE FROM flowora_payment_v2 WHERE organization_id = 'org-demo';
+DELETE FROM flowora_finance_invoice_source WHERE organization_id = 'org-demo';
+DELETE FROM flowora_finance_invoice_line WHERE organization_id = 'org-demo';
+DELETE FROM flowora_finance_invoice WHERE organization_id = 'org-demo';
+DELETE FROM flowora_period_close_check WHERE organization_id = 'org-demo';
+DELETE FROM flowora_period_status_event WHERE organization_id = 'org-demo';
+DELETE FROM flowora_project_billing_basis WHERE organization_id = 'org-demo';
+DELETE FROM flowora_project_member WHERE organization_id = 'org-demo';
+DELETE FROM flowora_posting_mapping WHERE organization_id = 'org-demo';
+DELETE FROM flowora_finance_setting WHERE organization_id = 'org-demo';
+
 DELETE FROM flowora_idempotency_record WHERE organization_id = 'org-demo';
 DELETE FROM flowora_financial_source_event WHERE organization_id = 'org-demo';
 DELETE FROM flowora_stock_count_line WHERE organization_id = 'org-demo';
@@ -83,6 +104,7 @@ DELETE FROM flowora_organization_membership WHERE organization_id = 'org-demo';
 DELETE FROM flowora_user_mfa WHERE user_id IN (SELECT id FROM flowora_user_account WHERE organization_id = 'org-demo');
 DELETE FROM flowora_password_reset_token WHERE user_id IN (SELECT id FROM flowora_user_account WHERE organization_id = 'org-demo');
 DELETE FROM flowora_password_history WHERE user_id IN (SELECT id FROM flowora_user_account WHERE organization_id = 'org-demo');
+DELETE FROM flowora_role_permission WHERE role_id IN (SELECT id FROM flowora_role WHERE organization_id = 'org-demo');
 DELETE FROM flowora_security_event WHERE organization_id = 'org-demo';
 DELETE FROM flowora_role WHERE organization_id = 'org-demo';
 DELETE FROM flowora_user_account WHERE organization_id = 'org-demo';
@@ -132,9 +154,36 @@ INSERT INTO flowora_membership_role (membership_id, role_id) VALUES
     ('membership-user-demo-finance', 'role-demo-finance'),
     ('membership-user-demo-project', 'role-demo-project'),
     ('membership-user-demo-manager', 'role-demo-management');
+
+INSERT INTO flowora_role_permission (role_id, permission_code)
+SELECT 'role-demo-admin', code FROM flowora_permission;
+
+INSERT INTO flowora_role_permission (role_id, permission_code)
+SELECT 'role-demo-business', code FROM flowora_permission WHERE code IN
+('master:view','master:create','master:edit','sales:view','sales:create','sales:submit',
+ 'procurement:view','procurement:create','procurement:submit','workflow:view');
+
+INSERT INTO flowora_role_permission (role_id, permission_code)
+SELECT 'role-demo-warehouse', code FROM flowora_permission WHERE code IN
+('master:view','inventory:view','inventory:create','inventory:post','inventory:reserve',
+ 'inventory:trace','inventory:freeze','inventory:return','workflow:view');
+
+INSERT INTO flowora_role_permission (role_id, permission_code)
+SELECT 'role-demo-finance', code FROM flowora_permission WHERE code IN
+('master:view','finance:view','finance:create','finance:post','finance:invoice',
+ 'finance:match-exception','finance:allocate','finance:period-reopen','finance:bank',
+ 'finance:budget','trade:financial-source','workflow:view');
+
+INSERT INTO flowora_role_permission (role_id, permission_code)
+SELECT 'role-demo-project', code FROM flowora_permission WHERE code IN
+('master:view','project:view','project:create','project:billing','workflow:view');
+
+INSERT INTO flowora_role_permission (role_id, permission_code)
+SELECT 'role-demo-management', code FROM flowora_permission WHERE action_code IN ('view','approve') OR code IN ('workflow:approve','finance:match-exception');
 INSERT INTO flowora_currency (id, organization_id, code, name, symbol, decimal_places, active) VALUES
     ('currency-demo-usd', 'org-demo', 'USD', 'US Dollar', '$', 2, TRUE),
     ('currency-demo-cny', 'org-demo', 'CNY', 'Chinese Yuan', '¥', 2, TRUE),
+
     ('currency-demo-eur', 'org-demo', 'EUR', 'Euro', '€', 2, TRUE);
 
 INSERT INTO flowora_exchange_rate (id, organization_id, base_currency_code, quote_currency_code, rate, effective_date, active) VALUES
@@ -149,9 +198,36 @@ INSERT INTO flowora_account (id, organization_id, code, name, account_type, pare
     ('account-demo-cash', 'org-demo', '1000', 'Cash and bank', 'ASSET', NULL, TRUE, TRUE),
     ('account-demo-receivable', 'org-demo', '1100', 'Accounts receivable', 'ASSET', NULL, TRUE, TRUE),
     ('account-demo-inventory', 'org-demo', '1400', 'Inventory assets', 'ASSET', NULL, TRUE, TRUE),
+    ('account-demo-tax-receivable', 'org-demo', '1500', 'Input tax', 'ASSET', NULL, TRUE, TRUE),
     ('account-demo-payable', 'org-demo', '2000', 'Accounts payable', 'LIABILITY', NULL, TRUE, TRUE),
+    ('account-demo-accrued-payable', 'org-demo', '2100', 'Accrued payable', 'LIABILITY', NULL, TRUE, TRUE),
+    ('account-demo-tax-payable', 'org-demo', '2200', 'Tax payable', 'LIABILITY', NULL, TRUE, TRUE),
     ('account-demo-revenue', 'org-demo', '4000', 'Operating revenue', 'REVENUE', NULL, TRUE, TRUE),
-    ('account-demo-expense', 'org-demo', '5000', 'Operating expense', 'EXPENSE', NULL, TRUE, TRUE);
+    ('account-demo-fx-gain', 'org-demo', '4100', 'Foreign exchange gain', 'REVENUE', NULL, TRUE, TRUE),
+    ('account-demo-expense', 'org-demo', '5000', 'Operating expense', 'EXPENSE', NULL, TRUE, TRUE),
+    ('account-demo-fx-loss', 'org-demo', '5100', 'Foreign exchange loss', 'EXPENSE', NULL, TRUE, TRUE),
+    ('account-demo-price-variance', 'org-demo', '5200', 'Purchase price variance', 'EXPENSE', NULL, TRUE, TRUE);
+INSERT INTO flowora_bank_account (id, organization_id, code, name, bank_name, account_number_masked, currency_code, ledger_account_code, active) VALUES
+    ('bank-account-demo-usd', 'org-demo', 'BANK-USD-001', 'Primary operating account', 'Flowora Demo Bank', '**** 2026', 'USD', '1000', TRUE);
+
+
+INSERT INTO flowora_finance_setting (organization_id, base_currency_code, fiscal_year_start_month,
+    match_quantity_tolerance, match_price_tolerance_rate, match_tax_tolerance) VALUES
+    ('org-demo', 'USD', 1, 0.0000, 2.0000, 1.0000);
+
+INSERT INTO flowora_posting_mapping (id, organization_id, semantic_code, account_code, rule_version, active) VALUES
+    ('map-demo-cash', 'org-demo', 'CASH', '1000', 1, TRUE),
+    ('map-demo-receivable', 'org-demo', 'RECEIVABLE', '1100', 1, TRUE),
+    ('map-demo-inventory', 'org-demo', 'INVENTORY', '1400', 1, TRUE),
+    ('map-demo-tax-receivable', 'org-demo', 'TAX_RECEIVABLE', '1500', 1, TRUE),
+    ('map-demo-payable', 'org-demo', 'PAYABLE', '2000', 1, TRUE),
+    ('map-demo-accrued', 'org-demo', 'ACCRUED_PAYABLE', '2100', 1, TRUE),
+    ('map-demo-tax-payable', 'org-demo', 'TAX_PAYABLE', '2200', 1, TRUE),
+    ('map-demo-revenue', 'org-demo', 'REVENUE', '4000', 1, TRUE),
+    ('map-demo-fx-gain', 'org-demo', 'FX_GAIN', '4100', 1, TRUE),
+    ('map-demo-expense', 'org-demo', 'EXPENSE', '5000', 1, TRUE),
+    ('map-demo-fx-loss', 'org-demo', 'FX_LOSS', '5100', 1, TRUE),
+    ('map-demo-price-variance', 'org-demo', 'PRICE_VARIANCE', '5200', 1, TRUE);
 
 INSERT INTO flowora_customer (id, organization_id, code, name, contact_name, email, phone, address, currency_code, payment_terms_days, active) VALUES
     ('customer-demo-001', 'org-demo', 'CUST-001', 'Acme Retail Group', 'Ava Chen', 'ava@acme.example', '+86-21-6000-1001', 'Shanghai', 'USD', 30, TRUE),
@@ -284,6 +360,13 @@ INSERT INTO flowora_journal_line (id, organization_id, journal_entry_id, line_no
     ('journal-line-demo-008', 'org-demo', 'journal-demo-customer-payment', 2, '1100', 'Receivable settlement', 0.0000, 400.0000, 'USD'),
     ('journal-line-demo-009', 'org-demo', 'journal-demo-supplier-payment', 1, '2000', 'Payable settlement', 300.0000, 0.0000, 'USD'),
     ('journal-line-demo-010', 'org-demo', 'journal-demo-supplier-payment', 2, '1000', 'Cash paid', 0.0000, 300.0000, 'USD');
+
+UPDATE flowora_journal_entry
+SET business_date=entry_date,accounting_date=entry_date,exchange_rate_date=entry_date,
+    base_currency_code=currency_code,exchange_rate=1,posted_by='user-demo-finance',posted_at=created_at
+WHERE organization_id='org-demo';
+UPDATE flowora_journal_line SET base_debit=debit,base_credit=credit WHERE organization_id='org-demo';
+
 
 INSERT INTO flowora_project (id, organization_id, number, name, description, customer_id, sales_order_id, manager_user_id, target_date, budget_revenue, budget_cost, currency_code, status) VALUES
     ('project-demo-1', 'org-demo', 'PROJ-DEMO-001', 'Acme rollout project', 'Demo project linked to the sales order and billable delivery work.', 'customer-demo-001', 'sales-order-demo-1', 'user-demo-project', '2026-09-30', 1800.0000, 900.0000, 'USD', 'ACTIVE');
