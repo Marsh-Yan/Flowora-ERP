@@ -5,6 +5,7 @@ import jakarta.servlet.ServletException;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 import org.springframework.web.filter.OncePerRequestFilter;
+import org.slf4j.MDC;
 
 import java.io.IOException;
 import java.util.UUID;
@@ -26,7 +27,12 @@ public class RequestIdFilter extends OncePerRequestFilter {
                 : "req_" + UUID.randomUUID();
         request.setAttribute(ATTRIBUTE, requestId);
         response.setHeader("X-Request-Id", requestId);
-        filterChain.doFilter(request, response);
+        MDC.put("requestId", requestId);
+        try {
+            filterChain.doFilter(request, response);
+        } finally {
+            MDC.remove("requestId");
+        }
     }
 
     public static String get(HttpServletRequest request) {

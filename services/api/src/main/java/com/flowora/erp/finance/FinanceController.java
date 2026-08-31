@@ -31,7 +31,7 @@ import java.time.LocalDate;
 import java.util.List;
 
 @RestController
-@RequestMapping("/api/v1/finance")
+@RequestMapping({"/api/v1/finance", "/api/v2/compat/finance"})
 public class FinanceController {
     private final AccountingService service;
 

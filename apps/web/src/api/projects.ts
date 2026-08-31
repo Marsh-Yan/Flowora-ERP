@@ -111,81 +111,81 @@ export interface BillingBasisRow {
 }
 
 export async function listProjects(query = '', status?: ProjectStatus, page = 0, size = 50) {
-  const response = await apiClient.get<ApiEnvelope<PageResponse<Project>>>('/v1/projects', { params: { query, status, page, size } })
+  const response = await apiClient.get<ApiEnvelope<PageResponse<Project>>>('/v2/compat/projects', { params: { query, status, page, size } })
   return response.data.data
 }
 
 export async function createProject(payload: { name: string; description?: string; customerId?: string; salesOrderId?: string; managerUserId?: string; targetDate: string; budgetRevenue?: number; budgetCost?: number; currencyCode?: string }) {
-  const response = await apiClient.post<ApiEnvelope<Project>>('/v1/projects', payload)
+  const response = await apiClient.post<ApiEnvelope<Project>>('/v2/compat/projects', payload)
   return response.data.data
 }
 
 export async function changeProjectStatus(id: string, status: ProjectStatus) {
-  const response = await apiClient.post<ApiEnvelope<Project>>(`/v1/projects/${id}/status`, { status })
+  const response = await apiClient.post<ApiEnvelope<Project>>(`/v2/compat/projects/${id}/status`, { status })
   return response.data.data
 }
 
 export async function getProjectSummary(id: string) {
-  const response = await apiClient.get<ApiEnvelope<Project>>(`/v1/projects/${id}/summary`)
+  const response = await apiClient.get<ApiEnvelope<Project>>(`/v2/compat/projects/${id}/summary`)
   return response.data.data
 }
 
 export async function listMilestones(projectId: string) {
-  const response = await apiClient.get<ApiEnvelope<Milestone[]>>(`/v1/projects/${projectId}/milestones`)
+  const response = await apiClient.get<ApiEnvelope<Milestone[]>>(`/v2/compat/projects/${projectId}/milestones`)
   return response.data.data
 }
 
 export async function createMilestone(projectId: string, payload: { name: string; sequenceNo?: number; targetDate?: string }) {
-  const response = await apiClient.post<ApiEnvelope<Milestone>>(`/v1/projects/${projectId}/milestones`, payload)
+  const response = await apiClient.post<ApiEnvelope<Milestone>>(`/v2/compat/projects/${projectId}/milestones`, payload)
   return response.data.data
 }
 
 export async function listProjectTasks(projectId: string, page = 0, size = 50) {
-  const response = await apiClient.get<ApiEnvelope<PageResponse<ProjectTask>>>(`/v1/projects/${projectId}/tasks`, { params: { page, size } })
+  const response = await apiClient.get<ApiEnvelope<PageResponse<ProjectTask>>>(`/v2/compat/projects/${projectId}/tasks`, { params: { page, size } })
   return response.data.data
 }
 
 export async function createProjectTask(projectId: string, payload: { title: string; description?: string; milestoneId?: string; assigneeUserId?: string; priority?: TaskPriority; dueDate?: string; estimatedHours?: number }) {
-  const response = await apiClient.post<ApiEnvelope<ProjectTask>>(`/v1/projects/${projectId}/tasks`, payload)
+  const response = await apiClient.post<ApiEnvelope<ProjectTask>>(`/v2/compat/projects/${projectId}/tasks`, payload)
   return response.data.data
 }
 
 export async function changeTaskStatus(taskId: string, status: TaskStatus) {
-  const response = await apiClient.post<ApiEnvelope<ProjectTask>>(`/v1/projects/tasks/${taskId}/status`, { status })
+  const response = await apiClient.post<ApiEnvelope<ProjectTask>>(`/v2/compat/projects/tasks/${taskId}/status`, { status })
   return response.data.data
 }
 
 export async function listTimesheets(projectId: string, page = 0, size = 50) {
-  const response = await apiClient.get<ApiEnvelope<PageResponse<Timesheet>>>(`/v1/projects/${projectId}/timesheets`, { params: { page, size } })
+  const response = await apiClient.get<ApiEnvelope<PageResponse<Timesheet>>>(`/v2/compat/projects/${projectId}/timesheets`, { params: { page, size } })
   return response.data.data
 }
 
 export async function createTimesheet(projectId: string, payload: { taskId?: string; workDate: string; hours: number; costRate: number; billingRate: number; billable: boolean; currencyCode?: string; note?: string }) {
-  const response = await apiClient.post<ApiEnvelope<Timesheet>>(`/v1/projects/${projectId}/timesheets`, payload)
+  const response = await apiClient.post<ApiEnvelope<Timesheet>>(`/v2/compat/projects/${projectId}/timesheets`, payload)
   return response.data.data
 }
 
 export async function listProjectExpenses(projectId: string, page = 0, size = 50) {
-  const response = await apiClient.get<ApiEnvelope<PageResponse<ProjectExpense>>>(`/v1/projects/${projectId}/expenses`, { params: { page, size } })
+  const response = await apiClient.get<ApiEnvelope<PageResponse<ProjectExpense>>>(`/v2/compat/projects/${projectId}/expenses`, { params: { page, size } })
   return response.data.data
 }
 
 export async function createProjectExpense(projectId: string, payload: { taskId?: string; expenseDate: string; category: string; amount: number; billable: boolean; currencyCode?: string; description?: string }) {
-  const response = await apiClient.post<ApiEnvelope<ProjectExpense>>(`/v1/projects/${projectId}/expenses`, payload)
+  const response = await apiClient.post<ApiEnvelope<ProjectExpense>>(`/v2/compat/projects/${projectId}/expenses`, payload)
   return response.data.data
 }
 
 export async function listProjectBudgets(projectId: string) {
-  const response = await apiClient.get<ApiEnvelope<ProjectBudget[]>>(`/v1/projects/${projectId}/budgets`)
+  const response = await apiClient.get<ApiEnvelope<ProjectBudget[]>>(`/v2/compat/projects/${projectId}/budgets`)
   return response.data.data
 }
 
 export async function createProjectBudget(projectId: string, payload: { category: string; amount: number; currencyCode?: string; note?: string }) {
-  const response = await apiClient.post<ApiEnvelope<ProjectBudget>>(`/v1/projects/${projectId}/budgets`, payload)
+  const response = await apiClient.post<ApiEnvelope<ProjectBudget>>(`/v2/compat/projects/${projectId}/budgets`, payload)
   return response.data.data
 }
 
 export async function listBillingBasis(projectId: string) {
-  const response = await apiClient.get<ApiEnvelope<BillingBasisRow[]>>(`/v1/projects/${projectId}/billing-basis`)
+  const response = await apiClient.get<ApiEnvelope<BillingBasisRow[]>>(`/v2/compat/projects/${projectId}/billing-basis`)
   return response.data.data
 }

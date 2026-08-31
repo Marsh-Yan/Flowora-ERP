@@ -1,8 +1,8 @@
 openapi: 3.0.3
 info:
-  title: Flowora ERP API v2 M4
+  title: Flowora ERP API v2 M5
   version: 2.0.0-SNAPSHOT
-  description: M4 contract for identity, master data, workflows, trade, advanced inventory, formal finance documents, settlement, bank reconciliation and project accounting.
+  description: M5 contract for the complete 2.0 platform, analytics, governed exports, diagnostics and read-only v1 compatibility.
 servers:
   - url: http://localhost:8080
 security:
@@ -537,6 +537,57 @@ paths:
       operationId: getProjectProfitability
       parameters: [{ name: projectId, in: path, required: true, schema: { type: string } }]
       responses: { "200": { $ref: "#/components/responses/Success" } }
+
+  /api/v2/analytics/workspace:
+    get:
+      operationId: getRoleWorkspace
+      responses: { "200": { $ref: "#/components/responses/Success" } }
+  /api/v2/analytics/snapshot:
+    get:
+      operationId: getAnalyticsSnapshot
+      parameters:
+        - { name: from, in: query, required: true, schema: { type: string, format: date } }
+        - { name: to, in: query, required: true, schema: { type: string, format: date } }
+      responses: { "200": { $ref: "#/components/responses/Success" } }
+  /api/v2/analytics/organizations:
+    get:
+      operationId: getCrossOrganizationAnalytics
+      parameters: [{ name: reportCurrency, in: query, schema: { type: string, default: USD } }]
+      responses: { "200": { $ref: "#/components/responses/Success" }, "403": { $ref: "#/components/responses/Error" } }
+  /api/v2/analytics/views:
+    get:
+      operationId: listSavedViews
+      parameters: [{ name: resourceType, in: query, required: true, schema: { type: string } }]
+      responses: { "200": { $ref: "#/components/responses/Success" } }
+    post:
+      operationId: createSavedView
+      parameters: [{ $ref: "#/components/parameters/CsrfHeader" }]
+      responses: { "200": { $ref: "#/components/responses/Success" } }
+  /api/v2/analytics/views/{id}:
+    delete:
+      operationId: deleteSavedView
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string } }
+        - { $ref: "#/components/parameters/CsrfHeader" }
+      responses: { "200": { $ref: "#/components/responses/Success" } }
+  /api/v2/exports:
+    get:
+      operationId: listExportJobs
+      responses: { "200": { $ref: "#/components/responses/Success" } }
+    post:
+      operationId: createExportJob
+      parameters: [{ $ref: "#/components/parameters/CsrfHeader" }]
+      responses: { "200": { $ref: "#/components/responses/Success" } }
+  /api/v2/exports/{id}/download:
+    get:
+      operationId: downloadExport
+      parameters: [{ name: id, in: path, required: true, schema: { type: string } }]
+      responses: { "200": { description: Governed CSV export } }
+  /api/v2/admin/diagnostics:
+    get:
+      operationId: getAdminDiagnostics
+      responses: { "200": { $ref: "#/components/responses/Success" }, "403": { $ref: "#/components/responses/Error" } }
+
 components:
   securitySchemes:
     sessionCookie: { type: apiKey, in: cookie, name: SESSION }

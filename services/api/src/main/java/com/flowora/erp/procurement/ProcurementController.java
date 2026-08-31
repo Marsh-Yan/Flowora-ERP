@@ -24,7 +24,7 @@ import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
 @RestController
-@RequestMapping("/api/v1/procurement")
+@RequestMapping({"/api/v1/procurement", "/api/v2/compat/procurement"})
 public class ProcurementController {
     private final ProcurementService service;
 

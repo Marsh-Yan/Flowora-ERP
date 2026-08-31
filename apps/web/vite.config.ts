@@ -9,6 +9,16 @@ export default defineConfig({
       '@': fileURLToPath(new URL('./src', import.meta.url)),
     },
   },
+  build: {
+    rollupOptions: {
+      output: {
+        manualChunks: {
+          'vue-vendor': ['vue', 'vue-router', 'pinia', 'vue-i18n'],
+          'element-plus': ['element-plus', '@element-plus/icons-vue'],
+        },
+      },
+    },
+  },
   server: {
     port: 5173,
     proxy: {

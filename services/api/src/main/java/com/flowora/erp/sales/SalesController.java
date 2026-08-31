@@ -29,7 +29,7 @@ import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
 @RestController
-@RequestMapping("/api/v1/sales")
+@RequestMapping({"/api/v1/sales", "/api/v2/compat/sales"})
 public class SalesController {
     private final SalesService service;
 

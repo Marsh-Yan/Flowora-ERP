@@ -313,7 +313,7 @@ async function handleImport(event: Event) {
 async function downloadExport() {
   if (isSettings.value) return
   try {
-    const response = await fetch(`/api/v1/masters/${activeDefinition.value.key}/export.csv`, { credentials: 'include' })
+    const response = await fetch(`/api/v2/masters/${activeDefinition.value.key}/export.csv`, { credentials: 'include' })
     if (!response.ok) throw new Error('export failed')
     const blob = await response.blob()
     const url = URL.createObjectURL(blob)

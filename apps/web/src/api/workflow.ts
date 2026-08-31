@@ -149,7 +149,7 @@ export async function listWorkflowTasks(page = 0, size = 20) {
 }
 
 export async function createWorkflowTask(payload: TaskRequest) {
-  const response = await apiClient.post<ApiEnvelope<WorkflowTask>>('/v1/workflow/tasks', payload)
+  const response = await apiClient.post<ApiEnvelope<WorkflowTask>>('/v2/compat/workflow/tasks', payload)
   return response.data.data
 }
 

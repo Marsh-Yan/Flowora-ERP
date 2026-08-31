@@ -45,7 +45,7 @@ import org.springframework.web.multipart.MultipartFile;
 import java.nio.charset.StandardCharsets;
 
 @RestController
-@RequestMapping("/api/v1/masters")
+@RequestMapping({"/api/v1/masters", "/api/v2/masters"})
 public class MasterDataController {
     private final MasterDataService service;
 

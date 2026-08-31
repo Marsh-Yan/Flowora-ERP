@@ -52,7 +52,7 @@ const menuItems = computed<MenuItem[]>(() =>
     { index: '/finance', label: t('nav.finance'), icon: DataAnalysis, permission: 'finance:view' },
     { index: '/projects', label: t('nav.projects'), icon: List, permission: 'project:view' },
     { index: '/workflow', label: t('nav.workflow'), icon: Connection, permission: 'workflow:view' },
-    { index: '/analytics', label: t('nav.analytics'), icon: DataAnalysis },
+    { index: '/analytics', label: t('nav.analytics'), icon: DataAnalysis, permission: 'analytics:view' },
     { index: '/platform', label: t('nav.platform'), icon: Setting, permission: 'organization:view' },
     { index: '/settings', label: t('nav.settings'), icon: Setting, permission: 'master:view' },
   ].filter((item) => authStore.hasPermission(item.permission)),
@@ -123,6 +123,7 @@ onMounted(() => authStore.loadOrganizations())
 
 
 <template>
+  <a class="skip-link" href="#main-content">{{ t('common.skipToContent') }}</a>
   <el-container class="app-shell">
     <el-aside :width="appStore.sidebarCollapsed ? '84px' : '248px'" class="app-sidebar">
       <div class="brand-lockup">
@@ -233,7 +234,7 @@ onMounted(() => authStore.loadOrganizations())
         </div>
       </el-header>
 
-      <el-main class="app-content">
+      <el-main id="main-content" class="app-content" tabindex="-1">
         <router-view />
       </el-main>
     </el-container>

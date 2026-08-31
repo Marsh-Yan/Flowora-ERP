@@ -1,0 +1,23 @@
+groups:
+  - name: flowora
+    rules:
+      - alert: FloworaApiUnavailable
+        expr: up{job="flowora-api"} == 0
+        for: 2m
+        labels: { severity: critical }
+        annotations: { summary: "Flowora API is unavailable" }
+      - alert: FloworaOutboxFailed
+        expr: flowora_outbox_failed > 0
+        for: 5m
+        labels: { severity: warning }
+        annotations: { summary: "Flowora outbox contains failed events" }
+      - alert: FloworaExportBacklog
+        expr: flowora_exports_pending > 20
+        for: 10m
+        labels: { severity: warning }
+        annotations: { summary: "Flowora export queue is growing" }
+      - alert: FloworaWorkflowOverdue
+        expr: flowora_workflow_overdue > 0
+        for: 30m
+        labels: { severity: warning }
+        annotations: { summary: "Flowora has overdue workflow tasks" }

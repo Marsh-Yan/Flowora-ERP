@@ -99,41 +99,41 @@ export interface Payment {
 }
 
 export async function listSalesQuotes(query = '', page = 0, size = 50) {
-  const response = await apiClient.get<ApiEnvelope<PageResponse<SalesQuote>>>('/v1/sales/quotes', { params: { query, page, size } })
+  const response = await apiClient.get<ApiEnvelope<PageResponse<SalesQuote>>>('/v2/compat/sales/quotes', { params: { query, page, size } })
   return response.data.data
 }
 
 export async function createSalesQuote(payload: { customerId: string; itemId: string; quantity: number; unitPrice: number; discountRate: number; taxRate: number; currencyCode: string; validUntil: string; note?: string }) {
-  const response = await apiClient.post<ApiEnvelope<SalesQuote>>('/v1/sales/quotes', payload)
+  const response = await apiClient.post<ApiEnvelope<SalesQuote>>('/v2/compat/sales/quotes', payload)
   return response.data.data
 }
 
 export async function approveSalesQuote(id: string) {
-  const response = await apiClient.post<ApiEnvelope<SalesQuote>>(`/v1/sales/quotes/${id}/approve`)
+  const response = await apiClient.post<ApiEnvelope<SalesQuote>>(`/v2/compat/sales/quotes/${id}/approve`)
   return response.data.data
 }
 
 export async function listSalesOrders(query = '', page = 0, size = 50) {
-  const response = await apiClient.get<ApiEnvelope<PageResponse<SalesOrder>>>('/v1/sales/orders', { params: { query, page, size } })
+  const response = await apiClient.get<ApiEnvelope<PageResponse<SalesOrder>>>('/v2/compat/sales/orders', { params: { query, page, size } })
   return response.data.data
 }
 
 export async function createSalesOrder(payload: { quoteId?: string; customerId: string; warehouseId: string; itemId: string; quantity: number; unitPrice: number; discountRate: number; taxRate: number; currencyCode: string; dueDate?: string; note?: string }) {
-  const response = await apiClient.post<ApiEnvelope<SalesOrder>>('/v1/sales/orders', payload)
+  const response = await apiClient.post<ApiEnvelope<SalesOrder>>('/v2/compat/sales/orders', payload)
   return response.data.data
 }
 
 export async function createDelivery(payload: { salesOrderId: string; salesOrderLineId: string; warehouseId: string; quantity: number }) {
-  const response = await apiClient.post<ApiEnvelope<Delivery>>('/v1/sales/deliveries', payload)
+  const response = await apiClient.post<ApiEnvelope<Delivery>>('/v2/compat/sales/deliveries', payload)
   return response.data.data
 }
 
 export async function listReceivables(query = '', page = 0, size = 50) {
-  const response = await apiClient.get<ApiEnvelope<PageResponse<Receivable>>>('/v1/sales/receivables', { params: { query, page, size } })
+  const response = await apiClient.get<ApiEnvelope<PageResponse<Receivable>>>('/v2/compat/sales/receivables', { params: { query, page, size } })
   return response.data.data
 }
 
 export async function createPayment(payload: { receivableId: string; amount: number; method: Payment['method']; paymentDate: string; reference?: string }) {
-  const response = await apiClient.post<ApiEnvelope<Payment>>('/v1/sales/payments', payload)
+  const response = await apiClient.post<ApiEnvelope<Payment>>('/v2/compat/sales/payments', payload)
   return response.data.data
 }
