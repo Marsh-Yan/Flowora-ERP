@@ -21,6 +21,10 @@ public class PurchaseReceiptLineEntity extends InventoryEntity {
     @Column(precision = 19, scale = 4, nullable = false)
     private BigDecimal quantity;
 
+    // V13 already added this column. Keep new compatibility receipts usable by v2 returns.
+    @Column(name = "accepted_quantity", precision = 19, scale = 4, nullable = false)
+    private BigDecimal acceptedQuantity;
+
     @Column(name = "unit_cost", precision = 19, scale = 4, nullable = false)
     private BigDecimal unitCost;
 
@@ -33,6 +37,7 @@ public class PurchaseReceiptLineEntity extends InventoryEntity {
         this.purchaseOrderLineId = purchaseOrderLineId;
         this.itemId = itemId;
         this.quantity = quantity;
+        this.acceptedQuantity = quantity;
         this.unitCost = unitCost;
     }
 

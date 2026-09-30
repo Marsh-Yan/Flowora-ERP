@@ -5,6 +5,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.flowora.erp.common.api.PlatformApiException;
 import com.flowora.erp.common.idempotency.IdempotencyService;
 import com.flowora.erp.identity.FloworaPrincipal;
+import com.flowora.erp.inventory.StockBalanceEntity;
 import com.flowora.erp.trade.v2.TradeInventoryDtos.*;
 import org.springframework.context.annotation.Profile;
 import org.springframework.dao.DuplicateKeyException;
@@ -31,11 +32,74 @@ public class TradeInventoryService {
         this.objectMapper = objectMapper;
     }
 
+    @Transactional
+    public void lockCompatibilityOrder(String organizationId, boolean sales, String id) {
+        lockFulfillableOrder(organizationId, sales, id, sales ? "SHIP" : "RECEIVE");
+    }
+
+    @Transactional
+    public StockBalanceEntity compatibilityBalance(String organizationId, String warehouseId, String itemId) {
+        requireUntracked(organizationId, itemId);
+        Balance balance = lockedBalance(organizationId, warehouseId, null, itemId, null, null);
+        return new StockBalanceEntity(organizationId, warehouseId, itemId, balance.onHand(), balance.averageCost());
+    }
+
+    // Keep compatibility document/approval/accounting contracts, but use the same
+    // dimension locks and movement ledger as native v2 operations.
+    @Transactional
+    public BigDecimal postCompatibilityDelta(String organizationId, String warehouseId, String itemId,
+            BigDecimal delta, BigDecimal unitCost, String movementType, String sourceType, String sourceId, String actorId) {
+        requireUntracked(organizationId, itemId);
+        String requestKey = "compat:" + movementType + ":" + sourceId;
+        if (replay(organizationId, requestKey) != null) return null;
+        Balance balance = lockedBalance(organizationId, warehouseId, null, itemId, null, null);
+        if (balance.frozen()) conflict("STOCK_FROZEN", "errors.stockFrozen");
+        if (delta.signum() == 0) return BigDecimal.ZERO;
+        BigDecimal appliedCost = delta.signum() > 0 ? unitCost : balance.averageCost();
+        if (delta.signum() > 0) {
+            inbound(organizationId, warehouseId, null, itemId, null, null, delta, unitCost);
+        } else {
+            InventoryQuantityPolicy.requireReservable(balance.onHand(), balance.reserved(), delta.abs(), balance.frozen());
+            jdbc.update("UPDATE flowora_inventory_balance_v2 SET on_hand_quantity=on_hand_quantity+?,version_no=version_no+1 WHERE id=?",delta,balance.id());
+        }
+        FloworaPrincipal sourceActor = new FloworaPrincipal(actorId,actorId,actorId,organizationId,organizationId,List.of());
+        String id = createMovement(sourceActor, movementType, sourceType, sourceId, null, requestKey);
+        insertMovementLine(organizationId,id,1,itemId,delta.signum()<0?warehouseId:null,null,
+                delta.signum()>0?warehouseId:null,null,null,null,delta.abs(),appliedCost,sourceType,sourceId);
+        return appliedCost;
+    }
+
+    private void requireUntracked(String organizationId, String itemId) {
+        if (!"NONE".equals(tracking(organizationId,itemId))) conflict("TRACKING_REQUIRED", "errors.trackingRequired");
+    }
+
+    @Transactional
+    public void linkCompatibilityMovement(String organizationId, String sourceType, String sourceId, String lineId) {
+        jdbc.update("""
+                UPDATE flowora_stock_movement_line line JOIN flowora_stock_movement movement ON movement.id=line.movement_id
+                SET line.source_line_type=?,line.source_line_id=?
+                WHERE movement.organization_id=? AND movement.source_type=? AND movement.source_id=?
+                """, sourceType + "_LINE",lineId,organizationId,sourceType,sourceId);
+    }
+
+    @Transactional(readOnly = true)
+    public boolean hasOpenOrderLines(String organizationId, boolean sales, String orderId) {
+        String sql = sales
+                ? "SELECT COUNT(*) FROM flowora_sales_order_line WHERE organization_id=? AND sales_order_id=? AND fulfilled_quantity<ordered_quantity-cancelled_quantity"
+                : "SELECT COUNT(*) FROM flowora_purchase_order_line WHERE organization_id=? AND purchase_order_id=? AND received_quantity<ordered_quantity";
+        return jdbc.queryForObject(sql,Integer.class,organizationId,orderId)>0;
+    }
+
+    @Transactional
+    public void requireCompatibilitySalesQuantity(String organizationId, String orderId, String lineId, BigDecimal quantity) {
+        requireOrderReservable(organizationId, orderId, lineId, quantity);
+    }
+
     @Transactional(readOnly = true)
     public List<AvailabilityView> availability(String organizationId, String warehouseId, String itemId) {
         return jdbc.query("""
                 SELECT warehouse_id, location_id, item_id, lot_id, serial_id, on_hand_quantity,
-                       reserved_quantity, GREATEST(on_hand_quantity-reserved_quantity, 0) available_quantity,
+                       reserved_quantity, CASE WHEN frozen THEN 0 ELSE GREATEST(on_hand_quantity-reserved_quantity, 0) END available_quantity,
                        average_cost, frozen
                 FROM flowora_inventory_balance_v2
                 WHERE organization_id = ? AND (? = '' OR warehouse_id = ?) AND (? = '' OR item_id = ?)
@@ -53,7 +117,8 @@ public class TradeInventoryService {
         MovementView replay = replay(actor.organizationId(), requestKey);
         if (replay != null) return replay;
         claim(actor.organizationId(), "M3_RECEIPT", requestKey);
-        requireResource("flowora_purchase_order", request.purchaseOrderId(), actor.organizationId());
+        lockFulfillableOrder(actor.organizationId(), false, request.purchaseOrderId(), "RECEIVE");
+        requireOrderWarehouse(actor.organizationId(), false, request.purchaseOrderId(), request.warehouseId());
         String receiptId = UUID.randomUUID().toString();
         String movementId = createMovement(actor, "RECEIPT", "PURCHASE_RECEIPT", receiptId, null, requestKey);
         jdbc.update("""
@@ -110,9 +175,10 @@ public class TradeInventoryService {
 
     @Transactional
     public List<ReservationView> reserve(FloworaPrincipal actor, ReservationRequest request) {
-        requireResource("flowora_sales_order", request.salesOrderId(), actor.organizationId());
+        lockFulfillableOrder(actor.organizationId(), true, request.salesOrderId(), "RESERVE");
         List<ReservationView> result = new ArrayList<>();
         for (ReservationLineRequest line : request.lines()) {
+            requireOrderWarehouse(actor.organizationId(), true, request.salesOrderId(), line.warehouseId());
             requireSalesOrderLine(actor.organizationId(), request.salesOrderId(), line.salesOrderLineId(), line.itemId());
             requireOrderReservable(actor.organizationId(), request.salesOrderId(), line.salesOrderLineId(), line.quantity());
             Balance balance = lockedBalance(actor.organizationId(), line.warehouseId(), line.locationId(), line.itemId(), line.lotId(), line.serialId());
@@ -132,7 +198,7 @@ public class TradeInventoryService {
             if (!clean(line.serialId()).isEmpty()) jdbc.update("UPDATE flowora_inventory_serial SET status='RESERVED', version_no=version_no+1 WHERE id=?", line.serialId());
             result.add(reservation(actor.organizationId(), id));
         }
-        jdbc.update("UPDATE flowora_sales_order SET status='RESERVED', version_no=version_no+1 WHERE id=? AND organization_id=?", request.salesOrderId(), actor.organizationId());
+        jdbc.update("UPDATE flowora_sales_order SET status=CASE WHEN status='PARTIALLY_FULFILLED' THEN status ELSE 'RESERVED' END, version_no=version_no+1 WHERE id=? AND organization_id=?", request.salesOrderId(), actor.organizationId());
         return result;
     }
     @Transactional
@@ -140,7 +206,7 @@ public class TradeInventoryService {
         MovementView replay = replay(actor.organizationId(), requestKey);
         if (replay != null) return replay;
         claim(actor.organizationId(), "M3_SHIPMENT", requestKey);
-        requireResource("flowora_sales_order", request.salesOrderId(), actor.organizationId());
+        lockFulfillableOrder(actor.organizationId(), true, request.salesOrderId(), "SHIP");
         Reservation first = lockedReservation(actor.organizationId(), request.lines().getFirst().reservationId());
         String deliveryId = UUID.randomUUID().toString();
         String movementId = createMovement(actor, "SHIPMENT", "SALES_DELIVERY", deliveryId, null, requestKey);
@@ -219,6 +285,11 @@ public class TradeInventoryService {
     }
     @Transactional
     public ReservationView releaseReservation(FloworaPrincipal actor, String reservationId) {
+        List<String> orders = jdbc.query("SELECT sales_order_id FROM flowora_stock_reservation WHERE id=? AND organization_id=?",
+                (rs, row) -> rs.getString(1), reservationId, actor.organizationId());
+        if (orders.isEmpty()) notFound("stockReservation", reservationId);
+        jdbc.queryForObject("SELECT version_no FROM flowora_sales_order WHERE id=? AND organization_id=? FOR UPDATE",
+                Long.class, orders.getFirst(), actor.organizationId());
         Reservation reservation = lockedReservation(actor.organizationId(), reservationId);
         BigDecimal remaining = reservation.reserved().subtract(reservation.consumed());
         Balance balance = lockedBalance(actor.organizationId(), reservation.warehouseId(), reservation.locationId(),
@@ -236,7 +307,7 @@ public class TradeInventoryService {
         List<String> ids = jdbc.query("""
                 SELECT id FROM flowora_stock_reservation
                 WHERE organization_id=? AND status IN ('ACTIVE','PARTIAL') AND expires_at IS NOT NULL AND expires_at<=CURRENT_TIMESTAMP
-                ORDER BY expires_at FOR UPDATE
+                ORDER BY expires_at
                 """, (rs, row) -> rs.getString(1), actor.organizationId());
         ids.forEach(id -> releaseReservation(actor, id));
         return Map.of("released", ids.size());
@@ -611,6 +682,23 @@ public class TradeInventoryService {
 
     private void requireResource(String table, String id, String organizationId) {
         requireCount("SELECT COUNT(*) FROM " + table + " WHERE id=? AND organization_id=?", id, organizationId);
+    }
+
+    // Always lock the header before lines/reservations/balances. Cancellation updates the
+    // same header, so the state check and all inventory changes serialize with cancellation.
+    private void lockFulfillableOrder(String organizationId, boolean sales, String id, String operation) {
+        String table = sales ? "flowora_sales_order" : "flowora_purchase_order";
+        List<String> states = jdbc.query("SELECT status FROM " + table + " WHERE id=? AND organization_id=? FOR UPDATE",
+                (rs, row) -> rs.getString(1), id, organizationId);
+        if (states.isEmpty()) notFound(sales ? "salesOrder" : "purchaseOrder", id);
+        FulfillmentStatePolicy.requireAllowed(states.getFirst(), operation);
+    }
+
+    private void requireOrderWarehouse(String organizationId, boolean sales, String id, String warehouseId) {
+        String table = sales ? "flowora_sales_order" : "flowora_purchase_order";
+        String expected = jdbc.queryForObject("SELECT warehouse_id FROM " + table + " WHERE id=? AND organization_id=?",
+                String.class, id, organizationId);
+        if (!Objects.equals(expected, warehouseId)) invalid("Warehouse must match the order warehouse");
     }
 
     private void requireCount(String sql, Object... args) {

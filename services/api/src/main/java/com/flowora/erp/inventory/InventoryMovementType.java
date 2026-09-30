@@ -6,5 +6,8 @@ public enum InventoryMovementType {
     TRANSFER_IN,
     TRANSFER_OUT,
     COUNT,
-    ADJUSTMENT
+    ADJUSTMENT,
+    OPENING,
+    SALES_RETURN,
+    PURCHASE_RETURN
 }

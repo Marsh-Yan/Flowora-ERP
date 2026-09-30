@@ -4,6 +4,8 @@ public enum ProcurementDocumentStatus {
     DRAFT,
     SUBMITTED,
     APPROVED,
+    CONFIRMED,
+    CLOSED,
     PARTIALLY_RECEIVED,
     RECEIVED,
     REJECTED,

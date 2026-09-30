@@ -212,22 +212,33 @@ public class SalesService {
 
     @Transactional
     public DeliveryResponse deliver(FloworaPrincipal actor, DeliveryCreate body, String idempotencyKey) {
+        inventoryService.lockSalesForFulfillment(actor, body.salesOrderId());
         SalesOrderEntity order = orderRepository.findByIdAndOrganizationId(body.salesOrderId(), actor.organizationId())
                 .orElseThrow(() -> new ResourceNotFoundException("salesOrder", body.salesOrderId()));
-        if (order.status() == SalesOrderStatus.CANCELLED || order.status() == SalesOrderStatus.FULFILLED) throw new IllegalStateException("Sales order is not open for fulfillment");
+        if (order.status() != SalesOrderStatus.CONFIRMED && order.status() != SalesOrderStatus.PARTIALLY_FULFILLED)
+            throw new IllegalStateException("Sales order is not open for fulfillment through the compatibility API");
         if (!order.warehouseId().equals(body.warehouseId())) throw new IllegalArgumentException("Delivery warehouse must match the sales order warehouse");
         SalesOrderLineEntity line = orderLineRepository.findByIdAndOrganizationId(body.salesOrderLineId(), actor.organizationId())
                 .orElseThrow(() -> new ResourceNotFoundException("salesOrderLine", body.salesOrderLineId()));
         if (!line.salesOrderId().equals(order.id())) throw new IllegalArgumentException("Sales order line does not belong to the sales order");
+        inventoryService.requireUnreservedSalesQuantity(actor, order.id(), line.id(), body.quantity());
         ItemEntity item = requireItem(actor.organizationId(), line.itemId());
         claimIdempotency(actor.organizationId(), "SALES_DELIVERY", idempotencyKey);
         line.fulfill(body.quantity());
         DeliveryEntity delivery = deliveryRepository.save(new DeliveryEntity(actor.organizationId(), nextNumber("DO"), order.id(), order.warehouseId(), actor.userId()));
         BigDecimal unitCost = item.inventoryManaged() ? inventoryService.issueForSales(actor, order.warehouseId(), item.id(), body.quantity(), delivery.id()) : item.averageCost();
-        deliveryLineRepository.save(new DeliveryLineEntity(actor.organizationId(), delivery.id(), line.id(), line.itemId(), body.quantity(), unitCost));
+        DeliveryLineEntity deliveryLine = deliveryLineRepository.save(new DeliveryLineEntity(actor.organizationId(), delivery.id(), line.id(), line.itemId(), body.quantity(), unitCost));
+        if (inventoryService.usesCanonicalInventory()) inventoryService.linkSalesMovement(actor, delivery.id(), deliveryLine.id());
         accountingService.postSalesDelivery(actor.organizationId(), actor.userId(), delivery.id(), body.quantity().multiply(unitCost), order.currencyCode(), LocalDate.now());
-        orderLineRepository.save(line);
-        order.updateFulfillment(line.remainingQuantity().signum() == 0, line.fulfilledQuantity().signum() > 0);
+        boolean complete;
+        if (inventoryService.usesCanonicalInventory()) {
+            orderLineRepository.saveAndFlush(line);
+            complete = !inventoryService.hasOpenOrderLines(actor.organizationId(), true, order.id());
+        } else {
+            orderLineRepository.save(line);
+            complete = line.remainingQuantity().signum() == 0;
+        }
+        order.updateFulfillment(complete, line.fulfilledQuantity().signum() > 0);
         orderRepository.save(order);
         return new DeliveryResponse(delivery.id(), delivery.number(), delivery.salesOrderId(), delivery.warehouseId(), line.itemId(), body.quantity(), unitCost, delivery.status(), delivery.postedAt());
     }

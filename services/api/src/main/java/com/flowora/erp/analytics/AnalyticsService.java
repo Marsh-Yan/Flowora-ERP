@@ -49,7 +49,7 @@ public class AnalyticsService {
                 "status NOT IN ('RECEIVED','CANCELLED')"), null,
                 "/procurement", "procurement:view", "INFO", actor));
         cards.add(card("STOCK_EXCEPTIONS", decimal("""
-                SELECT COUNT(*) FROM flowora_stock_balance WHERE organization_id=? AND quantity<=0
+                SELECT COUNT(*) FROM flowora_inventory_summary_v2 WHERE organization_id=? AND quantity<=0
                 """, org), null, "/inventory", "inventory:view", "WARNING", actor));
         cards.add(card("RECEIVABLES", decimal("""
                 SELECT COALESCE(SUM((total_amount-allocated_amount-credited_amount)*exchange_rate),0)

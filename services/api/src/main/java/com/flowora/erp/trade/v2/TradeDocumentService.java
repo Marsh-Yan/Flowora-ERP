@@ -108,6 +108,7 @@ public class TradeDocumentService {
 
     @Transactional
     public DocumentView cancelSalesOrder(String organizationId, String id, long version) {
+        lockOrderHeader("flowora_sales_order", organizationId, id);
         int changed = jdbc.update("""
                 UPDATE flowora_sales_order SET status='CANCELLED',version_no=version_no+1
                 WHERE id=? AND organization_id=? AND status IN ('DRAFT','CONFIRMED','RESERVED') AND version_no=?
@@ -115,15 +116,16 @@ public class TradeDocumentService {
                 """, id, organizationId, version, id);
         if (changed == 0) stateConflict();
         releaseReservations(organizationId, id);
-        jdbc.update("UPDATE flowora_sales_order_line SET cancelled_quantity=ordered_quantity-fulfilled_quantity,version_no=version_no+1 WHERE sales_order_id=? AND organization_id=?", id, organizationId);
+        jdbc.update("UPDATE flowora_sales_order_line SET cancelled_quantity=ordered_quantity-fulfilled_quantity,reserved_quantity=0,version_no=version_no+1 WHERE sales_order_id=? AND organization_id=?", id, organizationId);
         return salesOrder(organizationId, id);
     }
 
     @Transactional
     public DocumentView cancelPurchaseOrder(String organizationId, String id, long version) {
+        lockOrderHeader("flowora_purchase_order", organizationId, id);
         int changed = jdbc.update("""
                 UPDATE flowora_purchase_order SET status='CANCELLED',version_no=version_no+1
-                WHERE id=? AND organization_id=? AND status IN ('DRAFT','CONFIRMED') AND version_no=?
+                WHERE id=? AND organization_id=? AND status IN ('DRAFT','CONFIRMED','APPROVED') AND version_no=?
                   AND NOT EXISTS (SELECT 1 FROM flowora_purchase_order_line line WHERE line.purchase_order_id=? AND line.received_quantity>0)
                 """, id, organizationId, version, id);
         if (changed == 0) stateConflict();
@@ -237,6 +239,12 @@ public class TradeDocumentService {
     private boolean hasStatus(String table, String organizationId, String id, String status) {
         Integer count = jdbc.queryForObject("SELECT COUNT(*) FROM " + table + " WHERE id=? AND organization_id=? AND status=?", Integer.class, id, organizationId, status);
         return count != null && count > 0;
+    }
+
+    private void lockOrderHeader(String table, String organizationId, String id) {
+        List<Long> versions = jdbc.query("SELECT version_no FROM " + table + " WHERE id=? AND organization_id=? FOR UPDATE",
+                (rs, row) -> rs.getLong(1), id, organizationId);
+        if (versions.isEmpty()) throw new PlatformApiException(HttpStatus.NOT_FOUND, "RESOURCE_NOT_FOUND", "errors.resourceNotFound");
     }
 
     private void claim(String organizationId, String operation, String requestKey) {

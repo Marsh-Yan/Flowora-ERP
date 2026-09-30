@@ -47,7 +47,7 @@ async function load() {
     ])
     balances.value = balancePage.content
     ledger.value = ledgerPage.content
-    orders.value = orderPage.content.filter((order) => order.remainingQuantity > 0 && order.status !== 'CANCELLED')
+    orders.value = orderPage.content.filter((order) => order.remainingQuantity > 0 && ['CONFIRMED', 'APPROVED', 'PARTIALLY_RECEIVED'].includes(order.status))
     warehouses.value = warehousePage.content
     items.value = itemPage.content
     availability.value = availabilityRows

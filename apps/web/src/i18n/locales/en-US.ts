@@ -385,6 +385,9 @@ export default {
       TRANSFER_OUT: 'Transfer out',
       COUNT: 'Stock count',
       ADJUSTMENT: 'Adjustment',
+      OPENING: 'Opening stock',
+      SALES_RETURN: 'Sales return',
+      PURCHASE_RETURN: 'Purchase return',
     },
   },
   finance: {

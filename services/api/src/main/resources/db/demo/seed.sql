@@ -40,6 +40,7 @@ DELETE FROM flowora_stock_movement_line WHERE organization_id = 'org-demo';
 DELETE FROM flowora_stock_movement WHERE organization_id = 'org-demo';
 DELETE FROM flowora_stock_freeze WHERE organization_id = 'org-demo';
 DELETE FROM flowora_inventory_balance_v2 WHERE organization_id = 'org-demo';
+DELETE FROM flowora_inventory_cutover WHERE organization_id = 'org-demo';
 DELETE FROM flowora_inventory_serial WHERE organization_id = 'org-demo';
 DELETE FROM flowora_inventory_lot WHERE organization_id = 'org-demo';
 
@@ -408,3 +409,13 @@ INSERT INTO flowora_activity_event (id, organization_id, resource_type, resource
     ('activity-demo-2', 'org-demo', 'PROJECT', 'project-demo-1', 'user-demo-project', 'DEMO_SEEDED', 'Project seeded for the demo loop', '{"source":"phase-09"}');
 
 SET FOREIGN_KEY_CHECKS = 1;
+
+-- Demo reset runs after Flyway: seed the authoritative stock and its opening movement
+-- here, so both a fresh startup and repeated resets produce exactly 16 units / 640.
+INSERT INTO flowora_inventory_balance_v2 (id,organization_id,warehouse_id,item_id,on_hand_quantity,average_cost) VALUES
+    ('inventory-v2-demo-opening','org-demo','warehouse-demo-001','item-demo-001',16,40);
+INSERT INTO flowora_stock_movement (id,organization_id,number,movement_type,source_type,source_id,actor_user_id,request_id) VALUES
+    ('movement-demo-opening','org-demo','OPEN-DEMO-001','OPENING','DEMO_OPENING','stock-balance-demo-1','system:demo','demo-opening');
+INSERT INTO flowora_stock_movement_line
+    (id,organization_id,movement_id,sequence_no,item_id,to_warehouse_id,quantity,unit_cost,value_amount) VALUES
+    ('movement-line-demo-opening','org-demo','movement-demo-opening',1,'item-demo-001','warehouse-demo-001',16,40,640);

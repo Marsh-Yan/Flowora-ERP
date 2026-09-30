@@ -34,6 +34,12 @@ public class ProcurementService {
     private final WarehouseRepository warehouseRepository;
     private final ItemRepository itemRepository;
     private WorkflowEngineService workflowEngineService;
+    private com.flowora.erp.trade.v2.TradeDocumentService canonicalDocuments;
+
+    @Autowired(required = false)
+    void setCanonicalDocuments(com.flowora.erp.trade.v2.TradeDocumentService canonicalDocuments) {
+        this.canonicalDocuments = canonicalDocuments;
+    }
 
     public ProcurementService(
             PurchaseRequestRepository requestRepository,
@@ -139,6 +145,11 @@ public class ProcurementService {
 
     @Transactional
     public void cancelOrder(FloworaPrincipal actor, String orderId) {
+        if (canonicalDocuments != null) {
+            long version = canonicalDocuments.purchaseOrder(actor.organizationId(),orderId).version();
+            canonicalDocuments.cancelPurchaseOrder(actor.organizationId(),orderId,version);
+            return;
+        }
         PurchaseOrderEntity order = orderRepository.findByIdAndOrganizationId(orderId, actor.organizationId())
                 .orElseThrow(() -> new ResourceNotFoundException("purchaseOrder", orderId));
         if (order.status() == ProcurementDocumentStatus.RECEIVED || order.status() == ProcurementDocumentStatus.PARTIALLY_RECEIVED) {
