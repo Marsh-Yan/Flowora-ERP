@@ -98,9 +98,9 @@ jobs:
         run: ./mvnw -B -pl services/api -Dtest=TradeInventoryMySqlTest test package
       - name: Start disposable API with demo fixtures
         run: |
-          java -jar services/api/target/flowora-api-2.0.0-SNAPSHOT.jar --spring.profiles.active=local --server.port=18080 --server.address=127.0.0.1 --flowora.demo.enabled=true --flowora.demo.seed-on-start=true > /tmp/r2-api.log 2>&1 &
+          java -jar services/api/target/flowora-api-2.0.0-SNAPSHOT.jar --spring.profiles.active=local --server.port=18080 --server.address=127.0.0.1 --management.endpoint.health.probes.enabled=true --flowora.demo.enabled=true --flowora.demo.seed-on-start=true > /tmp/r2-api.log 2>&1 &
           for attempt in $(seq 1 60); do
-            if curl --fail --silent http://127.0.0.1:18080/actuator/health >/dev/null; then exit 0; fi
+            if curl --fail --silent http://127.0.0.1:18080/actuator/health/readiness >/dev/null; then exit 0; fi
             sleep 2
           done
           exit 1
