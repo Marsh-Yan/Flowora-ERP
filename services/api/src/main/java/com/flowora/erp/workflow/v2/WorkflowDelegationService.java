@@ -18,7 +18,7 @@ import java.util.Set;
 import java.util.UUID;
 
 @Service
-@Profile("local")
+@Profile("local | production")
 public class WorkflowDelegationService {
     private final JdbcTemplate jdbcTemplate;
     private final WorkflowApproverResolver approverResolver;

@@ -55,3 +55,74 @@ jobs:
           cache: maven
       - name: Test and package
         run: ./mvnw -B -pl services/api -am test package
+
+  production-smoke:
+    name: Production Compose smoke
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      DB_PASSWORD: ci-db-only-password
+      DB_ROOT_PASSWORD: ci-root-only-password
+      REDIS_PASSWORD: ci-redis-only-password
+      FLOWORA_MFA_ENCRYPTION_KEY: ci-only-mfa-encryption-key-32-characters
+      FLOWORA_ALLOWED_ORIGINS: http://localhost:8080
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Build and start target services
+        run: docker compose up --build --wait --wait-timeout 300
+      - name: Verify readiness through web proxy
+        run: curl --fail --retry 20 --retry-delay 3 --retry-connrefused http://localhost:8080/healthz
+      - name: Verify production did not seed demo users
+        run: |
+          docker compose exec -T mysql sh -c 'MYSQL_PWD="$MYSQL_ROOT_PASSWORD" mysql -u root -D flowora_erp -N -e "SELECT COUNT(*) FROM flowora_user_account"' | grep -qx 0
+      - name: Verify Redis credential boundary
+        run: |
+          docker compose exec -T redis sh -c 'REDISCLI_AUTH="$REDIS_PASSWORD" redis-cli ping' | grep -qx PONG
+          if docker compose exec -T redis sh -c 'REDISCLI_AUTH=invalid redis-cli ping' 2>&1 | grep -q PONG; then
+            echo 'Redis accepted an invalid password' >&2
+            exit 1
+          fi
+      - name: Verify Redis restart recovery
+        run: |
+          docker compose restart redis
+          docker compose up --wait --wait-timeout 120
+          curl --fail --retry 10 --retry-delay 2 --retry-connrefused http://localhost:8080/healthz
+      - name: Inspect service health on failure
+        if: failure()
+        run: |
+          docker compose ps
+          docker inspect --format '{{json .State.Health}}' "$(docker compose ps -q api)"
+          docker compose exec -T api sh -c 'command -v curl || true; curl -v http://127.0.0.1:9090/actuator/health/readiness || true'
+      - name: Show service logs on failure
+        if: failure()
+        run: docker compose logs --no-color --tail=150
+      - name: Stop disposable services
+        if: always()
+        run: docker compose down -v
+
+  wrapper-windows:
+    name: Windows Maven Wrapper paths
+    runs-on: windows-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Setup Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 25
+      - name: Verify fresh wrapper install in ordinary directory
+        shell: pwsh
+        run: |
+          $env:MAVEN_USER_HOME = Join-Path $env:RUNNER_TEMP 'maven-home'
+          .\mvnw.cmd -version
+      - name: Verify wrapper through linked Maven directory
+        shell: pwsh
+        run: |
+          $realHome = Join-Path $env:RUNNER_TEMP 'maven-home'
+          $linkHome = Join-Path $env:RUNNER_TEMP 'maven-home-link'
+          New-Item -ItemType Junction -Path $linkHome -Target $realHome | Out-Null
+          $env:MAVEN_USER_HOME = $linkHome
+          .\mvnw.cmd -version

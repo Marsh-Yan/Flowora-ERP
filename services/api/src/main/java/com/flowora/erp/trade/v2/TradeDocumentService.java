@@ -18,7 +18,7 @@ import java.util.Locale;
 import java.util.UUID;
 
 @Service
-@Profile("local")
+@Profile("local | production")
 public class TradeDocumentService {
     private final JdbcTemplate jdbc;
     private final IdempotencyService idempotency;

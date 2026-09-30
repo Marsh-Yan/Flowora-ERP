@@ -2,22 +2,32 @@ package com.flowora.erp;
 
 import org.springframework.boot.SpringApplication;
 import org.springframework.boot.autoconfigure.SpringBootApplication;
+import org.springframework.boot.autoconfigure.AutoConfigurationExcludeFilter;
+import org.springframework.boot.context.TypeExcludeFilter;
+import org.springframework.context.annotation.ComponentScan;
+import org.springframework.context.annotation.FilterType;
 import org.springframework.boot.web.servlet.FilterRegistrationBean;
 import org.springframework.context.annotation.Bean;
 import org.springframework.scheduling.annotation.EnableScheduling;
 import org.springframework.scheduling.annotation.EnableAsync;
 import org.springframework.beans.factory.annotation.Value;
+import java.util.Map;
 import com.fasterxml.jackson.databind.ObjectMapper;
 
 import com.flowora.erp.common.api.LegacyApiReadOnlyFilter;
 import com.flowora.erp.common.api.RequestIdFilter;
 
 @SpringBootApplication
+@ComponentScan(excludeFilters = @ComponentScan.Filter(
+        type = FilterType.CUSTOM, classes = {TypeExcludeFilter.class,
+                AutoConfigurationExcludeFilter.class, StandaloneComponentFilter.class}))
 @EnableScheduling
 @EnableAsync
 public class FloworaApiApplication {
     public static void main(String[] args) {
-        SpringApplication.run(FloworaApiApplication.class, args);
+        SpringApplication application = new SpringApplication(FloworaApiApplication.class);
+        application.setDefaultProperties(Map.of("flowora.standalone.minimal", "true"));
+        application.run(args);
     }
 
     @Bean

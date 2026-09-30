@@ -8,7 +8,7 @@ import java.sql.Timestamp;
 import java.time.Instant;
 
 @Service
-@Profile("local")
+@Profile("local | production")
 public class WorkflowResourceProjectionService {
     private final JdbcTemplate jdbcTemplate;
 

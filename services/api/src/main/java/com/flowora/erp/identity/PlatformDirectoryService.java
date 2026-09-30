@@ -20,7 +20,7 @@ import java.util.Map;
 import java.util.UUID;
 
 @Service
-@Profile("local")
+@Profile("local | production")
 public class PlatformDirectoryService {
     private final JdbcTemplate jdbcTemplate;
     private final PasswordEncoder passwordEncoder;

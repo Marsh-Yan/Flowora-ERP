@@ -19,7 +19,7 @@ import java.time.Instant;
 import java.util.*;
 
 @Service
-@Profile("local")
+@Profile("local | production")
 public class TradeInventoryService {
     private final JdbcTemplate jdbc;
     private final IdempotencyService idempotency;

@@ -18,7 +18,7 @@ import java.util.Map;
 import java.util.UUID;
 
 @Service
-@Profile("local")
+@Profile("local | production")
 public class WorkflowOutboxService {
     private static final int MAX_ATTEMPTS = 5;
 

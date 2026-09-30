@@ -14,7 +14,7 @@ import java.util.Map;
 import java.util.UUID;
 
 @Service
-@Profile("local")
+@Profile("local | production")
 public class MasterDataPlatformService {
     private final JdbcTemplate jdbcTemplate;
 

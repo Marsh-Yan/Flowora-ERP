@@ -25,7 +25,7 @@ import java.util.List;
 
 @RestController
 @RequestMapping("/api/v2/workflows/templates")
-@Profile("local")
+@Profile("local | production")
 public class WorkflowTemplateController {
     private final WorkflowTemplateService service;
 

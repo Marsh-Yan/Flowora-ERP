@@ -12,7 +12,7 @@ import java.util.List;
 import java.util.Map;
 
 @Component
-@Profile("!local")
+@Profile("!local & !production")
 public class DemoUserStore implements UserDetailsService, IdentityAuthenticator {
     private static final String DEMO_PASSWORD = "Demo123!";
     private final Map<String, DemoUser> users;
