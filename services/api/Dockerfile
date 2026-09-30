@@ -7,6 +7,8 @@ COPY services/api services/api
 RUN mvn -B -pl services/api -am -DskipTests package
 
 FROM eclipse-temurin:25-jre
+RUN apt-get update && apt-get install -y --no-install-recommends curl \
+    && rm -rf /var/lib/apt/lists/*
 RUN useradd --system --uid 10001 --create-home flowora
 WORKDIR /app
 COPY --from=build /workspace/services/api/target/flowora-api-2.0.0-SNAPSHOT.jar app.jar
