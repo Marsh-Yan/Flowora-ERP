@@ -16,7 +16,9 @@ function Check($condition,$message){if(-not $condition){throw $message}}
 function Status($path,$body,$expected){try{Call $path $body|Out-Null; throw 'Unexpected success'}catch{if(-not $_.Exception.Response){throw};Check ([int]$_.Exception.Response.StatusCode -eq $expected) 'Wrong rejection status'}}
 try {
 $warehouse='warehouse-demo-003';$item='item-demo-001'
-$before=@(Call "/api/v2/inventory/availability?warehouseId=$warehouse&itemId=$item")[0].onHand
+$initialBalances=@(Call "/api/v2/inventory/availability?warehouseId=$warehouse&itemId=$item")
+# A never-used warehouse/item has no balance row; its starting quantity is zero.
+$before=if($initialBalances.Count -eq 0){[decimal]0}else{[decimal]$initialBalances[0].onHand}
 $traceBefore=@((Call "/api/v2/inventory/trace?itemId=$item").movements).Count
 $lines=@(@{itemId=$item;quantity=2;unitPrice=10;discountRate=0;taxRate=0},@{itemId=$item;quantity=3;unitPrice=10;discountRate=0;taxRate=0})
 $po=Call '/api/v2/procurement/orders' @{supplierId='supplier-demo-001';warehouseId=$warehouse;currencyCode='USD';note='R2 HTTP multi-line';lines=$lines}
