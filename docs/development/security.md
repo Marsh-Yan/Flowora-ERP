@@ -24,3 +24,13 @@ This repository is intended for public GitHub hosting. Never commit real persona
 - Demo reset is available only in the explicitly enabled `demo` profile and is protected by the `ADMIN` role.
 - Organization-scoped queries and the demo reset script preserve the organization boundary.
 - Error responses expose a stable code and request ID, but no stack trace or credential material.
+
+## Identity and data-scope contract
+
+- Both `/api/v1/auth/login` and `/api/v2/session/login` require an MFA code when the account has an enabled factor. No business session is created before MFA succeeds.
+- MFA replacement requires the current factor. A new factor remains pending for ten minutes; cancellation or failed confirmation leaves the current factor active.
+- Local and production profiles use indexed Redis sessions. A fourth concurrent login is rejected; password changes, resets, and account disablement revoke existing sessions. Session-store failures prevent password changes from reporting a successful revocation.
+- Accounts marked `mustChangePassword` may use only session identity, password change, CSRF, and logout endpoints until they change the password and sign in again.
+- Organization administrators may create a child organization of their current organization and receive an administrator membership there. Organization lists show only active memberships, and archiving requires the current organization's administrator role.
+- Compatibility reads and global search enforce module permissions. Sales, purchasing, and project lists apply data scope in the database query and page count; corresponding details also check scope. `ASSIGNED` order reads return no rows until an assignment policy exists.
+- Async exports recheck the requester's permissions and scope at execution and download. Non-`ALL` exports currently support sales and purchasing; other resources are denied until a row-level scope policy is defined. Existing exports lacking a recorded scope cannot be downloaded.

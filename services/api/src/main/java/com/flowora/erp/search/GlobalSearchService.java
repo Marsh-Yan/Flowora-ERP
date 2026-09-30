@@ -1,6 +1,7 @@
 package com.flowora.erp.search;
 
 import com.flowora.erp.masterdata.CustomerRepository;
+import com.flowora.erp.identity.FloworaPrincipal;
 import com.flowora.erp.project.ProjectRepository;
 import com.flowora.erp.sales.SalesOrderRepository;
 import org.springframework.data.domain.PageRequest;
@@ -26,14 +27,20 @@ public class GlobalSearchService {
     }
 
     @Transactional(readOnly = true)
-    public SearchResponse search(String organizationId, String query) {
+    public SearchResponse search(FloworaPrincipal actor, String query) {
+        String organizationId = actor.organizationId();
         String normalized = query == null ? "" : query.trim();
         if (normalized.isBlank()) return new SearchResponse(List.of());
         PageRequest limit = PageRequest.of(0, 6);
         List<SearchResult> results = new ArrayList<>();
-        customers.search(organizationId, normalized, limit).getContent().forEach(item -> results.add(new SearchResult("CUSTOMER", item.id(), item.name(), item.code(), "/settings")));
-        salesOrders.search(organizationId, normalized, limit).getContent().forEach(item -> results.add(new SearchResult("SALES_ORDER", item.id(), item.number(), item.customerId(), "/sales")));
-        projects.search(organizationId, normalized, null, limit).getContent().forEach(item -> results.add(new SearchResult("PROJECT", item.id(), item.name(), item.number(), "/projects")));
+        if (actor.permissions().contains("master:view"))
+            customers.search(organizationId, normalized, limit).getContent().forEach(item -> results.add(new SearchResult("CUSTOMER", item.id(), item.name(), item.code(), "/settings")));
+        if (actor.permissions().contains("sales:view"))
+            salesOrders.scopedSearch(organizationId, normalized, actor.dataScope().name(), actor.userId(), actor.departmentId(), limit)
+                    .getContent().forEach(item -> results.add(new SearchResult("SALES_ORDER", item.id(), item.number(), item.customerId(), "/sales")));
+        if (actor.permissions().contains("project:view"))
+            projects.scopedSearch(organizationId, normalized, null, actor.dataScope().name(), actor.userId(), actor.departmentId(), limit)
+                    .getContent().forEach(item -> results.add(new SearchResult("PROJECT", item.id(), item.name(), item.number(), "/projects")));
         return new SearchResponse(results.stream().limit(12).toList());
     }
 }

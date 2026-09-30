@@ -4,6 +4,9 @@ import com.flowora.erp.common.api.ApiResponse;
 import com.flowora.erp.common.api.PageResponse;
 import com.flowora.erp.common.api.RequestIdFilter;
 import com.flowora.erp.identity.FloworaPrincipal;
+import com.flowora.erp.identity.FloworaAuthorization;
+import com.flowora.erp.workflow.v2.WorkflowResourceAccessPolicy;
+import org.springframework.beans.factory.ObjectProvider;
 import com.flowora.erp.workflow.WorkflowDtos.ActionRequest;
 import com.flowora.erp.workflow.WorkflowDtos.ActivityResponse;
 import com.flowora.erp.workflow.WorkflowDtos.CommentRequest;
@@ -30,12 +33,18 @@ import org.springframework.web.bind.annotation.RestController;
 @RequestMapping({"/api/v1/workflow", "/api/v2/compat/workflow"})
 public class WorkflowController {
     private final WorkflowService service;
+    private final FloworaAuthorization authorization;
+    private final WorkflowResourceAccessPolicy resourceAccess;
 
-    public WorkflowController(WorkflowService service) {
+    public WorkflowController(WorkflowService service, FloworaAuthorization authorization,
+                              ObjectProvider<WorkflowResourceAccessPolicy> resourceAccess) {
         this.service = service;
+        this.authorization = authorization;
+        this.resourceAccess = resourceAccess.getIfAvailable();
     }
 
     @GetMapping("/tasks")
+    @PreAuthorize("@floworaAuthorization.has(authentication, 'workflow:view')")
     public ApiResponse<PageResponse<TaskResponse>> inbox(
             @PageableDefault(size = 20) Pageable pageable,
             Authentication authentication,
@@ -65,6 +74,7 @@ public class WorkflowController {
     }
 
     @GetMapping("/notifications")
+    @PreAuthorize("@floworaAuthorization.has(authentication, 'workflow:view')")
     public ApiResponse<PageResponse<NotificationResponse>> notifications(
             @PageableDefault(size = 20) Pageable pageable,
             Authentication authentication,
@@ -74,6 +84,7 @@ public class WorkflowController {
     }
 
     @GetMapping("/notifications/unread-count")
+    @PreAuthorize("@floworaAuthorization.has(authentication, 'workflow:view')")
     public ApiResponse<UnreadCount> unreadCount(Authentication authentication, HttpServletRequest request) {
         return response(service.unreadCount(principal(authentication)), request);
     }
@@ -95,6 +106,7 @@ public class WorkflowController {
             Authentication authentication,
             HttpServletRequest request
     ) {
+        requireResource(authentication, resourceType, resourceId, "read");
         return response(service.comments(principal(authentication), resourceType, resourceId, pageable), request);
     }
 
@@ -106,6 +118,7 @@ public class WorkflowController {
             Authentication authentication,
             HttpServletRequest request
     ) {
+        requireResource(authentication, resourceType, resourceId, "comment");
         return response(service.addComment(principal(authentication), resourceType, resourceId, body, RequestIdFilter.get(request)), request);
     }
 
@@ -117,14 +130,16 @@ public class WorkflowController {
             Authentication authentication,
             HttpServletRequest request
     ) {
+        requireResource(authentication, resourceType, resourceId, "read");
         return response(service.activities(principal(authentication), resourceType, resourceId, pageable), request);
     }
 
     private FloworaPrincipal principal(Authentication authentication) {
-        if (authentication != null && authentication.getPrincipal() instanceof FloworaPrincipal current) {
-            return current;
-        }
-        throw new IllegalStateException("Authenticated FloworaPrincipal is required");
+        return authorization.principal(authentication);
+    }
+
+    private void requireResource(Authentication authentication, String resourceType, String resourceId, String capability) {
+        if (resourceAccess != null) resourceAccess.require(principal(authentication), resourceType, resourceId, capability);
     }
 
     private <T> ApiResponse<T> response(T data, HttpServletRequest request) {

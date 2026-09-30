@@ -3,6 +3,8 @@ package com.flowora.erp.analytics;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.flowora.erp.identity.FloworaPrincipal;
+import com.flowora.erp.identity.DataScope;
+import org.springframework.security.access.AccessDeniedException;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -39,15 +41,22 @@ public class ExportJobService {
         String resource = command.resourceType().toUpperCase();
         String permission = PERMISSIONS.get(resource);
         if (permission == null || !actor.permissions().contains(permission)) {
-            throw new org.springframework.security.access.AccessDeniedException("Resource export permission required");
+            throw new AccessDeniedException("Resource export permission required");
         }
+        if (actor.dataScope() != DataScope.ALL && !(resource.equals("SALES") || resource.equals("PURCHASES")))
+            throw new AccessDeniedException("Resource has no scoped export policy");
+        if (actor.dataScope() == DataScope.ASSIGNED)
+            throw new AccessDeniedException("Assigned export scope is unavailable");
         String id = UUID.randomUUID().toString();
         String filters = json(command.filters() == null ? Map.of() : command.filters());
         String locale = command.locale() == null || command.locale().isBlank() ? "en-US" : command.locale();
         jdbc.update("""
-                INSERT INTO flowora_export_job(id,organization_id,requested_by,resource_type,format,filters_json,locale,status)
-                VALUES(?,?,?,?, 'CSV', ?, ?, 'PENDING')
-                """, id, actor.organizationId(), actor.userId(), resource, filters, locale);
+                INSERT INTO flowora_export_job
+                    (id,organization_id,requested_by,resource_type,format,filters_json,locale,status,
+                     requested_scope,requested_department_id)
+                VALUES(?,?,?,?, 'CSV', ?, ?, 'PENDING', ?, ?)
+                """, id, actor.organizationId(), actor.userId(), resource, filters, locale,
+                actor.dataScope().name(), actor.departmentId());
         processor.process(id);
         return find(actor, id);
     }
@@ -55,17 +64,23 @@ public class ExportJobService {
     @Transactional(readOnly = true)
     public List<ExportJobView> list(FloworaPrincipal actor) {
         return jdbc.query("""
-                SELECT id,resource_type,format,status,row_count,result_filename,error_code,expires_at,created_at,completed_at
+                SELECT id,resource_type,format,status,row_count,result_filename,error_code,expires_at,
+                       created_at,completed_at,requested_scope,requested_department_id
                 FROM flowora_export_job WHERE organization_id=? AND requested_by=? ORDER BY created_at DESC LIMIT 100
-                """, (rs, row) -> view(rs), actor.organizationId(), actor.userId());
+                """, (rs, row) -> allowed(actor, rs) ? view(rs) : null,
+                actor.organizationId(), actor.userId()).stream().filter(java.util.Objects::nonNull).toList();
     }
 
     @Transactional(readOnly = true)
     public ExportJobView find(FloworaPrincipal actor, String id) {
         List<ExportJobView> values = jdbc.query("""
-                SELECT id,resource_type,format,status,row_count,result_filename,error_code,expires_at,created_at,completed_at
+                SELECT id,resource_type,format,status,row_count,result_filename,error_code,expires_at,
+                       created_at,completed_at,requested_scope,requested_department_id
                 FROM flowora_export_job WHERE id=? AND organization_id=? AND requested_by=?
-                """, (rs, row) -> view(rs), id, actor.organizationId(), actor.userId());
+                """, (rs, row) -> {
+                    if (!allowed(actor, rs)) throw new AccessDeniedException("Export permissions or data scope changed");
+                    return view(rs);
+                }, id, actor.organizationId(), actor.userId());
         if (values.isEmpty()) throw new IllegalArgumentException("Export job not found");
         return values.getFirst();
     }
@@ -73,11 +88,19 @@ public class ExportJobService {
     @Transactional(readOnly = true)
     public ExportDownload download(FloworaPrincipal actor, String id) {
         List<Map<String, Object>> rows = jdbc.queryForList("""
-                SELECT result_filename,storage_key,sha256_hex,status,expires_at FROM flowora_export_job
+                SELECT result_filename,storage_key,sha256_hex,status,expires_at,
+                       resource_type,requested_scope,requested_department_id FROM flowora_export_job
                 WHERE id=? AND organization_id=? AND requested_by=?
                 """, id, actor.organizationId(), actor.userId());
         if (rows.isEmpty()) throw new IllegalArgumentException("Export job not found");
         Map<String, Object> row = rows.getFirst();
+        String permission = PERMISSIONS.get(row.get("resource_type"));
+        if (!actor.permissions().contains("analytics:export") || permission == null
+                || !actor.permissions().contains(permission)
+                || !actor.dataScope().name().equals(row.get("requested_scope"))
+                || !java.util.Objects.equals(actor.departmentId(), row.get("requested_department_id"))) {
+            throw new AccessDeniedException("Export permissions or data scope changed");
+        }
         if (!"COMPLETED".equals(row.get("status")) || row.get("storage_key") == null) throw new IllegalStateException("Export is not ready");
         Timestamp expires = (Timestamp) row.get("expires_at");
         if (expires == null || expires.toInstant().isBefore(Instant.now())) throw new IllegalStateException("Export has expired");
@@ -93,6 +116,14 @@ public class ExportJobService {
                 rs.getString("status"), rs.getLong("row_count"), rs.getString("result_filename"),
                 rs.getString("error_code"), expires == null ? null : expires.toInstant(),
                 rs.getTimestamp("created_at").toInstant(), completed == null ? null : completed.toInstant());
+    }
+
+    private boolean allowed(FloworaPrincipal actor, java.sql.ResultSet rs) throws java.sql.SQLException {
+        String resourcePermission = PERMISSIONS.get(rs.getString("resource_type"));
+        return actor.permissions().contains("analytics:export") && resourcePermission != null
+                && actor.permissions().contains(resourcePermission)
+                && actor.dataScope().name().equals(rs.getString("requested_scope"))
+                && java.util.Objects.equals(actor.departmentId(), rs.getString("requested_department_id"));
     }
 
     private String json(Map<String, Object> value) {

@@ -12,6 +12,7 @@ const loading = ref(false)
 const passwordForm = reactive({ currentPassword: '', newPassword: '', confirmPassword: '' })
 const enrollment = ref<{ secret: string; otpauthUri: string } | null>(null)
 const mfaCode = ref('')
+const currentMfaCode = ref('')
 const recoveryCodes = ref<string[]>([])
 
 async function loadSessions() {
@@ -36,7 +37,15 @@ async function changePassword() {
 
 async function startMfa() {
   await authStore.ensureCsrf()
-  enrollment.value = await platformApi.startMfaEnrollment()
+  enrollment.value = await platformApi.startMfaEnrollment(currentMfaCode.value)
+  currentMfaCode.value = ''
+}
+
+async function cancelMfa() {
+  await authStore.ensureCsrf()
+  await platformApi.cancelMfaEnrollment()
+  enrollment.value = null
+  mfaCode.value = ''
 }
 
 async function confirmMfa() {
@@ -79,11 +88,15 @@ onMounted(loadSessions)
       <el-card shadow="never" class="content-card">
         <template #header><strong>{{ t('security.mfa') }}</strong></template>
         <p>{{ t('security.mfaDescription') }}</p>
-        <el-button v-if="!enrollment" @click="startMfa">{{ t('security.startMfa') }}</el-button>
+        <div v-if="!enrollment">
+          <el-input v-model="currentMfaCode" :placeholder="t('security.currentMfaCode')" autocomplete="one-time-code" />
+          <el-button @click="startMfa">{{ t('security.startMfa') }}</el-button>
+        </div>
         <div v-else class="mfa-enrollment">
           <code>{{ enrollment.secret }}</code>
           <el-input v-model="mfaCode" :placeholder="t('security.verificationCode')" maxlength="6" />
           <el-button type="primary" @click="confirmMfa">{{ t('security.confirmMfa') }}</el-button>
+          <el-button @click="cancelMfa">{{ t('security.cancelMfa') }}</el-button>
         </div>
         <el-alert v-if="recoveryCodes.length" type="warning" :closable="false" :title="t('security.saveRecoveryCodes')">
           <div class="recovery-codes"><code v-for="code in recoveryCodes" :key="code">{{ code }}</code></div>

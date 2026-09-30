@@ -137,6 +137,7 @@ public class DatabaseAccountService {
     }
 
     private void revokeAfterCommit(String username) {
+        sessionGovernance.assertAvailable(username);
         if (!TransactionSynchronizationManager.isSynchronizationActive()) {
             sessionGovernance.revokeAll(username);
             return;

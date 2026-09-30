@@ -7,10 +7,6 @@ import jakarta.servlet.http.HttpServletResponse;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.NotBlank;
 import org.springframework.security.core.Authentication;
-import org.springframework.security.core.context.SecurityContext;
-import org.springframework.security.core.context.SecurityContextHolder;
-import org.springframework.security.web.context.HttpSessionSecurityContextRepository;
-import org.springframework.security.web.context.SecurityContextRepository;
 import org.springframework.security.web.authentication.logout.SecurityContextLogoutHandler;
 import org.springframework.security.web.csrf.CsrfToken;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -25,11 +21,10 @@ import java.util.Map;
 @RestController
 @RequestMapping("/api/v1/auth")
 public class AuthController {
-    private final IdentityAuthenticator userStore;
-    private final SecurityContextRepository securityContextRepository = new HttpSessionSecurityContextRepository();
+    private final SessionV2Controller sessions;
 
-    public AuthController(IdentityAuthenticator userStore) {
-        this.userStore = userStore;
+    public AuthController(SessionV2Controller sessions) {
+        this.sessions = sessions;
     }
 
     @GetMapping("/csrf")
@@ -43,14 +38,10 @@ public class AuthController {
             HttpServletRequest httpRequest,
             HttpServletResponse httpResponse
     ) {
-        FloworaPrincipal principal = userStore.authenticate(request.username(), request.password());
-        Authentication authentication = org.springframework.security.authentication.UsernamePasswordAuthenticationToken
-                .authenticated(principal, null, principal.getAuthorities());
-        SecurityContext context = SecurityContextHolder.createEmptyContext();
-        context.setAuthentication(authentication);
-        SecurityContextHolder.setContext(context);
-        securityContextRepository.saveContext(context, httpRequest, httpResponse);
-        return ApiResponse.of(AuthUserResponse.from(principal), RequestIdFilter.get(httpRequest));
+        SessionV2Controller.SessionUser user = sessions.login(
+                new SessionV2Controller.LoginRequest(request.username(), request.password(), request.mfaCode()),
+                httpRequest, httpResponse).data();
+        return ApiResponse.of(AuthUserResponse.from(user), RequestIdFilter.get(httpRequest));
     }
 
     @GetMapping("/me")
@@ -68,7 +59,7 @@ public class AuthController {
         return ApiResponse.of(Map.of("authenticated", false), RequestIdFilter.get(request));
     }
 
-    public record LoginRequest(@NotBlank String username, @NotBlank String password) {
+    public record LoginRequest(@NotBlank String username, @NotBlank String password, String mfaCode) {
     }
 
     public record AuthUserResponse(
@@ -92,6 +83,10 @@ public class AuthController {
                     principal.permissions(),
                     principal.mustChangePassword()
             );
+        }
+        static AuthUserResponse from(SessionV2Controller.SessionUser user) {
+            return new AuthUserResponse(user.id(), user.username(), user.displayName(), user.organizationId(),
+                    user.organizationName(), user.roles(), user.permissions(), user.mustChangePassword());
         }
     }
 }

@@ -7,10 +7,12 @@ import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.WebMvcTest;
 import org.springframework.context.annotation.Import;
+import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.web.servlet.MockMvc;
 
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.options;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
@@ -21,6 +23,9 @@ class SessionV2ControllerTest {
 
     @Autowired
     private MockMvc mockMvc;
+
+    @MockitoBean
+    private SessionGovernanceService sessionGovernance;
 
     @Test
     void logsInThroughV2AndReturnsEffectivePermissions() throws Exception {
@@ -52,5 +57,19 @@ class SessionV2ControllerTest {
         mockMvc.perform(get("/api/v2/session/me"))
                 .andExpect(status().isUnauthorized())
                 .andExpect(jsonPath("$.code").value("AUTHENTICATION_REQUIRED"));
+    }
+
+    @Test
+    void allowsIfMatchPreflightOnlyFromAnAllowedOrigin() throws Exception {
+        mockMvc.perform(options("/api/v2/workflow/tasks/example/act")
+                        .header("Origin", "http://localhost:5173")
+                        .header("Access-Control-Request-Method", "POST")
+                        .header("Access-Control-Request-Headers", "If-Match,X-XSRF-TOKEN"))
+                .andExpect(status().isOk());
+        mockMvc.perform(options("/api/v2/workflow/tasks/example/act")
+                        .header("Origin", "https://untrusted.example")
+                        .header("Access-Control-Request-Method", "POST")
+                        .header("Access-Control-Request-Headers", "If-Match"))
+                .andExpect(status().isForbidden());
     }
 }

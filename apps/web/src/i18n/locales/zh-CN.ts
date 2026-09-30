@@ -631,6 +631,8 @@ export default {
     startMfa: '启用验证器',
     verificationCode: '6 位验证码',
     confirmMfa: '确认并启用',
+    currentMfaCode: '更换验证器时输入当前验证码；首次启用可留空',
+    cancelMfa: '取消登记',
     mfaEnabled: '多因素认证已启用。',
     saveRecoveryCodes: '请立即保存这些恢复码；每个恢复码只能使用一次。',
 

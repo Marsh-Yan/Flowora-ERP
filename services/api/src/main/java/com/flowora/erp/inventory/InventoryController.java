@@ -39,6 +39,7 @@ public class InventoryController {
     }
 
     @GetMapping("/balances")
+    @PreAuthorize("@floworaAuthorization.has(authentication, 'inventory:view')")
     public ApiResponse<PageResponse<StockBalanceResponse>> balances(
             @RequestParam(defaultValue = "") String warehouseId,
             @PageableDefault(size = 20) Pageable pageable,
@@ -49,6 +50,7 @@ public class InventoryController {
     }
 
     @GetMapping("/ledger")
+    @PreAuthorize("@floworaAuthorization.has(authentication, 'inventory:view')")
     public ApiResponse<PageResponse<StockLedgerResponse>> ledger(
             @RequestParam(defaultValue = "") String warehouseId,
             @RequestParam(defaultValue = "") String itemId,

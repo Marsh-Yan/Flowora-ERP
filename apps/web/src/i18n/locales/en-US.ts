@@ -691,6 +691,8 @@ export default {
     startMfa: 'Set up authenticator',
     verificationCode: '6-digit code',
     confirmMfa: 'Confirm and enable',
+    currentMfaCode: 'Current MFA code for replacement; leave blank for first setup',
+    cancelMfa: 'Cancel enrollment',
     mfaEnabled: 'Multi-factor authentication is enabled.',
     saveRecoveryCodes: 'Save these recovery codes now. Each code can only be used once.',
 

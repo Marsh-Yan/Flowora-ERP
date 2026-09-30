@@ -33,6 +33,7 @@ public class ProcurementController {
     }
 
     @GetMapping("/requests")
+    @PreAuthorize("@floworaAuthorization.has(authentication, 'procurement:view')")
     public ApiResponse<PageResponse<PurchaseRequestResponse>> requests(
             @RequestParam(defaultValue = "") String query,
             @PageableDefault(size = 20) Pageable pageable,
@@ -53,13 +54,14 @@ public class ProcurementController {
     }
 
     @GetMapping("/orders")
+    @PreAuthorize("@floworaAuthorization.has(authentication, 'procurement:view')")
     public ApiResponse<PageResponse<PurchaseOrderResponse>> orders(
             @RequestParam(defaultValue = "") String query,
             @PageableDefault(size = 20) Pageable pageable,
             Authentication authentication,
             HttpServletRequest request
     ) {
-        return response(service.orders(principal(authentication).organizationId(), query, pageable), request);
+        return response(service.orders(principal(authentication), query, pageable), request);
     }
 
     @PostMapping("/orders")

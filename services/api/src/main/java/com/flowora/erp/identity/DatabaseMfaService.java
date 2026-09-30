@@ -45,14 +45,19 @@ public class DatabaseMfaService {
     }
 
     @Transactional
-    public Enrollment startEnrollment(FloworaPrincipal principal) {
+    public Enrollment startEnrollment(FloworaPrincipal principal, String currentCode) {
+        lockUser(principal.userId());
+        if (required(principal.userId())) {
+            if (currentCode == null || currentCode.isBlank()) invalidCode();
+            verifyLogin(principal.userId(), currentCode);
+        }
         String secret = totpService.newSecret();
-        jdbcTemplate.update("DELETE FROM flowora_user_mfa WHERE user_id = ? AND factor_type = 'TOTP'", principal.userId());
         jdbcTemplate.update("""
-                INSERT INTO flowora_user_mfa (
-                    id, user_id, factor_type, secret_ciphertext, enabled
-                ) VALUES (?, ?, 'TOTP', ?, FALSE)
-                """, UUID.randomUUID().toString(), principal.userId(), cipher.encrypt(secret));
+                INSERT INTO flowora_pending_mfa_enrollment (user_id, secret_ciphertext, expires_at)
+                VALUES (?, ?, ?)
+                ON DUPLICATE KEY UPDATE secret_ciphertext = VALUES(secret_ciphertext),
+                                        expires_at = VALUES(expires_at), created_at = CURRENT_TIMESTAMP
+                """, principal.userId(), cipher.encrypt(secret), Timestamp.from(Instant.now().plusSeconds(600)));
         String issuer = "Flowora ERP";
         String uri = "otpauth://totp/Flowora%20ERP:" + principal.username()
                 + "?secret=" + secret + "&issuer=" + issuer.replace(" ", "%20") + "&digits=6&period=30";
@@ -61,8 +66,16 @@ public class DatabaseMfaService {
 
     @Transactional
     public List<String> confirmEnrollment(String userId, String code) {
-        Map<String, Object> factor = factor(userId, false);
-        if (!totpService.verify(cipher.decrypt((String) factor.get("secret_ciphertext")), code)) {
+        lockUser(userId);
+        List<Map<String, Object>> pending = jdbcTemplate.queryForList("""
+                SELECT secret_ciphertext FROM flowora_pending_mfa_enrollment
+                WHERE user_id = ? AND expires_at > ? FOR UPDATE
+                """, userId, Timestamp.from(Instant.now()));
+        if (pending.isEmpty()) {
+            throw new PlatformApiException(HttpStatus.CONFLICT, "MFA_ENROLLMENT_EXPIRED", "errors.mfaNotConfigured");
+        }
+        String encryptedSecret = (String) pending.getFirst().get("secret_ciphertext");
+        if (!totpService.verify(cipher.decrypt(encryptedSecret), code)) {
             invalidCode();
         }
         List<String> recoveryCodes = new ArrayList<>();
@@ -72,12 +85,19 @@ public class DatabaseMfaService {
             recoveryCodes.add(recoveryCode);
             hashes.add(passwordEncoder.encode(recoveryCode));
         }
+        jdbcTemplate.update("DELETE FROM flowora_user_mfa WHERE user_id = ? AND factor_type = 'TOTP'", userId);
         jdbcTemplate.update("""
-                UPDATE flowora_user_mfa
-                SET enabled = TRUE, verified_at = ?, recovery_codes_json = ?
-                WHERE id = ?
-                """, Timestamp.from(Instant.now()), json(hashes), factor.get("id"));
+                INSERT INTO flowora_user_mfa
+                    (id, user_id, factor_type, secret_ciphertext, enabled, verified_at, recovery_codes_json)
+                VALUES (?, ?, 'TOTP', ?, TRUE, ?, ?)
+                """, UUID.randomUUID().toString(), userId, encryptedSecret, Timestamp.from(Instant.now()), json(hashes));
+        jdbcTemplate.update("DELETE FROM flowora_pending_mfa_enrollment WHERE user_id = ?", userId);
         return List.copyOf(recoveryCodes);
+    }
+
+    @Transactional
+    public void cancelEnrollment(String userId) {
+        jdbcTemplate.update("DELETE FROM flowora_pending_mfa_enrollment WHERE user_id = ?", userId);
     }
 
     @Transactional(readOnly = true)
@@ -108,8 +128,14 @@ public class DatabaseMfaService {
 
     @Transactional
     public void disable(String userId, String code) {
+        lockUser(userId);
         verifyLogin(userId, code);
         jdbcTemplate.update("DELETE FROM flowora_user_mfa WHERE user_id = ? AND factor_type = 'TOTP'", userId);
+        jdbcTemplate.update("DELETE FROM flowora_pending_mfa_enrollment WHERE user_id = ?", userId);
+    }
+
+    private void lockUser(String userId) {
+        jdbcTemplate.queryForObject("SELECT id FROM flowora_user_account WHERE id = ? FOR UPDATE", String.class, userId);
     }
 
     private Map<String, Object> factor(String userId, boolean enabled) {

@@ -89,8 +89,9 @@ export const platformApi = {
       currentPassword,
       newPassword,
     }),
-  startMfaEnrollment: () =>
-    post<{ secret: string; otpauthUri: string }>('/v2/session/mfa/enroll'),
+  startMfaEnrollment: (currentCode: string) =>
+    post<{ secret: string; otpauthUri: string }>('/v2/session/mfa/enroll', { currentCode }),
+  cancelMfaEnrollment: () => post<{ cancelled: boolean }>('/v2/session/mfa/cancel'),
   confirmMfaEnrollment: (code: string) =>
     post<{ codes: string[] }>('/v2/session/mfa/confirm', { code }),
   disableMfa: (code: string) => post<{ enabled: boolean }>('/v2/session/mfa/disable', { code }),

@@ -2,6 +2,9 @@ package com.flowora.erp.workflow.v2;
 
 import com.flowora.erp.common.api.PlatformApiException;
 import com.flowora.erp.identity.FloworaPrincipal;
+import com.flowora.erp.identity.DataScope;
+import com.flowora.erp.project.ProjectReadScope;
+import com.flowora.erp.trade.v2.OrderReadScope;
 import org.springframework.http.HttpStatus;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Component;
@@ -29,9 +32,14 @@ public class WorkflowResourceAccessPolicy {
     );
 
     private final JdbcTemplate jdbcTemplate;
+    private final OrderReadScope orderReadScope;
+    private final ProjectReadScope projectReadScope;
 
-    public WorkflowResourceAccessPolicy(JdbcTemplate jdbcTemplate) {
+    public WorkflowResourceAccessPolicy(JdbcTemplate jdbcTemplate, OrderReadScope orderReadScope,
+                                        ProjectReadScope projectReadScope) {
         this.jdbcTemplate = jdbcTemplate;
+        this.orderReadScope = orderReadScope;
+        this.projectReadScope = projectReadScope;
     }
 
     public String require(FloworaPrincipal principal, String resourceType, String resourceId, String capability) {
@@ -60,6 +68,15 @@ public class WorkflowResourceAccessPolicy {
                 Integer.class, resourceId, principal.organizationId());
         if (count == null || count == 0) {
             throw new PlatformApiException(HttpStatus.NOT_FOUND, "RESOURCE_NOT_FOUND", "errors.resourceNotFound");
+        }
+        if (principal.dataScope() != DataScope.ALL) {
+            switch (normalized) {
+                case "SALES_ORDER" -> orderReadScope.requireSales(principal, resourceId);
+                case "PURCHASE_ORDER" -> orderReadScope.requirePurchase(principal, resourceId);
+                case "PROJECT" -> projectReadScope.require(principal, resourceId);
+                default -> throw new PlatformApiException(HttpStatus.FORBIDDEN,
+                        "PERMISSION_DENIED", "errors.authForbidden");
+            }
         }
         return normalized;
     }

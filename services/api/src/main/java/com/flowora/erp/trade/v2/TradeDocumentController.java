@@ -20,10 +20,12 @@ import org.springframework.web.bind.annotation.*;
 public class TradeDocumentController {
     private final TradeDocumentService service;
     private final FloworaAuthorization authorization;
+    private final OrderReadScope readScope;
 
-    public TradeDocumentController(TradeDocumentService service, FloworaAuthorization authorization) {
+    public TradeDocumentController(TradeDocumentService service, FloworaAuthorization authorization, OrderReadScope readScope) {
         this.service = service;
         this.authorization = authorization;
+        this.readScope = readScope;
     }
 
     @PostMapping("/sales/orders")
@@ -37,7 +39,9 @@ public class TradeDocumentController {
     @GetMapping("/sales/orders/{id}")
     @PreAuthorize("@floworaAuthorization.has(authentication, 'sales:view')")
     public ApiResponse<DocumentView> salesOrder(@PathVariable String id, Authentication authentication, HttpServletRequest request) {
-        return response(service.salesOrder(principal(authentication).organizationId(), id), request);
+        FloworaPrincipal actor = principal(authentication);
+        readScope.requireSales(actor, id);
+        return response(service.salesOrder(actor.organizationId(), id), request);
     }
 
     @PostMapping("/sales/orders/{id}/confirm")
@@ -65,7 +69,9 @@ public class TradeDocumentController {
     @GetMapping("/procurement/orders/{id}")
     @PreAuthorize("@floworaAuthorization.has(authentication, 'procurement:view')")
     public ApiResponse<DocumentView> purchaseOrder(@PathVariable String id, Authentication authentication, HttpServletRequest request) {
-        return response(service.purchaseOrder(principal(authentication).organizationId(), id), request);
+        FloworaPrincipal actor = principal(authentication);
+        readScope.requirePurchase(actor, id);
+        return response(service.purchaseOrder(actor.organizationId(), id), request);
     }
 
     @PostMapping("/procurement/orders/{id}/confirm")
