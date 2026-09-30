@@ -73,6 +73,12 @@ jobs:
         run: docker compose up --build --wait --wait-timeout 300
       - name: Verify readiness through web proxy
         run: curl --fail --retry 20 --retry-delay 3 --retry-connrefused http://localhost:8080/healthz
+      - name: Inspect service health on failure
+        if: failure()
+        run: |
+          docker compose ps
+          docker inspect --format '{{json .State.Health}}' "$(docker compose ps -q api)"
+          docker compose exec -T api sh -c 'command -v wget || true; command -v curl || true; wget -O- http://127.0.0.1:9090/actuator/health/readiness || true'
       - name: Show service logs on failure
         if: failure()
         run: docker compose logs --no-color --tail=150
