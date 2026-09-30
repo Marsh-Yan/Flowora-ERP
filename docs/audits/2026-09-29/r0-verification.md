@@ -6,8 +6,8 @@
 |---|---|---|---|
 | F01 | production 激活持久化身份、权限、交易、工作流组件；排除 DemoUserStore | 隔离 MySQL 8.0.32 / Redis 3.2 上 readiness `UP`，版本接口正常；未启用 demo seed | Compose 目标 MySQL 8.4 / Redis 7.4 启动与就绪；空库确认没有演示数据 |
 | F02 | standalone 只扫描健康、版本及必要安全组件 | 无数据库启动，`/api/v1/health`、`/api/v2/system/version`、`/actuator/health` 均为 200；业务接口不会返回 200；自动化启动测试已加入 | CI 中新增测试通过 |
-| F18 | Maven Wrapper 在 Windows 用 Join-Path 处理普通目录/目录链接 | `mvnw.cmd -version` 输出 Maven 3.9.16；完整测试/打包通过 | Windows 链接目录与首次下载场景；Linux Wrapper CI 回归 |
-| F21 | Redis 健康探针取得与启动命令相同的凭据；API 镜像提供 curl 供就绪探针使用，且缺密码时配置失败 | YAML 解析通过；首轮目标 CI 发现 API 镜像无 wget，已补充 curl 并等待复测；本机无 Docker | CI `production-smoke` 用目标镜像构建、等待 healthy，再经 Web `/healthz` 验证；错误密码和重启恢复仍需单独演练 |
+| F18 | Maven Wrapper 在 Windows 用 Join-Path 处理普通目录/目录链接 | `mvnw.cmd -version` 输出 Maven 3.9.16；完整测试/打包通过 | CI 已加入 Windows 普通目录首次下载与链接目录验证；待运行结果；Linux Wrapper CI 回归 |
+| F21 | Redis 健康探针取得与启动命令相同的凭据；API 镜像提供 curl 供就绪探针使用，且缺密码时配置失败 | YAML 解析通过；首轮目标 CI 发现 API 镜像无 wget，已补充 curl 并等待复测；本机无 Docker | CI `production-smoke` 用目标镜像构建、等待 healthy，再经 Web `/healthz` 验证；CI 已加入错误密码与重启恢复检查；待运行结果 |
 | F27 | 增加 standalone 启动测试与生产 Compose 冒烟任务 | Maven 80 tests / 0 failures / 0 skips，package 成功 | CI 运行生产冒烟；后续阶段继续扩展安全和业务用例 |
 
 测试命令：
