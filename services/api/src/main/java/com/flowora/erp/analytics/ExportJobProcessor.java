@@ -2,6 +2,10 @@ package com.flowora.erp.analytics;
 
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.flowora.erp.identity.DatabaseIdentityAuthenticator;
+import com.flowora.erp.identity.FloworaPrincipal;
+import com.flowora.erp.identity.DataScope;
+import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.scheduling.annotation.Async;
@@ -25,13 +29,18 @@ import java.util.Map;
 @Service
 public class ExportJobProcessor {
     private static final Map<String, ExportDefinition> DEFINITIONS = definitions();
+    private static final Map<String, String> PERMISSIONS = Map.of(
+            "SALES", "sales:view", "PURCHASES", "procurement:view", "INVENTORY", "inventory:view",
+            "FINANCE", "finance:view", "PROJECTS", "project:view");
     private final JdbcTemplate jdbc;
     private final ObjectMapper objectMapper;
     private final Path root;
     private final int retentionHours;
     private final int maximumRows;
+    private final DatabaseIdentityAuthenticator authenticator;
 
     public ExportJobProcessor(JdbcTemplate jdbc, ObjectMapper objectMapper,
+                              ObjectProvider<DatabaseIdentityAuthenticator> authenticator,
                               @Value("${flowora.export.root:.flowora/exports}") String root,
                               @Value("${flowora.export.retention-hours:24}") int retentionHours,
                               @Value("${flowora.export.maximum-rows:100000}") int maximumRows) {
@@ -40,19 +49,47 @@ public class ExportJobProcessor {
         this.root = Path.of(root).toAbsolutePath().normalize();
         this.retentionHours = Math.max(1, retentionHours);
         this.maximumRows = Math.max(1, maximumRows);
+        this.authenticator = authenticator.getIfAvailable();
     }
 
     @Async
     public void process(String id) {
         try {
-            Map<String, Object> job = jdbc.queryForMap("SELECT organization_id,resource_type,filters_json FROM flowora_export_job WHERE id=? AND status='PENDING'", id);
+            Map<String, Object> job = jdbc.queryForMap("""
+                    SELECT organization_id,requested_by,resource_type,filters_json,
+                           requested_scope,requested_department_id
+                    FROM flowora_export_job WHERE id=? AND status='PENDING'
+                    """, id);
             jdbc.update("UPDATE flowora_export_job SET status='RUNNING',started_at=CURRENT_TIMESTAMP WHERE id=? AND status='PENDING'", id);
             ExportDefinition definition = DEFINITIONS.get(job.get("resource_type").toString());
             if (definition == null) throw new IllegalArgumentException("Unsupported export resource");
+            if (authenticator == null) throw new IllegalStateException("Identity service unavailable");
+            FloworaPrincipal actor = authenticator.principalForOrganization(
+                    job.get("requested_by").toString(), job.get("organization_id").toString());
+            String resource = job.get("resource_type").toString();
+            if (actor.mustChangePassword() || !actor.permissions().contains("analytics:export")
+                    || !actor.permissions().contains(PERMISSIONS.get(resource))
+                    || !actor.dataScope().name().equals(job.get("requested_scope"))
+                    || !java.util.Objects.equals(actor.departmentId(), job.get("requested_department_id"))) {
+                throw new IllegalStateException("Export permission or scope changed");
+            }
             Map<String, Object> filters = objectMapper.readValue(job.get("filters_json").toString(), new TypeReference<>() { });
             String query = "SELECT * FROM (" + definition.sql + ") exported WHERE 1=1";
             List<Object> arguments = new ArrayList<>();
             arguments.add(job.get("organization_id"));
+            if (actor.dataScope() == DataScope.SELF) {
+                if (!resource.equals("SALES") && !resource.equals("PURCHASES")) throw new IllegalStateException("Unsupported export scope");
+                query += " AND exported.owner_user_id = ?";
+                arguments.add(actor.userId());
+            } else if (actor.dataScope() == DataScope.DEPARTMENT) {
+                if (!resource.equals("SALES") && !resource.equals("PURCHASES")) throw new IllegalStateException("Unsupported export scope");
+                query += " AND exported.owner_user_id IN (SELECT user_id FROM flowora_organization_membership "
+                        + "WHERE organization_id = ? AND department_id = ? AND status = 'ACTIVE')";
+                arguments.add(actor.organizationId());
+                arguments.add(actor.departmentId());
+            } else if (actor.dataScope() != DataScope.ALL) {
+                throw new IllegalStateException("Unsupported export scope");
+            }
             if (definition.dateColumn != null && filters.get("from") instanceof String from && filters.get("to") instanceof String to) {
                 LocalDate fromDate = LocalDate.parse(from);
                 LocalDate toDate = LocalDate.parse(to);
@@ -129,9 +166,9 @@ public class ExportJobProcessor {
     private static Map<String, ExportDefinition> definitions() {
         Map<String, ExportDefinition> values = new LinkedHashMap<>();
         values.put("SALES", new ExportDefinition(List.of("number","status","currency_code","total_amount","order_date"),
-                "SELECT number,status,currency_code,total_amount,order_date FROM flowora_sales_order WHERE organization_id=? ORDER BY order_date DESC", "order_date"));
+                "SELECT number,status,currency_code,total_amount,order_date,sales_user_id owner_user_id FROM flowora_sales_order WHERE organization_id=?", "order_date"));
         values.put("PURCHASES", new ExportDefinition(List.of("number","status","currency_code","total_amount","order_date"),
-                "SELECT number,status,currency_code,total_amount,order_date FROM flowora_purchase_order WHERE organization_id=? ORDER BY order_date DESC", "order_date"));
+                "SELECT number,status,currency_code,total_amount,order_date,buyer_user_id owner_user_id FROM flowora_purchase_order WHERE organization_id=?", "order_date"));
         values.put("INVENTORY", new ExportDefinition(List.of("warehouse_code","item_code","quantity","average_cost"),
                 "SELECT w.code warehouse_code,i.code item_code,b.quantity,b.average_cost FROM flowora_stock_balance b JOIN flowora_warehouse w ON w.id=b.warehouse_id JOIN flowora_item i ON i.id=b.item_id WHERE b.organization_id=? ORDER BY w.code,i.code", null));
         values.put("FINANCE", new ExportDefinition(List.of("number","document_type","party_type","status","settlement_status","currency_code","total_amount","accounting_date"),

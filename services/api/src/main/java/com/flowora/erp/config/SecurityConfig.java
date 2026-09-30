@@ -9,6 +9,7 @@ import org.springframework.security.config.annotation.web.builders.HttpSecurity;
 import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.security.web.SecurityFilterChain;
+import org.springframework.security.web.access.intercept.AuthorizationFilter;
 import org.springframework.security.web.header.writers.ReferrerPolicyHeaderWriter;
 import org.springframework.security.web.csrf.CookieCsrfTokenRepository;
 import org.springframework.security.web.csrf.CsrfTokenRequestAttributeHandler;
@@ -27,7 +28,8 @@ public class SecurityConfig {
             HttpSecurity http,
             ApiAuthenticationEntryPoint authenticationEntryPoint,
             ApiAccessDeniedHandler accessDeniedHandler,
-            CorsConfigurationSource corsConfigurationSource
+            CorsConfigurationSource corsConfigurationSource,
+            com.fasterxml.jackson.databind.ObjectMapper objectMapper
     ) throws Exception {
         CookieCsrfTokenRepository csrfTokenRepository = CookieCsrfTokenRepository.withHttpOnlyFalse();
         CsrfTokenRequestAttributeHandler csrfRequestHandler = new CsrfTokenRequestAttributeHandler();
@@ -64,6 +66,7 @@ public class SecurityConfig {
                         .requestMatchers("/api/v2/**").authenticated()
                         .anyRequest().denyAll()
                 );
+        http.addFilterAfter(new RequiredPasswordChangeFilter(objectMapper), AuthorizationFilter.class);
         return http.build();
     }
 
@@ -92,7 +95,7 @@ public class SecurityConfig {
                 .filter(origin -> !origin.isBlank())
                 .toList());
         configuration.setAllowedMethods(List.of("GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"));
-        configuration.setAllowedHeaders(List.of("Accept", "Content-Type", "X-Requested-With", "X-XSRF-TOKEN", "X-Request-Id", "Idempotency-Key"));
+        configuration.setAllowedHeaders(List.of("Accept", "Content-Type", "X-Requested-With", "X-XSRF-TOKEN", "X-Request-Id", "Idempotency-Key", "If-Match"));
         configuration.setExposedHeaders(List.of("X-Request-Id"));
         configuration.setAllowCredentials(true);
         configuration.setMaxAge(3600L);

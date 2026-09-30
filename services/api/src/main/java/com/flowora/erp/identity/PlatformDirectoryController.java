@@ -37,8 +37,8 @@ public class PlatformDirectoryController {
 
     @GetMapping("/organizations")
     @PreAuthorize("@floworaAuthorization.has(authentication, 'organization:view')")
-    public ApiResponse<List<PlatformDirectoryService.OrganizationView>> organizations(HttpServletRequest request) {
-        return response(service.organizations(), request);
+    public ApiResponse<List<PlatformDirectoryService.OrganizationView>> organizations(Authentication authentication, HttpServletRequest request) {
+        return response(service.organizations(principal(authentication).userId()), request);
     }
 
     @PostMapping("/organizations")
@@ -48,7 +48,7 @@ public class PlatformDirectoryController {
             Authentication authentication,
             HttpServletRequest request
     ) {
-        var created = service.createOrganization(body.toCommand());
+        var created = service.createOrganization(principal(authentication), body.toCommand());
         audit(authentication, "ORGANIZATION_CREATED", "ORGANIZATION", created.id(), body.reason(), null, created, request);
         return response(created, request);
     }
@@ -61,8 +61,10 @@ public class PlatformDirectoryController {
             Authentication authentication,
             HttpServletRequest request
     ) {
-        service.archiveOrganization(organizationId);
-        audit(authentication, "ORGANIZATION_ARCHIVED", "ORGANIZATION", organizationId, body.reason(), null, null, request);
+        FloworaPrincipal actor = principal(authentication);
+        service.archiveOrganization(actor, organizationId);
+        service.auditChange(actor, "ORGANIZATION_ARCHIVED", "ORGANIZATION", organizationId,
+                RequestIdFilter.get(request), body.reason(), null, null);
         return response(null, request);
     }
 

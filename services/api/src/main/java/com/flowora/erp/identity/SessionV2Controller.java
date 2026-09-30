@@ -33,18 +33,21 @@ public class SessionV2Controller {
     private final DatabaseAccountService accountService;
     private final SecurityAuditService auditService;
     private final DatabaseMfaService mfaService;
+    private final SessionGovernanceService sessionGovernance;
     private final SecurityContextRepository securityContextRepository = new HttpSessionSecurityContextRepository();
 
     public SessionV2Controller(
             IdentityAuthenticator authenticator,
             ObjectProvider<DatabaseAccountService> accountService,
             ObjectProvider<DatabaseMfaService> mfaService,
-            SecurityAuditService auditService
+            SecurityAuditService auditService,
+            SessionGovernanceService sessionGovernance
     ) {
         this.authenticator = authenticator;
         this.accountService = accountService.getIfAvailable();
         this.mfaService = mfaService.getIfAvailable();
         this.auditService = auditService;
+        this.sessionGovernance = sessionGovernance;
     }
 
     @GetMapping("/csrf")
@@ -67,6 +70,7 @@ public class SessionV2Controller {
                 mfaService.verifyLogin(principal.userId(), body.mfaCode());
             }
             if (request.getSession(false) != null) request.changeSessionId();
+            sessionGovernance.reserveLogin(principal.username(), request.getSession(true).getId());
             save(principal, request, response);
             auditService.record(principal.userId(), principal.organizationId(), "LOGIN", "SUCCESS", request, null);
             return ApiResponse.of(SessionUser.from(principal), RequestIdFilter.get(request));
@@ -138,6 +142,7 @@ public class SessionV2Controller {
     ) {
         FloworaPrincipal principal = principal(authentication);
         auditService.record(principal.userId(), principal.organizationId(), "LOGOUT", "SUCCESS", request, null);
+        if (request.getSession(false) != null) sessionGovernance.clearReservation(principal.username(), request.getSession(false).getId());
         new SecurityContextLogoutHandler().logout(request, response, authentication);
         return ApiResponse.of(Map.of("authenticated", false), RequestIdFilter.get(request));
     }

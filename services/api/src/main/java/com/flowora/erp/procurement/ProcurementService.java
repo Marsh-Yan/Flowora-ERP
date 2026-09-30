@@ -110,9 +110,10 @@ public class ProcurementService {
     }
 
     @Transactional(readOnly = true)
-    public PageResponse<PurchaseOrderResponse> orders(String organizationId, String query, Pageable pageable) {
-        Page<PurchaseOrderEntity> page = orderRepository.search(organizationId, clean(query), pageable);
-        return PageResponse.from(page.map(order -> orderResponse(order, orderLineRepository.findFirstByOrganizationIdAndPurchaseOrderId(organizationId, order.id()).orElse(null))));
+    public PageResponse<PurchaseOrderResponse> orders(FloworaPrincipal actor, String query, Pageable pageable) {
+        Page<PurchaseOrderEntity> page = orderRepository.scopedSearch(actor.organizationId(), clean(query),
+                actor.dataScope().name(), actor.userId(), actor.departmentId(), pageable);
+        return PageResponse.from(page.map(order -> orderResponse(order, orderLineRepository.findFirstByOrganizationIdAndPurchaseOrderId(actor.organizationId(), order.id()).orElse(null))));
     }
 
     @Transactional

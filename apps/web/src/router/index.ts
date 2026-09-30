@@ -101,6 +101,10 @@ router.beforeEach(async (to) => {
     return { name: 'login', query: { redirect: to.fullPath } }
   }
 
+  if (authStore.user?.mustChangePassword && to.path !== '/account/security') {
+    return { path: '/account/security' }
+  }
+
   const permission = to.meta.permission as string | undefined
   if (!authStore.hasPermission(permission)) {
     return { name: 'dashboard', query: { denied: permission } }

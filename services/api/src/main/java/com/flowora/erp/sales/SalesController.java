@@ -38,6 +38,7 @@ public class SalesController {
     }
 
     @GetMapping("/quotes")
+    @PreAuthorize("@floworaAuthorization.has(authentication, 'sales:view')")
     public ApiResponse<PageResponse<SalesQuoteResponse>> quotes(@RequestParam(defaultValue = "") String query, @PageableDefault(size = 20) Pageable pageable, Authentication authentication, HttpServletRequest request) {
         return response(service.quotes(principal(authentication).organizationId(), query, pageable), request);
     }
@@ -61,8 +62,9 @@ public class SalesController {
     }
 
     @GetMapping("/orders")
+    @PreAuthorize("@floworaAuthorization.has(authentication, 'sales:view')")
     public ApiResponse<PageResponse<SalesOrderResponse>> orders(@RequestParam(defaultValue = "") String query, @PageableDefault(size = 20) Pageable pageable, Authentication authentication, HttpServletRequest request) {
-        return response(service.orders(principal(authentication).organizationId(), query, pageable), request);
+        return response(service.orders(principal(authentication), query, pageable), request);
     }
 
     @PostMapping("/orders")
@@ -72,6 +74,7 @@ public class SalesController {
     }
 
     @GetMapping("/deliveries")
+    @PreAuthorize("@floworaAuthorization.has(authentication, 'sales:view')")
     public ApiResponse<PageResponse<DeliveryResponse>> deliveries(@RequestParam(defaultValue = "") String query, @PageableDefault(size = 20) Pageable pageable, Authentication authentication, HttpServletRequest request) {
         return response(service.deliveries(principal(authentication).organizationId(), query, pageable), request);
     }
@@ -84,11 +87,13 @@ public class SalesController {
     }
 
     @GetMapping("/receivables")
+    @PreAuthorize("@floworaAuthorization.has(authentication, 'sales:view')")
     public ApiResponse<PageResponse<ReceivableResponse>> receivables(@RequestParam(defaultValue = "") String query, @PageableDefault(size = 20) Pageable pageable, Authentication authentication, HttpServletRequest request) {
         return response(service.receivables(principal(authentication).organizationId(), query, pageable), request);
     }
 
     @GetMapping("/receivables/{id}/payments")
+    @PreAuthorize("@floworaAuthorization.has(authentication, 'sales:view')")
     public ApiResponse<PageResponse<PaymentResponse>> payments(@PathVariable String id, @PageableDefault(size = 20) Pageable pageable, Authentication authentication, HttpServletRequest request) {
         return response(service.payments(principal(authentication).organizationId(), id, pageable), request);
     }

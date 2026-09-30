@@ -40,6 +40,7 @@ public class FinanceController {
     }
 
     @GetMapping("/journals")
+    @PreAuthorize("@floworaAuthorization.has(authentication, 'finance:view')")
     public ApiResponse<PageResponse<JournalEntryResponse>> journals(@RequestParam(required = false) LocalDate from, @RequestParam(required = false) LocalDate to, @PageableDefault(size = 30) Pageable pageable, Authentication authentication, HttpServletRequest request) {
         LocalDate end = to == null ? LocalDate.now() : to;
         LocalDate start = from == null ? end.withDayOfMonth(1) : from;
@@ -53,6 +54,7 @@ public class FinanceController {
     }
 
     @GetMapping("/periods")
+    @PreAuthorize("@floworaAuthorization.has(authentication, 'finance:view')")
     public ApiResponse<PageResponse<AccountingPeriodResponse>> periods(@PageableDefault(size = 24) Pageable pageable, Authentication authentication, HttpServletRequest request) {
         return response(service.periods(principal(authentication).organizationId(), pageable), request);
     }
@@ -64,6 +66,7 @@ public class FinanceController {
     }
 
     @GetMapping("/reports/trial-balance")
+    @PreAuthorize("@floworaAuthorization.has(authentication, 'finance:view')")
     public ApiResponse<TrialBalanceResponse> trialBalance(@RequestParam(required = false) LocalDate from, @RequestParam(required = false) LocalDate to, Authentication authentication, HttpServletRequest request) {
         LocalDate end = to == null ? LocalDate.now() : to;
         LocalDate start = from == null ? end.withDayOfMonth(1) : from;
@@ -71,6 +74,7 @@ public class FinanceController {
     }
 
     @GetMapping("/reports/income-statement")
+    @PreAuthorize("@floworaAuthorization.has(authentication, 'finance:view')")
     public ApiResponse<FinancialStatementResponse> incomeStatement(@RequestParam(required = false) LocalDate from, @RequestParam(required = false) LocalDate to, Authentication authentication, HttpServletRequest request) {
         LocalDate end = to == null ? LocalDate.now() : to;
         LocalDate start = from == null ? end.withDayOfMonth(1) : from;
@@ -78,6 +82,7 @@ public class FinanceController {
     }
 
     @GetMapping("/reports/balance-sheet")
+    @PreAuthorize("@floworaAuthorization.has(authentication, 'finance:view')")
     public ApiResponse<FinancialStatementResponse> balanceSheet(@RequestParam(required = false) LocalDate from, @RequestParam(required = false) LocalDate to, Authentication authentication, HttpServletRequest request) {
         LocalDate end = to == null ? LocalDate.now() : to;
         LocalDate start = from == null ? LocalDate.of(end.getYear(), 1, 1) : from;
@@ -85,11 +90,13 @@ public class FinanceController {
     }
 
     @GetMapping("/payables")
+    @PreAuthorize("@floworaAuthorization.has(authentication, 'finance:view')")
     public ApiResponse<PageResponse<PayableResponse>> payables(@RequestParam(defaultValue = "") String query, @PageableDefault(size = 30) Pageable pageable, Authentication authentication, HttpServletRequest request) {
         return response(service.payables(principal(authentication).organizationId(), query, pageable), request);
     }
 
     @GetMapping("/payables/{id}/payments")
+    @PreAuthorize("@floworaAuthorization.has(authentication, 'finance:view')")
     public ApiResponse<PageResponse<SupplierPaymentResponse>> supplierPayments(@PathVariable String id, @PageableDefault(size = 20) Pageable pageable, Authentication authentication, HttpServletRequest request) {
         return response(service.supplierPayments(principal(authentication).organizationId(), id, pageable), request);
     }
@@ -101,11 +108,13 @@ public class FinanceController {
     }
 
     @GetMapping("/reports/aging/receivables")
+    @PreAuthorize("@floworaAuthorization.has(authentication, 'finance:view')")
     public ApiResponse<List<AgingRow>> receivableAging(@RequestParam(required = false) LocalDate asOf, Authentication authentication, HttpServletRequest request) {
         return response(service.receivableAging(principal(authentication).organizationId(), asOf == null ? LocalDate.now() : asOf), request);
     }
 
     @GetMapping("/reports/aging/payables")
+    @PreAuthorize("@floworaAuthorization.has(authentication, 'finance:view')")
     public ApiResponse<List<AgingRow>> payableAging(@RequestParam(required = false) LocalDate asOf, Authentication authentication, HttpServletRequest request) {
         return response(service.payableAging(principal(authentication).organizationId(), asOf == null ? LocalDate.now() : asOf), request);
     }

@@ -4,6 +4,8 @@ import com.flowora.erp.common.api.ApiResponse;
 import com.flowora.erp.common.api.PageResponse;
 import com.flowora.erp.common.api.RequestIdFilter;
 import com.flowora.erp.identity.FloworaPrincipal;
+import com.flowora.erp.identity.FloworaAuthorization;
+import org.springframework.beans.factory.ObjectProvider;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.validation.Valid;
 import org.springframework.data.domain.Pageable;
@@ -26,14 +28,20 @@ import static com.flowora.erp.project.ProjectDtos.*;
 @RequestMapping({"/api/v1/projects", "/api/v2/compat/projects"})
 public class ProjectController {
     private final ProjectService service;
+    private final FloworaAuthorization authorization;
+    private final ProjectReadScope readScope;
 
-    public ProjectController(ProjectService service) {
+    public ProjectController(ProjectService service, FloworaAuthorization authorization,
+                             ObjectProvider<ProjectReadScope> readScope) {
         this.service = service;
+        this.authorization = authorization;
+        this.readScope = readScope.getIfAvailable();
     }
 
     @GetMapping
+    @PreAuthorize("@floworaAuthorization.has(authentication, 'project:view')")
     public ApiResponse<PageResponse<ProjectResponse>> list(@RequestParam(defaultValue = "") String query, @RequestParam(required = false) ProjectStatus status, @PageableDefault(size = 20) Pageable pageable, Authentication authentication, HttpServletRequest request) {
-        return response(service.list(principal(authentication).organizationId(), query, status, pageable), request);
+        return response(service.list(principal(authentication), query, status, pageable), request);
     }
 
     @PostMapping
@@ -43,7 +51,9 @@ public class ProjectController {
     }
 
     @GetMapping("/{id}/summary")
+    @PreAuthorize("@floworaAuthorization.has(authentication, 'project:view')")
     public ApiResponse<ProjectResponse> summary(@PathVariable String id, Authentication authentication, HttpServletRequest request) {
+        requireVisible(authentication, id);
         return response(service.summary(principal(authentication).organizationId(), id), request);
     }
 
@@ -54,7 +64,9 @@ public class ProjectController {
     }
 
     @GetMapping("/{id}/milestones")
+    @PreAuthorize("@floworaAuthorization.has(authentication, 'project:view')")
     public ApiResponse<List<MilestoneResponse>> milestones(@PathVariable String id, Authentication authentication, HttpServletRequest request) {
+        requireVisible(authentication, id);
         return response(service.milestoneList(principal(authentication).organizationId(), id), request);
     }
 
@@ -65,7 +77,9 @@ public class ProjectController {
     }
 
     @GetMapping("/{id}/tasks")
+    @PreAuthorize("@floworaAuthorization.has(authentication, 'project:view')")
     public ApiResponse<PageResponse<TaskResponse>> tasks(@PathVariable String id, @PageableDefault(size = 50) Pageable pageable, Authentication authentication, HttpServletRequest request) {
+        requireVisible(authentication, id);
         return response(service.taskList(principal(authentication).organizationId(), id, pageable), request);
     }
 
@@ -82,7 +96,9 @@ public class ProjectController {
     }
 
     @GetMapping("/{id}/timesheets")
+    @PreAuthorize("@floworaAuthorization.has(authentication, 'project:view')")
     public ApiResponse<PageResponse<TimesheetResponse>> timesheets(@PathVariable String id, @PageableDefault(size = 50) Pageable pageable, Authentication authentication, HttpServletRequest request) {
+        requireVisible(authentication, id);
         return response(service.timesheetList(principal(authentication).organizationId(), id, pageable), request);
     }
 
@@ -93,7 +109,9 @@ public class ProjectController {
     }
 
     @GetMapping("/{id}/expenses")
+    @PreAuthorize("@floworaAuthorization.has(authentication, 'project:view')")
     public ApiResponse<PageResponse<ExpenseResponse>> expenses(@PathVariable String id, @PageableDefault(size = 50) Pageable pageable, Authentication authentication, HttpServletRequest request) {
+        requireVisible(authentication, id);
         return response(service.expenseList(principal(authentication).organizationId(), id, pageable), request);
     }
 
@@ -104,7 +122,9 @@ public class ProjectController {
     }
 
     @GetMapping("/{id}/budgets")
+    @PreAuthorize("@floworaAuthorization.has(authentication, 'project:view')")
     public ApiResponse<List<BudgetResponse>> budgets(@PathVariable String id, Authentication authentication, HttpServletRequest request) {
+        requireVisible(authentication, id);
         return response(service.budgetList(principal(authentication).organizationId(), id), request);
     }
 
@@ -115,13 +135,18 @@ public class ProjectController {
     }
 
     @GetMapping("/{id}/billing-basis")
+    @PreAuthorize("@floworaAuthorization.has(authentication, 'project:view')")
     public ApiResponse<List<BillingBasisRow>> billingBasis(@PathVariable String id, Authentication authentication, HttpServletRequest request) {
+        requireVisible(authentication, id);
         return response(service.billingBasis(principal(authentication).organizationId(), id), request);
     }
 
     private FloworaPrincipal principal(Authentication authentication) {
-        if (authentication != null && authentication.getPrincipal() instanceof FloworaPrincipal current) return current;
-        throw new IllegalStateException("Authenticated FloworaPrincipal is required");
+        return authorization.principal(authentication);
+    }
+
+    private void requireVisible(Authentication authentication, String projectId) {
+        if (readScope != null) readScope.require(principal(authentication), projectId);
     }
 
     private <T> ApiResponse<T> response(T data, HttpServletRequest request) {

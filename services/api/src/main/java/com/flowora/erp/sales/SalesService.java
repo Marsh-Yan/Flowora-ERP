@@ -172,8 +172,9 @@ public class SalesService {
     }
 
     @Transactional(readOnly = true)
-    public PageResponse<SalesOrderResponse> orders(String organizationId, String query, Pageable pageable) {
-        Page<SalesOrderEntity> page = orderRepository.search(organizationId, clean(query), pageable);
+    public PageResponse<SalesOrderResponse> orders(FloworaPrincipal actor, String query, Pageable pageable) {
+        Page<SalesOrderEntity> page = orderRepository.scopedSearch(actor.organizationId(), clean(query),
+                actor.dataScope().name(), actor.userId(), actor.departmentId(), pageable);
         return PageResponse.from(page.map(this::orderResponse));
     }
 

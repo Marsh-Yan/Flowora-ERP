@@ -43,18 +43,25 @@ public class PlatformDirectoryService {
     }
 
     @Transactional(readOnly = true)
-    public List<OrganizationView> organizations() {
+    public List<OrganizationView> organizations(String userId) {
         return jdbcTemplate.query("""
-                SELECT id, parent_id, name, status, base_currency_code, timezone,
+                SELECT org.id, org.parent_id, org.name, org.status, org.base_currency_code, org.timezone,
                        fiscal_year_start_month, amount_scale, price_scale, quantity_scale,
                        tax_rounding_mode, reservation_ttl_minutes, expiry_warning_days,
                        default_approval_policy
-                FROM flowora_organization ORDER BY name
-                """, this::mapOrganization);
+                FROM flowora_organization org
+                JOIN flowora_organization_membership membership ON membership.organization_id = org.id
+                WHERE membership.user_id = ? AND membership.status = 'ACTIVE' AND org.status = 'ACTIVE'
+                ORDER BY org.name
+                """, this::mapOrganization, userId);
     }
 
     @Transactional
-    public OrganizationView createOrganization(CreateOrganization command) {
+    public OrganizationView createOrganization(FloworaPrincipal actor, CreateOrganization command) {
+        if (!actor.roles().contains("ADMIN") || (command.parentId() != null
+                && !command.parentId().isBlank() && !actor.organizationId().equals(command.parentId()))) {
+            throw new PlatformApiException(HttpStatus.FORBIDDEN, "ORGANIZATION_ACCESS_DENIED", "errors.organizationAccessDenied");
+        }
         String id = UUID.randomUUID().toString();
         jdbcTemplate.update("""
                 INSERT INTO flowora_organization (
@@ -63,15 +70,34 @@ public class PlatformDirectoryService {
                     tax_rounding_mode, reservation_ttl_minutes, expiry_warning_days,
                     default_approval_policy, approval_threshold, default_tax_rate, active
                 ) VALUES (?, ?, ?, 'ACTIVE', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, 0, TRUE)
-                """, id, blankToNull(command.parentId()), command.name().trim(), normalizeCode(command.baseCurrencyCode()),
+                """, id, actor.organizationId(), command.name().trim(), normalizeCode(command.baseCurrencyCode()),
                 command.timezone().trim(), command.fiscalYearStartMonth(), command.amountScale(),
                 command.priceScale(), command.quantityScale(), command.taxRoundingMode(),
                 command.reservationTtlMinutes(), command.expiryWarningDays(), command.defaultApprovalPolicy());
+        String roleId = UUID.randomUUID().toString();
+        String membershipId = UUID.randomUUID().toString();
+        jdbcTemplate.update("""
+                INSERT INTO flowora_role (id, organization_id, code, name, description, data_scope, system_role, active)
+                VALUES (?, ?, 'ADMIN', 'Administrator', 'Organization administrator', 'ALL', TRUE, TRUE)
+                """, roleId, id);
+        jdbcTemplate.update("""
+                INSERT INTO flowora_role_permission (role_id, permission_code)
+                SELECT ?, code FROM flowora_permission
+                """, roleId);
+        jdbcTemplate.update("""
+                INSERT INTO flowora_organization_membership
+                    (id, organization_id, user_id, status, default_organization)
+                VALUES (?, ?, ?, 'ACTIVE', FALSE)
+                """, membershipId, id, actor.userId());
+        jdbcTemplate.update("INSERT INTO flowora_membership_role (membership_id, role_id) VALUES (?, ?)", membershipId, roleId);
         return organization(id);
     }
 
     @Transactional
-    public void archiveOrganization(String organizationId) {
+    public void archiveOrganization(FloworaPrincipal actor, String organizationId) {
+        if (!actor.organizationId().equals(organizationId) || !actor.roles().contains("ADMIN")) {
+            throw new PlatformApiException(HttpStatus.FORBIDDEN, "ORGANIZATION_ACCESS_DENIED", "errors.organizationAccessDenied");
+        }
         int updated = jdbcTemplate.update("""
                 UPDATE flowora_organization SET status = 'ARCHIVED', active = FALSE WHERE id = ?
                 """, organizationId);

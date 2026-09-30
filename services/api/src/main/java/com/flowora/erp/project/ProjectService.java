@@ -56,8 +56,9 @@ public class ProjectService {
     }
 
     @Transactional(readOnly = true)
-    public PageResponse<ProjectResponse> list(String organizationId, String query, ProjectStatus status, Pageable pageable) {
-        Page<ProjectEntity> page = projects.search(organizationId, query == null ? "" : query.trim(), status, pageable);
+    public PageResponse<ProjectResponse> list(FloworaPrincipal actor, String query, ProjectStatus status, Pageable pageable) {
+        Page<ProjectEntity> page = projects.scopedSearch(actor.organizationId(), query == null ? "" : query.trim(),
+                status == null ? null : status.name(), actor.dataScope().name(), actor.userId(), actor.departmentId(), pageable);
         return PageResponse.from(page.map(this::projectResponse));
     }
 

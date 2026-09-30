@@ -5,6 +5,8 @@ import com.flowora.erp.common.api.RequestIdFilter;
 import com.flowora.erp.finance.v2.FinanceV2Dtos.InvoiceView;
 import com.flowora.erp.identity.FloworaAuthorization;
 import com.flowora.erp.identity.FloworaPrincipal;
+import com.flowora.erp.project.ProjectReadScope;
+import org.springframework.beans.factory.ObjectProvider;
 import com.flowora.erp.project.v2.ProjectFinanceDtos.*;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.validation.Valid;
@@ -19,10 +21,13 @@ import java.util.List;
 public class ProjectFinanceController {
     private final ProjectFinanceService service;
     private final FloworaAuthorization authorization;
+    private final ProjectReadScope readScope;
 
-    public ProjectFinanceController(ProjectFinanceService service, FloworaAuthorization authorization) {
+    public ProjectFinanceController(ProjectFinanceService service, FloworaAuthorization authorization,
+                                    ObjectProvider<ProjectReadScope> readScope) {
         this.service = service;
         this.authorization = authorization;
+        this.readScope = readScope.getIfAvailable();
     }
 
     @PostMapping("/{id}/billing-configuration")
@@ -44,6 +49,7 @@ public class ProjectFinanceController {
     @PreAuthorize("@floworaAuthorization.has(authentication, 'project:view')")
     public ApiResponse<List<MemberView>> members(@PathVariable String id, Authentication authentication,
                                                   HttpServletRequest request) {
+        requireVisible(authentication, id);
         return response(service.members(principal(authentication).organizationId(), id), request);
     }
 
@@ -75,6 +81,7 @@ public class ProjectFinanceController {
     @PreAuthorize("@floworaAuthorization.has(authentication, 'project:view')")
     public ApiResponse<List<BillingBasisView>> billingBasis(@PathVariable String id,
                                                              Authentication authentication, HttpServletRequest request) {
+        requireVisible(authentication, id);
         return response(service.billingBasis(principal(authentication).organizationId(), id), request);
     }
 
@@ -91,11 +98,16 @@ public class ProjectFinanceController {
     @PreAuthorize("@floworaAuthorization.has(authentication, 'project:view')")
     public ApiResponse<ProjectProfitView> profitability(@PathVariable String id,
                                                          Authentication authentication, HttpServletRequest request) {
+        requireVisible(authentication, id);
         return response(service.profit(principal(authentication).organizationId(), id), request);
     }
 
     private FloworaPrincipal principal(Authentication authentication) {
         return authorization.principal(authentication);
+    }
+
+    private void requireVisible(Authentication authentication, String projectId) {
+        if (readScope != null) readScope.require(principal(authentication), projectId);
     }
 
     private <T> ApiResponse<T> response(T data, HttpServletRequest request) {

@@ -34,11 +34,21 @@ public class MfaController {
     }
 
     @PostMapping("/enroll")
-    public ApiResponse<DatabaseMfaService.Enrollment> enroll(Authentication authentication, HttpServletRequest request) {
+    public ApiResponse<DatabaseMfaService.Enrollment> enroll(
+            @RequestBody(required = false) EnrollmentRequest body,
+            Authentication authentication, HttpServletRequest request) {
         FloworaPrincipal principal = authorization.principal(authentication);
-        var enrollment = mfaService.startEnrollment(principal);
+        var enrollment = mfaService.startEnrollment(principal, body == null ? null : body.currentCode());
         auditService.record(principal.userId(), principal.organizationId(), "MFA_ENROLLMENT_STARTED", "SUCCESS", request, null);
         return ApiResponse.of(enrollment, RequestIdFilter.get(request));
+    }
+
+    @PostMapping("/cancel")
+    public ApiResponse<Map<String, Boolean>> cancel(Authentication authentication, HttpServletRequest request) {
+        FloworaPrincipal principal = authorization.principal(authentication);
+        mfaService.cancelEnrollment(principal.userId());
+        auditService.record(principal.userId(), principal.organizationId(), "MFA_ENROLLMENT_CANCELLED", "SUCCESS", request, null);
+        return ApiResponse.of(Map.of("cancelled", true), RequestIdFilter.get(request));
     }
 
     @PostMapping("/confirm")
@@ -66,5 +76,6 @@ public class MfaController {
     }
 
     public record CodeRequest(@NotBlank String code) {}
+    public record EnrollmentRequest(String currentCode) {}
     public record RecoveryCodes(List<String> codes) {}
 }

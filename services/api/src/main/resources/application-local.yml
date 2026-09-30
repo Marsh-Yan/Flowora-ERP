@@ -23,6 +23,8 @@ spring:
       password: ${REDIS_PASSWORD}
   session:
     store-type: redis
+    redis:
+      repository-type: indexed
   flyway:
     enabled: true
     locations: classpath:db/migration
