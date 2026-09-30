@@ -73,6 +73,9 @@ jobs:
         run: docker compose up --build --wait --wait-timeout 300
       - name: Verify readiness through web proxy
         run: curl --fail --retry 20 --retry-delay 3 --retry-connrefused http://localhost:8080/healthz
+      - name: Verify production did not seed demo users
+        run: |
+          docker compose exec -T mysql sh -c 'MYSQL_PWD="$MYSQL_ROOT_PASSWORD" mysql -u root -D flowora_erp -N -e "SELECT COUNT(*) FROM flowora_user_account"' | grep -qx 0
       - name: Verify Redis credential boundary
         run: |
           docker compose exec -T redis sh -c 'REDISCLI_AUTH="$REDIS_PASSWORD" redis-cli ping' | grep -qx PONG
