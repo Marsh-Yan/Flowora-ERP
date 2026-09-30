@@ -45,8 +45,10 @@ $receiptMovement=@($trace.movements|Where-Object{$_.sourceId -eq $firstReceipt.i
 $deliveryMovement=@($trace.movements|Where-Object{$_.sourceId -eq $firstDelivery.id})[0]
 Check ($receiptMovement.lines[0].sourceLineId -ne $firstReceipt.id) 'Receipt movement points to header'
 Check ($deliveryMovement.lines[0].sourceLineId -ne $firstDelivery.id) 'Delivery movement points to header'
-Call '/api/v2/procurement/returns' @{sourceDocumentId=$firstReceipt.id;sourceMovementId=$receiptMovement.id;disposition='SELLABLE';lines=@(@{movementLineId=$receiptMovement.lines[0].id;quantity=1})}|Out-Null
+# The disposable database starts with no stock in this warehouse. Restore one sold unit
+# before returning it to the supplier, so this smoke does not depend on pre-existing stock.
 Call '/api/v2/sales/returns' @{sourceDocumentId=$firstDelivery.id;sourceMovementId=$deliveryMovement.id;disposition='SELLABLE';lines=@(@{movementLineId=$deliveryMovement.lines[0].id;quantity=1})}|Out-Null
+Call '/api/v2/procurement/returns' @{sourceDocumentId=$firstReceipt.id;sourceMovementId=$receiptMovement.id;disposition='SELLABLE';lines=@(@{movementLineId=$receiptMovement.lines[0].id;quantity=1})}|Out-Null
 $available=@(Call "/api/v2/inventory/availability?warehouseId=$warehouse&itemId=$item")[0]
 Check ($available.onHand -eq $before) 'Mixed entry stock balance drift'
 $summary=@((Call '/api/v2/compat/inventory/balances?size=100').content|Where-Object{$_.warehouseId -eq $warehouse -and $_.itemId -eq $item})[0]
