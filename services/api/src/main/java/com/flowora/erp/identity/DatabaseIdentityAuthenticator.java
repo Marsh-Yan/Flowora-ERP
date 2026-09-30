@@ -19,7 +19,7 @@ import java.util.List;
 import java.util.Map;
 
 @Service
-@Profile("local")
+@Profile("local | production")
 public class DatabaseIdentityAuthenticator implements IdentityAuthenticator {
     private final JdbcTemplate jdbcTemplate;
     private final PasswordEncoder passwordEncoder;

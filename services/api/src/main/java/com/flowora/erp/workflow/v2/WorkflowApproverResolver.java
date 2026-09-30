@@ -17,7 +17,7 @@ import java.util.Map;
 import java.util.Set;
 
 @Service
-@Profile("local")
+@Profile("local | production")
 public class WorkflowApproverResolver {
     private final JdbcTemplate jdbcTemplate;
 

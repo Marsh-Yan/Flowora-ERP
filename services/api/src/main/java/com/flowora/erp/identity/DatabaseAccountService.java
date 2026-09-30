@@ -21,7 +21,7 @@ import java.util.Map;
 import java.util.UUID;
 
 @Service
-@Profile("local")
+@Profile("local | production")
 public class DatabaseAccountService {
     private final JdbcTemplate jdbcTemplate;
     private final PasswordEncoder passwordEncoder;

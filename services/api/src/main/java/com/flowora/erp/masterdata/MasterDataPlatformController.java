@@ -30,7 +30,7 @@ import java.util.List;
 
 @RestController
 @RequestMapping("/api/v2/masters")
-@Profile("local")
+@Profile("local | production")
 public class MasterDataPlatformController {
     private final MasterDataPlatformService service;
     private final FloworaAuthorization authorization;

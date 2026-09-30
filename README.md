@@ -116,7 +116,7 @@ $env:REDIS_PASSWORD = "replace-with-local-password"
 $env:FLOWORA_MFA_ENCRYPTION_KEY = "replace-with-at-least-32-random-characters"
 ```
 
-不要把真实密码或密钥提交到仓库。API 启动时会由 Flyway 自动执行尚未应用的迁移。
+不要把真实密码或密钥提交到仓库。API 启动时会由 Flyway 自动执行尚未应用的迁移。目标容器部署使用 `production` profile；`compose.yaml` 要求非空的 `DB_PASSWORD`、`DB_ROOT_PASSWORD`、`REDIS_PASSWORD` 和 `FLOWORA_MFA_ENCRYPTION_KEY`。
 
 ### 3. 启动 API
 
@@ -124,7 +124,7 @@ $env:FLOWORA_MFA_ENCRYPTION_KEY = "replace-with-at-least-32-random-characters"
 .\mvnw.cmd -pl services/api -am spring-boot:run -Dspring-boot.run.profiles=local
 ```
 
-API 默认地址为 `http://localhost:8080`。不指定 `local` profile 时只加载轻量健康检查，不连接业务数据库。
+API 默认地址为 `http://localhost:8080`。不指定 `local` profile 时使用 `standalone`，只提供健康检查和版本接口，不连接业务数据库或提供业务接口。
 
 ### 4. 启动 Web
 

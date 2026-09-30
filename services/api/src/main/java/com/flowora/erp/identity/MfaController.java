@@ -17,7 +17,7 @@ import java.util.Map;
 
 @RestController
 @RequestMapping("/api/v2/session/mfa")
-@Profile("local")
+@Profile("local | production")
 public class MfaController {
     private final DatabaseMfaService mfaService;
     private final FloworaAuthorization authorization;

@@ -14,7 +14,7 @@ import java.security.SecureRandom;
 import java.util.Base64;
 
 @Component
-@Profile("local")
+@Profile("local | production")
 public class MfaSecretCipher {
     private final SecretKeySpec key;
     private final SecureRandom secureRandom = new SecureRandom();

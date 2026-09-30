@@ -25,7 +25,7 @@ import java.util.List;
 
 @RestController
 @RequestMapping("/api/v2")
-@Profile("local")
+@Profile("local | production")
 public class PlatformDirectoryController {
     private final PlatformDirectoryService service;
     private final FloworaAuthorization authorization;

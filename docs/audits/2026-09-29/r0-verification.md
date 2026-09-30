@@ -1,0 +1,22 @@
+# R0 启动与验证记录
+
+日期：2026-09-30。阶段范围：F01、F02、F18、F21；F27 启动。此记录描述本地验证结果，目标 Compose CI 结果以对应 PR 检查为准。
+
+| 编号 | 改动 | 本地结果 | 仍需在 PR 中验证 |
+|---|---|---|---|
+| F01 | production 激活持久化身份、权限、交易、工作流组件；排除 DemoUserStore | 隔离 MySQL 8.0.32 / Redis 3.2 上 readiness `UP`，版本接口正常；未启用 demo seed | Compose 目标 MySQL 8.4 / Redis 7.4 启动与就绪；空库确认没有演示数据 |
+| F02 | standalone 只扫描健康、版本及必要安全组件 | 无数据库启动，`/api/v1/health`、`/api/v2/system/version`、`/actuator/health` 均为 200；业务接口不会返回 200；自动化启动测试已加入 | CI 中新增测试通过 |
+| F18 | Maven Wrapper 在 Windows 用 Join-Path 处理普通目录/目录链接 | `mvnw.cmd -version` 输出 Maven 3.9.16；完整测试/打包通过 | Windows 链接目录与首次下载场景；Linux Wrapper CI 回归 |
+| F21 | Redis 健康探针取得与启动命令相同的凭据，且缺密码时配置失败 | YAML 解析通过；本机无 Docker，未执行 Compose | CI `production-smoke` 用目标镜像构建、等待 healthy，再经 Web `/healthz` 验证；错误密码和重启恢复仍需单独演练 |
+| F27 | 增加 standalone 启动测试与生产 Compose 冒烟任务 | Maven 80 tests / 0 failures / 0 skips，package 成功 | CI 运行生产冒烟；后续阶段继续扩展安全和业务用例 |
+
+测试命令：
+
+```powershell
+& 'D:/softwares/Maven/apache-maven-3.9.16/bin/mvn.cmd' -B -o '-Dmaven.repo.local=E:/code/codex/my_erp/.cache/m2' -pl services/api -am test package
+.\mvnw.cmd -version
+```
+
+本地生产实例只连接到前次审计授权的隔离 `audit_flowora`，未触及原业务库。测试完成后停止临时 API/MySQL/Redis；隔离数据保留用于复查。已有测试库含演示种子，所以“生产空库不自动播种”尚需在 CI 空卷环境确认。
+
+阶段判断：代码和本地验证已具备提交 PR 的条件；**R0 不应在目标 Compose 冒烟和阶段审核通过前标记完成，也不应开始 R1**。本机 Docker 不可用，Redis 3.2 不能替代目标版本验收。F21 的错误凭据和重启恢复验证尚待具备目标环境时完成。

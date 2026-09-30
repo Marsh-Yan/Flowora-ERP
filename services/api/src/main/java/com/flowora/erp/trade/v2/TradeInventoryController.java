@@ -17,7 +17,7 @@ import java.util.Map;
 
 @RestController
 @RequestMapping("/api/v2")
-@Profile("local")
+@Profile("local | production")
 public class TradeInventoryController {
     private final TradeInventoryService service;
     private final FloworaAuthorization authorization;

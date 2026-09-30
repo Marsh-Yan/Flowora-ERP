@@ -26,7 +26,7 @@ import java.util.List;
 
 @RestController
 @RequestMapping("/api/v2/workflows")
-@Profile("local")
+@Profile("local | production")
 public class WorkflowEngineController {
     private final WorkflowEngineService service;
 

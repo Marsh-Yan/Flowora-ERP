@@ -22,7 +22,7 @@ import java.util.Map;
 
 @RestController
 @RequestMapping("/api/v2/workflows")
-@Profile("local")
+@Profile("local | production")
 public class WorkflowOperationsController {
     private final WorkflowDelegationService delegationService;
     private final WorkflowOutboxService outboxService;

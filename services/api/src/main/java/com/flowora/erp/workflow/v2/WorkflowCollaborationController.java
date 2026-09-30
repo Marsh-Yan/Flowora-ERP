@@ -37,7 +37,7 @@ import java.util.Map;
 
 @RestController
 @RequestMapping("/api/v2/collaboration")
-@Profile("local")
+@Profile("local | production")
 public class WorkflowCollaborationController {
     private final WorkflowCollaborationService collaborationService;
     private final WorkflowAttachmentService attachmentService;

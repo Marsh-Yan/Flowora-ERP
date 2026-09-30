@@ -16,7 +16,7 @@ import org.springframework.web.bind.annotation.*;
 
 @RestController
 @RequestMapping("/api/v2")
-@Profile("local")
+@Profile("local | production")
 public class TradeDocumentController {
     private final TradeDocumentService service;
     private final FloworaAuthorization authorization;

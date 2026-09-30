@@ -55,3 +55,27 @@ jobs:
           cache: maven
       - name: Test and package
         run: ./mvnw -B -pl services/api -am test package
+
+  production-smoke:
+    name: Production Compose smoke
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      DB_PASSWORD: ci-db-only-password
+      DB_ROOT_PASSWORD: ci-root-only-password
+      REDIS_PASSWORD: ci-redis-only-password
+      FLOWORA_MFA_ENCRYPTION_KEY: ci-only-mfa-encryption-key-32-characters
+      FLOWORA_ALLOWED_ORIGINS: http://localhost:8080
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Build and start target services
+        run: docker compose up --build --wait --wait-timeout 300
+      - name: Verify readiness through web proxy
+        run: curl --fail --retry 20 --retry-delay 3 --retry-connrefused http://localhost:8080/healthz
+      - name: Show service logs on failure
+        if: failure()
+        run: docker compose logs --no-color --tail=150
+      - name: Stop disposable services
+        if: always()
+        run: docker compose down -v
