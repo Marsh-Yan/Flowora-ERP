@@ -1,5 +1,15 @@
 # 开发工作流
 
+## 当前 2.0 约定
+
+整改分支使用 `codex/audit-r<阶段>-<主题>`，从最新 `origin/main` 创建，每阶段单独提交 PR，用户合并后进入下一阶段。提交前运行 [发布验证入口](release-verification.md)，将执行版本、环境、结果和未覆盖分支写入 PR。
+
+新工作流使用 `/api/v2/workflows` 和 `/api/v2/collaboration`；任务动作使用 `If-Match`。模板快照、委托、附件和 outbox 契约见 [workflow-v2.md](workflow-v2.md) 与 [workspace-operations.md](workspace-operations.md)。v1 业务写返回 426；需要继续维护的兼容流程使用明确的 v2 compat 入口。
+
+## 历史记录（1.0 开发工作流与阶段 03）
+
+> 下文旧分支名称、固定阈值自动审批及 v1 写端点用于保留历史，不作为当前实施依据。验收结果和缺口见 [覆盖及待办](audit-verification.md)。
+
 ## 分支
 
 - `main`：可构建、可验证的稳定分支。
