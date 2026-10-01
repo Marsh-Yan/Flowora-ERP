@@ -32,6 +32,9 @@ jobs:
       - name: Install dependencies
         working-directory: .
         run: pnpm install --frozen-lockfile
+      - name: Audit all dependencies against official registry
+        working-directory: .
+        run: pnpm audit --audit-level=moderate --registry=https://registry.npmjs.org
       - name: Typecheck
         run: pnpm typecheck
       - name: Lint
@@ -55,6 +58,24 @@ jobs:
           cache: maven
       - name: Test and package
         run: ./mvnw -B -pl services/api -am test package
+      - name: Install verified security scanner
+        run: bash tools/verification/install-trivy.sh
+      - name: Verify security report gate fails closed
+        run: python3 -m unittest discover -s tools/verification -p 'test_*.py'
+      - name: Scan actual API artifact and enforce security gate
+        run: |
+          mkdir -p security-reports security-inputs/api
+          cp services/api/target/flowora-api-2.0.0-SNAPSHOT.jar security-inputs/api/app.jar
+          trivy rootfs --scanners vuln --list-all-pkgs --format json --output security-reports/api-jar.json --timeout 10m security-inputs/api
+          python3 tools/verification/security_report.py security-reports/api-jar.json --expected spring-boot
+      - name: Retain dependency scan evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: api-security-${{ github.sha }}
+          path: security-reports/*.json
+          if-no-files-found: ignore
+          retention-days: 14
 
   inventory-mysql:
     name: Isolated MySQL HTTP regression
@@ -167,6 +188,47 @@ jobs:
           docker compose restart redis
           docker compose up --wait --wait-timeout 120
           curl --fail --retry 10 --retry-delay 2 --retry-connrefused http://localhost:8080/healthz
+      - name: Install verified security scanner
+        run: bash tools/verification/install-trivy.sh
+      - name: Setup Go for actual binary reachability analysis
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.27.1'
+          cache: false
+      - name: Install pinned official Go vulnerability analyzer
+        run: go install golang.org/x/vuln/cmd/govulncheck@v1.8.0
+      - name: Scan all actual Compose runtime images
+        run: |
+          mkdir -p security-reports
+          failed=0
+          for service in api web mysql redis prometheus; do
+            image=$(docker inspect --format '{{.Image}}' "$(docker compose ps -q "$service")")
+            case "$service" in
+              api) expected=spring-boot ;;
+              web) expected=nginx ;;
+              mysql) expected=mysql ;;
+              redis) expected=busybox ;; # upstream Redis is compiled outside the APK inventory
+              prometheus) expected=prometheus ;;
+            esac
+            if ! trivy image --scanners vuln --list-all-pkgs --format json --output "security-reports/$service.json" --timeout 10m "$image"; then failed=1; continue; fi
+            extra=()
+            if [ "$service" = prometheus ]; then
+              mkdir -p security-inputs/prometheus
+              docker cp "$(docker compose ps -q prometheus):/bin/prometheus" security-inputs/prometheus/prometheus
+              docker cp "$(docker compose ps -q prometheus):/bin/promtool" security-inputs/prometheus/promtool
+              extra=(--prometheus-binaries security-inputs/prometheus)
+            fi
+            if ! python3 tools/verification/security_report.py "security-reports/$service.json" --expected "$expected" "${extra[@]}"; then failed=1; fi
+          done
+          exit "$failed"
+      - name: Retain image scan evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: compose-security-${{ github.sha }}
+          path: security-reports/*.json
+          if-no-files-found: ignore
+          retention-days: 14
       - name: Inspect service health on failure
         if: failure()
         run: |

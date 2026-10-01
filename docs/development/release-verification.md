@@ -8,12 +8,14 @@ CI 必须通过五个 job：Web checks、API checks、Isolated MySQL HTTP regres
 
 | 层级 | 入口与断言 | 环境 |
 | --- | --- | --- |
-| Web | 类型、lint、组件单测、生产构建 | Node 24 / pnpm 11.9.0 |
-| API | 默认 standalone 启动、服务单测、迁移防篡改、打包 | Java 25 / Maven Wrapper |
+| Web | 官方 registry 全依赖审计、类型、lint、组件单测、生产构建 | Node 24 / pnpm 11.9.0 |
+| API | 默认 standalone 启动、服务单测、迁移防篡改、打包、实际 JAR 扫描 | Java 25 / Maven Wrapper |
 | 数据库 | 库存历史切换及重复 seed、履约竞争、财务来源锁及 FX、outbox 并发和恢复 | CI 临时 MySQL 8.0 / Redis 7 |
 | HTTP | [库存](../../tools/verification/compat-stock-smoke.ps1)、[财务](../../tools/verification/finance-smoke.ps1)、[身份安全](../../tools/verification/security-smoke.ps1) | 固定 loopback API 18080 / `audit_flowora` |
 | 部署 | 空库 V1–V18、production readiness、无 demo 用户、Redis 密码及重启、Nginx 头与缓存、告警激活及恢复 | Compose MySQL 8.4 / Redis 7.4 / Nginx 1.29 |
 | Windows | 新缓存安装和 Junction 路径下 Wrapper 执行 | CI Windows |
+
+Compose job 还扫描五个实际运行镜像；所有等级及包清单保留为 artifact，HIGH/CRITICAL/UNKNOWN 阻断。Prometheus OpenPGP 告警只有当次实际二进制的严格包级分析证明不适用时才放行，其他 UNKNOWN 不豁免。缺失、失败或空扫描均阻断。范围、工具固定版本、证据保留期与限制见 [安全整改记录](dependency-remediation-2026-10-01.md)。
 
 本地业务测试仅可连接明确授权的 `jdbc:mysql://127.0.0.1:13306/audit_flowora?serverTimezone=UTC` 和 Redis 16379；不得连接默认业务库。专项测试设置 `FLOWORA_R2_MYSQL_URL`（密码用 `FLOWORA_R2_MYSQL_PASSWORD`）；HTTP API 使用同一 `DB_URL`。合成账号密码分别通过 `FLOWORA_R2_HTTP_PASSWORD`、`FLOWORA_R3_HTTP_PASSWORD`、`FLOWORA_R5_HTTP_PASSWORD` 注入，脚本支持 `-Username`。
 
