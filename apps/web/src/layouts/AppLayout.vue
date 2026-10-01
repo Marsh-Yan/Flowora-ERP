@@ -1,6 +1,6 @@
 <script setup lang="ts">
 /* global clearTimeout, setTimeout */
-import { computed, onMounted, ref, watch, type Component } from 'vue'
+import { computed, onMounted, onUnmounted, ref, watch, type Component } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useRoute, useRouter } from 'vue-router'
 import {
@@ -41,6 +41,8 @@ const searchFocused = ref(false)
 const searchLoading = ref(false)
 const searchResults = ref<SearchResult[]>([])
 const organizationChanging = ref(false)
+const mobileMenuOpen = ref(false)
+let searchVersion = 0
 let searchTimer: ReturnType<typeof setTimeout> | undefined
 
 const menuItems = computed<MenuItem[]>(() =>
@@ -66,6 +68,7 @@ const currentTitle = computed(() => {
 const searchOpen = computed(() => searchFocused.value && searchQuery.value.trim().length > 0)
 
 watch(searchQuery, (value) => {
+  const version = ++searchVersion
   if (searchTimer) clearTimeout(searchTimer)
   if (!value.trim()) {
     searchResults.value = []
@@ -75,22 +78,36 @@ watch(searchQuery, (value) => {
   searchLoading.value = true
   searchTimer = setTimeout(async () => {
     try {
-      searchResults.value = await searchWorkspace(value)
+      const results = await searchWorkspace(value)
+      if (version === searchVersion) searchResults.value = results
     } catch {
-      searchResults.value = []
+      if (version === searchVersion) searchResults.value = []
     } finally {
-      searchLoading.value = false
+      if (version === searchVersion) searchLoading.value = false
     }
   }, 280)
 })
 
+watch(() => authStore.user?.organizationId, () => {
+  searchVersion++
+  if (searchTimer) clearTimeout(searchTimer)
+  searchQuery.value = ''
+  searchResults.value = []
+  searchFocused.value = false
+  searchLoading.value = false
+})
+watch(() => route.path, () => { mobileMenuOpen.value = false })
+onUnmounted(() => { searchVersion++; if (searchTimer) clearTimeout(searchTimer) })
+
 function navigate(path: string) {
+  mobileMenuOpen.value = false
   router.push(path)
 }
 
 async function handleOrganizationChange(organizationId: string) {
   if (!organizationId || organizationId === authStore.user?.organizationId) return
   organizationChanging.value = true
+  mobileMenuOpen.value = false
   try {
     await authStore.switchOrganization(organizationId)
     await router.replace({ name: 'dashboard' })
@@ -139,6 +156,8 @@ onMounted(() => authStore.loadOrganizations())
         <el-select
           :model-value="authStore.user?.organizationId"
           :loading="organizationChanging"
+          :disabled="organizationChanging"
+          :aria-label="t('common.organization')"
           class="workspace-switcher"
           @change="handleOrganizationChange"
         >
@@ -187,7 +206,7 @@ onMounted(() => authStore.loadOrganizations())
     <el-container class="main-container">
       <el-header class="app-header">
         <div class="header-context">
-          <el-icon class="mobile-menu"><Menu /></el-icon>
+          <button class="mobile-menu icon-button" type="button" :aria-label="t('common.navigation')" :aria-expanded="mobileMenuOpen" aria-controls="mobile-navigation" @click="mobileMenuOpen = !mobileMenuOpen"><el-icon><Menu /></el-icon></button>
           <span class="header-eyebrow">{{ t('common.workspace') }}</span>
           <span class="header-separator">/</span>
           <strong>{{ currentTitle }}</strong>
@@ -235,8 +254,22 @@ onMounted(() => authStore.loadOrganizations())
       </el-header>
 
       <el-main id="main-content" class="app-content" tabindex="-1">
-        <router-view />
+        <router-view :key="authStore.user?.organizationId" />
       </el-main>
     </el-container>
   </el-container>
+  <el-drawer v-model="mobileMenuOpen" direction="ltr" :size="'min(300px, 90vw)'" :title="t('common.navigation')" :close-on-press-escape="true">
+    <nav id="mobile-navigation" :aria-label="t('common.navigation')" class="mobile-navigation">
+      <el-select :model-value="authStore.user?.organizationId" :loading="organizationChanging" :disabled="organizationChanging" :aria-label="t('common.organization')" @change="handleOrganizationChange">
+        <el-option v-for="organization in authStore.organizations" :key="organization.id" :label="organization.name" :value="organization.id" />
+      </el-select>
+      <router-link v-for="item in menuItems" :key="item.index" :to="item.index" @click="mobileMenuOpen = false">{{ item.label }}</router-link>
+    </nav>
+  </el-drawer>
 </template>
+
+<style scoped>
+.mobile-navigation { display: grid; gap: 12px; }
+.mobile-navigation a { padding: 12px; color: var(--el-text-color-primary); border-radius: 8px; text-decoration: none; }
+.mobile-navigation a:hover, .mobile-navigation a:focus-visible, .mobile-navigation .router-link-active { background: var(--el-color-primary-light-9); color: var(--el-color-primary); }
+</style>

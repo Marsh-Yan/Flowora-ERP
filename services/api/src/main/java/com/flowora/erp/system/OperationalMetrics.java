@@ -14,11 +14,13 @@ public class OperationalMetrics {
         this.jdbc = jdbcProvider.getIfAvailable();
         Gauge.builder("flowora.outbox.pending", this, value -> value.count("SELECT COUNT(*) FROM flowora_outbox_event WHERE status IN ('PENDING','RETRY')"))
                 .description("Pending workflow outbox events").register(registry);
-        Gauge.builder("flowora.outbox.failed", this, value -> value.count("SELECT COUNT(*) FROM flowora_outbox_event WHERE status='FAILED'"))
-                .description("Failed workflow outbox events").register(registry);
+        Gauge.builder("flowora.outbox.failed", this, value -> value.count("SELECT COUNT(*) FROM flowora_outbox_event WHERE status='DEAD'"))
+                .description("Dead workflow outbox events requiring replay").register(registry);
+        Gauge.builder("flowora.outbox.retry", this, value -> value.count("SELECT COUNT(*) FROM flowora_outbox_event WHERE status='RETRY'"))
+                .description("Workflow outbox events awaiting retry").register(registry);
         Gauge.builder("flowora.exports.pending", this, value -> value.count("SELECT COUNT(*) FROM flowora_export_job WHERE status IN ('PENDING','RUNNING')"))
                 .description("Pending export jobs").register(registry);
-        Gauge.builder("flowora.workflow.overdue", this, value -> value.count("SELECT COUNT(*) FROM flowora_workflow_task WHERE status IN ('OPEN','TRANSFERRED') AND due_at<CURRENT_TIMESTAMP"))
+        Gauge.builder("flowora.workflow.overdue", this, value -> value.count("SELECT (SELECT COUNT(*) FROM flowora_workflow_approval_task WHERE status='OPEN' AND due_at<CURRENT_TIMESTAMP) + (SELECT COUNT(*) FROM flowora_workflow_task WHERE status='OPEN' AND due_at<CURRENT_TIMESTAMP)"))
                 .description("Overdue workflow tasks").register(registry);
     }
 

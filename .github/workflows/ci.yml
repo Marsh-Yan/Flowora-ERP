@@ -99,6 +99,8 @@ jobs:
         run: ./mvnw -B -pl services/api -Dtest=TradeInventoryMySqlTest test package
       - name: Test finance source boundaries, base balance, FX reversal, valuation and bank direction
         run: ./mvnw -B -pl services/api -Dtest=FinanceMySqlTest test
+      - name: Test scheduled outbox concurrency, rollback recovery, dead metrics and approval cards
+        run: ./mvnw -B -pl services/api -Dtest=WorkflowOperationsMySqlTest test
       - name: Start disposable API with demo fixtures
         run: |
           java -jar services/api/target/flowora-api-2.0.0-SNAPSHOT.jar --spring.profiles.active=local --server.port=18080 --server.address=127.0.0.1 --management.endpoint.health.probes.enabled=true --flowora.demo.enabled=true --flowora.demo.seed-on-start=true > /tmp/r2-api.log 2>&1 &
@@ -134,6 +136,10 @@ jobs:
         run: docker compose up --build --wait --wait-timeout 300
       - name: Verify readiness through web proxy
         run: curl --fail --retry 20 --retry-delay 3 --retry-connrefused http://localhost:8080/healthz
+      - name: Verify target Nginx security headers and cache policy
+        run: bash tools/verification/nginx-headers.sh
+      - name: Verify dead event alert activation and recovery
+        run: docker compose exec -T -w /etc/prometheus prometheus promtool test rules alerts.test.yml
       - name: Verify production did not seed demo users
         run: |
           docker compose exec -T mysql sh -c 'MYSQL_PWD="$MYSQL_ROOT_PASSWORD" mysql -u root -D flowora_erp -N -e "SELECT COUNT(*) FROM flowora_user_account"' | grep -qx 0
