@@ -32,6 +32,9 @@ jobs:
       - name: Install dependencies
         working-directory: .
         run: pnpm install --frozen-lockfile
+      - name: Audit all dependencies against official registry
+        working-directory: .
+        run: pnpm audit --audit-level=moderate --registry=https://registry.npmjs.org
       - name: Typecheck
         run: pnpm typecheck
       - name: Lint
@@ -55,6 +58,23 @@ jobs:
           cache: maven
       - name: Test and package
         run: ./mvnw -B -pl services/api -am test package
+      - name: Install verified security scanner
+        run: bash tools/verification/install-trivy.sh
+      - name: Verify security report gate fails closed
+        run: python3 -m unittest discover -s tools/verification -p 'test_security_report.py'
+      - name: Scan actual API artifact and enforce security gate
+        run: |
+          mkdir -p security-reports
+          trivy fs --scanners vuln --list-all-pkgs --format json --output security-reports/api-jar.json --timeout 10m services/api/target/flowora-api-2.0.0-SNAPSHOT.jar
+          python3 tools/verification/security_report.py security-reports/api-jar.json --expected spring-boot
+      - name: Retain dependency scan evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: api-security-${{ github.sha }}
+          path: security-reports/*.json
+          if-no-files-found: ignore
+          retention-days: 14
 
   inventory-mysql:
     name: Isolated MySQL HTTP regression
@@ -167,6 +187,33 @@ jobs:
           docker compose restart redis
           docker compose up --wait --wait-timeout 120
           curl --fail --retry 10 --retry-delay 2 --retry-connrefused http://localhost:8080/healthz
+      - name: Install verified security scanner
+        run: bash tools/verification/install-trivy.sh
+      - name: Scan all actual Compose runtime images
+        run: |
+          mkdir -p security-reports
+          failed=0
+          for service in api web mysql redis prometheus; do
+            image=$(docker inspect --format '{{.Image}}' "$(docker compose ps -q "$service")")
+            case "$service" in
+              api) expected=spring-boot ;;
+              web) expected=nginx ;;
+              mysql) expected=mysql ;;
+              redis) expected=busybox ;; # upstream Redis is compiled outside the APK inventory
+              prometheus) expected=prometheus ;;
+            esac
+            if ! trivy image --scanners vuln --list-all-pkgs --format json --output "security-reports/$service.json" --timeout 10m "$image"; then failed=1; continue; fi
+            if ! python3 tools/verification/security_report.py "security-reports/$service.json" --expected "$expected"; then failed=1; fi
+          done
+          exit "$failed"
+      - name: Retain image scan evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: compose-security-${{ github.sha }}
+          path: security-reports/*.json
+          if-no-files-found: ignore
+          retention-days: 14
       - name: Inspect service health on failure
         if: failure()
         run: |
