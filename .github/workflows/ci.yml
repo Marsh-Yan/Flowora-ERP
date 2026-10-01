@@ -64,8 +64,9 @@ jobs:
         run: python3 -m unittest discover -s tools/verification -p 'test_security_report.py'
       - name: Scan actual API artifact and enforce security gate
         run: |
-          mkdir -p security-reports
-          trivy fs --scanners vuln --list-all-pkgs --format json --output security-reports/api-jar.json --timeout 10m services/api/target/flowora-api-2.0.0-SNAPSHOT.jar
+          mkdir -p security-reports security-inputs/api
+          cp services/api/target/flowora-api-2.0.0-SNAPSHOT.jar security-inputs/api/app.jar
+          trivy rootfs --scanners vuln --list-all-pkgs --format json --output security-reports/api-jar.json --timeout 10m security-inputs/api
           python3 tools/verification/security_report.py security-reports/api-jar.json --expected spring-boot
       - name: Retain dependency scan evidence
         if: always()
