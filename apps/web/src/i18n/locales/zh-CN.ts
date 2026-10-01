@@ -450,6 +450,7 @@ export default {
     journalCreated: '凭证已过账。',
     paymentCreated: '供应商付款已过账。',
     periodClosed: '会计期间已关闭。',
+    period: '会计期间',
     loadFailed: '财务数据加载失败。',
     saveFailed: '财务交易过账失败。',
     emptyJournals: '所选期间暂无凭证。',
@@ -457,6 +458,7 @@ export default {
     emptyPayables: '暂无应付账款。',
     status: {
       POSTED: '已过账',
+      REVERSED: '已反转',
       VOID: '已作废',
       OPEN: '开放',
       PARTIALLY_SETTLED: '部分结清',
@@ -489,6 +491,9 @@ export default {
       type: '类型', party: '客户 / 供应商', quantity: '数量', unitPrice: '单价', taxRate: '税率（%）',
       reference: '参考号', counterparty: '交易对方', post: '过账', posted: '单据已过账。',
       invoiceCreated: '发票草稿已创建。', paymentCreated: '收付款草稿已创建。', loadFailed: 'M4 财务工作台加载失败。',
+      retry: '重新加载', rangeNote: '所选区间用于收支与列表；往来余额和待处理数量为当前状态。',
+      dashboardFailed: '财务指标加载失败，请重新加载。', partiesFailed: '客户与供应商加载失败，请重新加载。',
+      invoicesFailed: '正式发票加载失败，请重新加载。', paymentsFailed: '收付款加载失败，请重新加载。', statementsFailed: '银行流水加载失败，请重新加载。',
     },
   },
   projects: {

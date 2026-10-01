@@ -43,8 +43,14 @@ public class FinanceLedgerService {
                             BigDecimal exchangeRate, String memo, String requestId, List<PostingLine> lines) {
         List<String> existing = jdbc.query("SELECT id FROM flowora_journal_entry WHERE organization_id=? AND request_id=?",
                 (rs, row) -> rs.getString(1), organizationId, requestId);
-        if (!existing.isEmpty()) return journal(organizationId, existing.getFirst());
+        if (!existing.isEmpty()) {
+            JournalView replay = journal(organizationId, existing.getFirst());
+            if (!java.util.Objects.equals(replay.sourceType(), sourceType) || !java.util.Objects.equals(replay.sourceId(), sourceId)
+                    || !java.util.Objects.equals(replay.reversalOfId(), reversalOfId)) throw conflict("IDEMPOTENCY_KEY_REUSED", Map.of());
+            return replay;
+        }
         FinancePostingPolicy.requireBalanced(lines);
+        FinancePostingPolicy.requireBaseBalanced(lines, exchangeRate);
         String periodId = openPeriod(organizationId, accountingDate);
         BigDecimal debit = lines.stream().map(PostingLine::debit).reduce(BigDecimal.ZERO, BigDecimal::add).setScale(4);
         BigDecimal credit = lines.stream().map(PostingLine::credit).reduce(BigDecimal.ZERO, BigDecimal::add).setScale(4);
@@ -79,6 +85,13 @@ public class FinanceLedgerService {
     public JournalView reverse(String organizationId, String actorUserId, String journalId,
                                LocalDate accountingDate, String reason, String requestId) {
         JournalView original = journalForUpdate(organizationId, journalId);
+        List<String> replay = jdbc.query("SELECT id FROM flowora_journal_entry WHERE organization_id=? AND request_id=?",
+                (rs, row) -> rs.getString(1), organizationId, requestId);
+        if (!replay.isEmpty()) {
+            JournalView result = journal(organizationId, replay.getFirst());
+            if (!java.util.Objects.equals(result.reversalOfId(), journalId)) throw conflict("IDEMPOTENCY_KEY_REUSED", Map.of());
+            return result;
+        }
         if (!"POSTED".equals(original.status())) throw conflict("JOURNAL_NOT_POSTED", Map.of("journalId", journalId));
         if (jdbc.queryForObject("SELECT COUNT(*) FROM flowora_journal_entry WHERE organization_id=? AND reversal_of_id=?",
                 Integer.class, organizationId, journalId) > 0) {
@@ -125,6 +138,7 @@ public class FinanceLedgerService {
     }
 
     public List<JournalView> journals(String organizationId, LocalDate from, LocalDate to) {
+        requireDateRange(from, to);
         List<String> ids = jdbc.query("""
                 SELECT id FROM flowora_journal_entry WHERE organization_id=? AND accounting_date BETWEEN ? AND ?
                 ORDER BY accounting_date DESC,created_at DESC
@@ -133,6 +147,7 @@ public class FinanceLedgerService {
     }
 
     public List<TrialBalanceRow> trialBalance(String organizationId, LocalDate from, LocalDate to) {
+        requireDateRange(from, to);
         return jdbc.query("""
                 SELECT l.account_code,SUM(l.base_debit) debit,SUM(l.base_credit) credit,
                        SUM(l.base_debit-l.base_credit) balance
@@ -174,6 +189,29 @@ public class FinanceLedgerService {
             throw conflict("ACCOUNTING_PERIOD_CLOSED", Map.of("accountingDate", date));
         }
         return periods.getFirst().id();
+    }
+
+    public void requireOpenAccountingPeriod(String organizationId, LocalDate date) {
+        openPeriod(organizationId, date);
+    }
+
+    public void lockOrganizationFinance(String organizationId) {
+        List<String> values = jdbc.query("SELECT organization_id FROM flowora_finance_setting WHERE organization_id=? FOR UPDATE",
+                (rs, row) -> rs.getString(1), organizationId);
+        if (values.isEmpty()) throw conflict("FINANCE_SETTING_MISSING", Map.of());
+    }
+
+    public static void requireDateRange(LocalDate from, LocalDate to) {
+        if (from == null || to == null || from.isAfter(to)) throw new IllegalArgumentException("Invalid accounting date range");
+    }
+
+    public void requireNoActiveRevaluation(String organizationId, String invoiceId) {
+        Integer count = jdbc.queryForObject("""
+                SELECT COUNT(*) FROM flowora_currency_revaluation_line l
+                JOIN flowora_currency_revaluation r ON r.id=l.revaluation_id JOIN flowora_journal_entry e ON e.id=r.journal_entry_id
+                WHERE l.organization_id=? AND l.source_id=? AND e.status='POSTED'
+                """, Integer.class, organizationId, invoiceId);
+        if (count > 0) throw conflict("ACTIVE_REVALUATION_REQUIRES_REVERSAL", Map.of());
     }
 
     private static java.time.LocalDateTime timestamp(Timestamp value) {

@@ -229,7 +229,7 @@ public class SalesService {
         BigDecimal unitCost = item.inventoryManaged() ? inventoryService.issueForSales(actor, order.warehouseId(), item.id(), body.quantity(), delivery.id()) : item.averageCost();
         DeliveryLineEntity deliveryLine = deliveryLineRepository.save(new DeliveryLineEntity(actor.organizationId(), delivery.id(), line.id(), line.itemId(), body.quantity(), unitCost));
         if (inventoryService.usesCanonicalInventory()) inventoryService.linkSalesMovement(actor, delivery.id(), deliveryLine.id());
-        accountingService.postSalesDelivery(actor.organizationId(), actor.userId(), delivery.id(), body.quantity().multiply(unitCost), order.currencyCode(), LocalDate.now());
+        accountingService.postSalesDelivery(actor.organizationId(), actor.userId(), delivery.id(), body.quantity().multiply(unitCost), inventoryService.baseCurrency(actor.organizationId()), LocalDate.now());
         boolean complete;
         if (inventoryService.usesCanonicalInventory()) {
             orderLineRepository.saveAndFlush(line);

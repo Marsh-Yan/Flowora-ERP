@@ -26,6 +26,27 @@ import static org.mockito.Mockito.when;
 
 @ExtendWith(MockitoExtension.class)
 class AccountingServiceTest {
+    @Test
+    void incomeStatementSubtractsExpensesFromRevenue() {
+        var entry = new JournalEntryEntity("org-a","J2","period",LocalDate.of(2026,10,1),"SALES_INVOICE","invoice","Profit","USD",new BigDecimal("200"),new BigDecimal("200"));
+        var lines=List.of(new JournalLineEntity("org-a",entry.id(),1,"4000","Revenue",BigDecimal.ZERO,new BigDecimal("200"),"USD"),
+                new JournalLineEntity("org-a",entry.id(),2,"5000","Expense",new BigDecimal("50"),BigDecimal.ZERO,"USD"));
+        when(journalEntryRepository.inRange(anyString(),any(LocalDate.class),any(LocalDate.class))).thenReturn(List.of(entry));
+        when(journalLineRepository.byJournalEntryIds(anyString(),any())).thenReturn(lines);
+        when(accountRepository.findByOrganizationIdOrderByCode("org-a")).thenReturn(List.of(new AccountEntity("org-a","4000","Revenue",AccountType.REVENUE,null,true,true),new AccountEntity("org-a","5000","Expense",AccountType.EXPENSE,null,true,true)));
+        assertThat(service.incomeStatement("org-a",LocalDate.of(2026,10,1),LocalDate.of(2026,10,1)).total()).isEqualByComparingTo("150");
+    }
+    @Test
+    void trialBalanceUsesBaseAmountsAndIncludesReversedOriginals() {
+        var original = new JournalEntryEntity("org-a", "J1", "period", LocalDate.of(2026,10,1), "REALIZED_EXCHANGE", "allocation", "FX", "EUR", BigDecimal.ONE, BigDecimal.ONE);
+        org.springframework.test.util.ReflectionTestUtils.setField(original, "status", JournalEntryStatus.REVERSED);
+        var line = new JournalLineEntity("org-a", original.id(),1,"1000","base",BigDecimal.ONE,BigDecimal.ZERO,"EUR");
+        org.springframework.test.util.ReflectionTestUtils.setField(line,"baseDebit",new BigDecimal("7.1234"));
+        when(journalEntryRepository.inRange(anyString(),any(LocalDate.class),any(LocalDate.class))).thenReturn(List.of(original));
+        when(journalLineRepository.byJournalEntryIds(anyString(),any())).thenReturn(List.of(line));
+        when(accountRepository.findByOrganizationIdOrderByCode("org-a")).thenReturn(List.of(new AccountEntity("org-a","1000","Cash",AccountType.ASSET,null,true,true)));
+        assertThat(service.trialBalance("org-a",LocalDate.of(2026,10,1),LocalDate.of(2026,10,1)).totalDebit()).isEqualByComparingTo("7.1234");
+    }
     @Mock private AccountingPeriodRepository periodRepository;
     @Mock private JournalEntryRepository journalEntryRepository;
     @Mock private JournalLineRepository journalLineRepository;

@@ -131,6 +131,9 @@ public class FinanceOperationsService {
             if (!statement.currencyCode().equals(payment.currencyCode())) {
                 throw conflict("RECONCILIATION_CURRENCY_MISMATCH", Map.of());
             }
+            boolean incoming = Set.of("RECEIPT", "SUPPLIER_REFUND").contains(payment.paymentType());
+            if (statement.amount().signum() != (incoming ? 1 : -1))
+                throw conflict("RECONCILIATION_DIRECTION_MISMATCH", Map.of());
             BigDecimal statementAmount = statement.amount().abs();
             if (link.matchedAmount().compareTo(statementAmount) != 0) {
                 throw conflict("RECONCILIATION_STATEMENT_AMOUNT_MISMATCH", Map.of("statementAmount", statementAmount));
@@ -238,13 +241,27 @@ public class FinanceOperationsService {
 
     @Transactional
     public RevaluationView revalue(FloworaPrincipal actor, String requestId, RevaluationCreate body) {
+        String key = required(requestId);
+        // Serialize valuation runs for this organization, including different request keys.
+        jdbc.query("SELECT organization_id FROM flowora_finance_setting WHERE organization_id=? FOR UPDATE", (rs, row) -> rs.getString(1), actor.organizationId());
+        List<String> existing = jdbc.query("SELECT id FROM flowora_currency_revaluation WHERE organization_id=? AND request_id=?",
+                (rs, row) -> rs.getString(1), actor.organizationId(), key);
+        if (!existing.isEmpty()) return revaluation(actor.organizationId(), existing.getFirst());
         String base = ledger.baseCurrency(actor.organizationId());
         if (base.equalsIgnoreCase(body.currencyCode())) throw conflict("BASE_CURRENCY_REVALUATION_NOT_REQUIRED", Map.of());
+        if (body.reversalDate() != null && body.reversalDate().isBefore(body.accountingDate())) throw conflict("INVALID_REVERSAL_DATE", Map.of());
+        Integer active = jdbc.queryForObject("""
+                SELECT COUNT(*) FROM flowora_currency_revaluation r JOIN flowora_journal_entry e ON e.id=r.journal_entry_id
+                WHERE r.organization_id=? AND r.currency_code=? AND e.status='POSTED'
+                """, Integer.class, actor.organizationId(), body.currencyCode().toUpperCase());
+        if (active > 0) throw conflict("ACTIVE_REVALUATION_REQUIRES_REVERSAL", Map.of());
+        ledger.requireOpenAccountingPeriod(actor.organizationId(), body.accountingDate());
         String id = UUID.randomUUID().toString();
         List<OpenBalance> balances = jdbc.query("""
                 SELECT id,party_type,party_id,project_id,(total_amount-allocated_amount-credited_amount) open_amount,
                        exchange_rate FROM flowora_finance_invoice
                 WHERE organization_id=? AND status='POSTED' AND settlement_status<>'PAID' AND currency_code=?
+                  AND document_type IN ('SALES_INVOICE','SUPPLIER_INVOICE')
                 FOR UPDATE
                 """, (rs, row) -> new OpenBalance(rs.getString("id"), rs.getString("party_type"),
                 rs.getString("party_id"), rs.getString("project_id"), rs.getBigDecimal("open_amount"),
@@ -259,7 +276,7 @@ public class FinanceOperationsService {
             BigDecimal difference = newBase.subtract(oldBase).setScale(4, RoundingMode.HALF_UP);
             boolean receivable = "CUSTOMER".equals(item.partyType());
             boolean isGain = receivable ? difference.signum() > 0 : difference.signum() < 0;
-            BigDecimal transactionDifference = difference.abs().divide(body.rate(), 4, RoundingMode.HALF_UP);
+            BigDecimal transactionDifference = difference.abs();
             if (isGain) gain = gain.add(difference.abs()); else loss = loss.add(difference.abs());
             if (transactionDifference.signum() > 0) {
                 String control = ledger.mapping(actor.organizationId(), receivable ? "RECEIVABLE" : "PAYABLE");
@@ -281,8 +298,8 @@ public class FinanceOperationsService {
         String journalId = null;
         if (!postings.isEmpty()) {
             journalId = ledger.post(actor.organizationId(), actor.userId(), "CURRENCY_REVALUATION", id, null,
-                    body.accountingDate(), body.accountingDate(), body.accountingDate(), body.currencyCode().toUpperCase(),
-                    base, body.rate(), "Currency revaluation", "revaluation:" + required(requestId), postings).id();
+                    body.accountingDate(), body.accountingDate(), body.accountingDate(), base,
+                    base, BigDecimal.ONE, "Currency revaluation", "revaluation:" + key, postings).id();
         }
         jdbc.update("""
                 INSERT INTO flowora_currency_revaluation
@@ -304,6 +321,18 @@ public class FinanceOperationsService {
         return revaluation(actor.organizationId(), id);
     }
 
+    @Transactional
+    public FinanceV2Dtos.JournalView reverseRevaluation(FloworaPrincipal actor, String id, LocalDate accountingDate, String reason, String requestId) {
+        jdbc.query("SELECT organization_id FROM flowora_finance_setting WHERE organization_id=? FOR UPDATE", (rs, row) -> rs.getString(1), actor.organizationId());
+        RevaluationView original = revaluation(actor.organizationId(), id);
+        if (accountingDate.isBefore(original.accountingDate())) throw conflict("INVALID_REVERSAL_DATE", Map.of());
+        if (original.journalEntryId() == null) throw conflict("REVALUATION_HAS_NO_JOURNAL", Map.of());
+        List<String> replay = jdbc.query("SELECT id FROM flowora_journal_entry WHERE organization_id=? AND request_id=? AND reversal_of_id=?",
+                (rs, row) -> rs.getString(1), actor.organizationId(), required(requestId), original.journalEntryId());
+        if (!replay.isEmpty()) return ledger.journal(actor.organizationId(), replay.getFirst());
+        return ledger.reverse(actor.organizationId(), actor.userId(), original.journalEntryId(), accountingDate, reason, required(requestId));
+    }
+
     public FinanceDashboard dashboard(String organizationId, LocalDate from, LocalDate to) {
         BigDecimal receivables = scalar("SELECT COALESCE(SUM(base_total_amount-(allocated_amount+credited_amount)*exchange_rate),0) FROM flowora_finance_invoice WHERE organization_id=? AND party_type='CUSTOMER' AND document_type='SALES_INVOICE' AND status='POSTED'", organizationId);
         BigDecimal payables = scalar("SELECT COALESCE(SUM(base_total_amount-(allocated_amount+credited_amount)*exchange_rate),0) FROM flowora_finance_invoice WHERE organization_id=? AND party_type='SUPPLIER' AND document_type='SUPPLIER_INVOICE' AND status='POSTED'", organizationId);
@@ -311,12 +340,18 @@ public class FinanceOperationsService {
         BigDecimal debit = trial.stream().map(TrialBalanceRow::debit).reduce(BigDecimal.ZERO, BigDecimal::add);
         BigDecimal credit = trial.stream().map(TrialBalanceRow::credit).reduce(BigDecimal.ZERO, BigDecimal::add);
         BigDecimal cash = balance(trial, ledger.mapping(organizationId, "CASH"));
-        BigDecimal revenue = balance(trial, ledger.mapping(organizationId, "REVENUE")).negate();
-        BigDecimal expense = balance(trial, ledger.mapping(organizationId, "EXPENSE"));
+        BigDecimal revenue = accountTypeTotal(organizationId, trial, "REVENUE").negate();
+        BigDecimal expense = accountTypeTotal(organizationId, trial, "EXPENSE");
         Integer unmatched = jdbc.queryForObject("SELECT COUNT(*) FROM flowora_bank_statement_line WHERE organization_id=? AND reconciliation_status='UNMATCHED'", Integer.class, organizationId);
         Integer exceptions = jdbc.queryForObject("SELECT COUNT(*) FROM flowora_finance_invoice WHERE organization_id=? AND match_status='EXCEPTION'", Integer.class, organizationId);
         return new FinanceDashboard(receivables, payables, cash, revenue, expense, revenue.subtract(expense),
                 debit, credit, unmatched == null ? 0 : unmatched, exceptions == null ? 0 : exceptions);
+    }
+
+    private BigDecimal accountTypeTotal(String organizationId, List<TrialBalanceRow> trial, String type) {
+        Set<String> codes = new HashSet<>(jdbc.query("SELECT code FROM flowora_account WHERE organization_id=? AND account_type=?",
+                (rs, row) -> rs.getString(1), organizationId, type));
+        return trial.stream().filter(row -> codes.contains(row.accountCode())).map(TrialBalanceRow::balance).reduce(BigDecimal.ZERO, BigDecimal::add);
     }
 
     private List<CloseCheckView> closeChecks(String organizationId, Period period) {
@@ -382,10 +417,10 @@ public class FinanceOperationsService {
 
     private PaymentBasis paymentForUpdate(String organizationId, String id) {
         List<PaymentBasis> values = jdbc.query("""
-                SELECT id,bank_account_id,status,amount,currency_code FROM flowora_payment_v2
+                SELECT id,bank_account_id,status,amount,currency_code,payment_type FROM flowora_payment_v2
                 WHERE organization_id=? AND id=? FOR UPDATE
                 """, (rs, row) -> new PaymentBasis(rs.getString("id"), rs.getString("bank_account_id"),
-                rs.getString("status"), rs.getBigDecimal("amount"), rs.getString("currency_code")), organizationId, id);
+                rs.getString("status"), rs.getBigDecimal("amount"), rs.getString("currency_code"), rs.getString("payment_type")), organizationId, id);
         if (values.isEmpty()) throw notFound("payment", id);
         return values.getFirst();
     }
@@ -461,7 +496,7 @@ public class FinanceOperationsService {
     private record Period(String id, String status, LocalDate start, LocalDate end) {
     }
 
-    private record PaymentBasis(String id, String bankAccountId, String status, BigDecimal amount, String currencyCode) {
+    private record PaymentBasis(String id, String bankAccountId, String status, BigDecimal amount, String currencyCode, String paymentType) {
     }
 
     private record OpenBalance(String id, String partyType, String partyId, String projectId,

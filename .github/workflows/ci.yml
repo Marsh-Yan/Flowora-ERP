@@ -87,6 +87,7 @@ jobs:
       REDIS_PASSWORD: ''
       FLOWORA_MFA_ENCRYPTION_KEY: r2-ci-only-mfa-key-32-characters-minimum
       FLOWORA_R2_HTTP_PASSWORD: Demo123!
+      FLOWORA_R3_HTTP_PASSWORD: Demo123!
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-java@v4
@@ -96,6 +97,8 @@ jobs:
           cache: maven
       - name: Test historical cutover, repeated demo initialization, fulfillment and cancellation races
         run: ./mvnw -B -pl services/api -Dtest=TradeInventoryMySqlTest test package
+      - name: Test finance source boundaries, base balance, FX reversal, valuation and bank direction
+        run: ./mvnw -B -pl services/api -Dtest=FinanceMySqlTest test
       - name: Start disposable API with demo fixtures
         run: |
           java -jar services/api/target/flowora-api-2.0.0-SNAPSHOT.jar --spring.profiles.active=local --server.port=18080 --server.address=127.0.0.1 --management.endpoint.health.probes.enabled=true --flowora.demo.enabled=true --flowora.demo.seed-on-start=true > /tmp/r2-api.log 2>&1 &
@@ -107,6 +110,9 @@ jobs:
       - name: Verify compatibility multi-line fulfillment and native returns through HTTP
         shell: pwsh
         run: ./tools/verification/compat-stock-smoke.ps1
+      - name: Verify finance posting, FX reversal and input contracts through HTTP
+        shell: pwsh
+        run: ./tools/verification/finance-smoke.ps1
       - name: Show API errors on failure
         if: failure()
         run: tail -100 /tmp/r2-api.log || true

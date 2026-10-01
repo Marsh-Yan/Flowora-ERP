@@ -12,6 +12,21 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 class FinancePostingPolicyTest {
     @Test
+    void rejectsBaseRoundingMismatchAndNegativeOrExcessPrecisionAmounts() {
+        var tiny = List.of(PostingLine.debit("1100","Total",new BigDecimal("0.0002"),null,null,null,null),
+                PostingLine.credit("4000","One",new BigDecimal("0.0001"),null,null,null,null),
+                PostingLine.credit("4000","Two",new BigDecimal("0.0001"),null,null,null,null));
+        FinancePostingPolicy.requireBalanced(tiny);
+        assertThatThrownBy(() -> FinancePostingPolicy.requireBaseBalanced(tiny,new BigDecimal("0.5")))
+                .isInstanceOf(PlatformApiException.class).extracting("code").isEqualTo("JOURNAL_BASE_NOT_BALANCED");
+        for (String amount : List.of("-1", "0.00001")) {
+            var invalid=List.of(PostingLine.debit("1100","Invalid",new BigDecimal(amount),null,null,null,null),
+                    PostingLine.credit("4000","Invalid",new BigDecimal(amount),null,null,null,null));
+            assertThatThrownBy(() -> FinancePostingPolicy.requireBalanced(invalid)).isInstanceOf(PlatformApiException.class);
+        }
+        assertThatThrownBy(() -> FinancePostingPolicy.base(BigDecimal.ONE,new BigDecimal("1.000000001"))).isInstanceOf(PlatformApiException.class);
+    }
+    @Test
     void acceptsBalancedTwoSidedJournal() {
         List<PostingLine> lines = List.of(
                 PostingLine.debit("1100", "Receivable", new BigDecimal("113.0000"), null, "CUSTOMER", "c1", null),

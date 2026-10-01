@@ -37,6 +37,8 @@ import java.util.UUID;
 
 @Service
 public class AccountingService {
+    @org.springframework.beans.factory.annotation.Autowired(required = false)
+    private com.flowora.erp.finance.v2.FinanceLedgerService canonicalLedger;
     private static final String CASH = "1000";
     private static final String RECEIVABLE = "1100";
     private static final String INVENTORY = "1400";
@@ -94,11 +96,11 @@ public class AccountingService {
     }
 
     @Transactional
-    public void postPurchaseReceipt(String organizationId, String userId, String receiptId, String supplierId, BigDecimal amount, String currencyCode, LocalDate dueDate) {
+    public void postPurchaseReceipt(String organizationId, String userId, String receiptId, String supplierId, BigDecimal amount, String currencyCode, LocalDate entryDate, LocalDate dueDate) {
         if (payableRepository.findByOrganizationIdAndSourceTypeAndSourceId(organizationId, "PURCHASE_RECEIPT", receiptId).isEmpty()) {
             payableRepository.save(new PayableEntity(organizationId, nextNumber("AP"), receiptId, supplierId, "PURCHASE_RECEIPT", receiptId, currencyCode, amount, dueDate));
         }
-        postEntry(organizationId, userId, "PURCHASE_RECEIPT", receiptId, dueDate, "Purchase receipt " + receiptId, currencyCode, List.of(
+        postEntry(organizationId, userId, "PURCHASE_RECEIPT", receiptId, entryDate, "Purchase receipt " + receiptId, currencyCode, List.of(
                 debit(INVENTORY, "Inventory received", amount),
                 credit(PAYABLE, "Accrued payable", amount)
         ));
@@ -141,7 +143,7 @@ public class AccountingService {
 
     @Transactional(readOnly = true)
     public TrialBalanceResponse trialBalance(String organizationId, LocalDate from, LocalDate to) {
-        List<JournalEntryEntity> entries = journalEntryRepository.inRange(organizationId, from, to).stream().filter(entry -> entry.status() == JournalEntryStatus.POSTED).toList();
+        List<JournalEntryEntity> entries = journalEntryRepository.inRange(organizationId, from, to).stream().filter(entry -> entry.status() == JournalEntryStatus.POSTED || entry.status() == JournalEntryStatus.REVERSED).toList();
         Map<String, Amount> amounts = amounts(organizationId, entries);
         List<TrialBalanceRow> rows = accountRepository.findByOrganizationIdOrderByCode(organizationId).stream()
                 .map(account -> trialRow(account, amounts.getOrDefault(account.code(), new Amount())))
@@ -156,7 +158,7 @@ public class AccountingService {
     public FinancialStatementResponse incomeStatement(String organizationId, LocalDate from, LocalDate to) {
         List<TrialBalanceRow> rows = trialBalance(organizationId, from, to).rows();
         List<StatementRow> statementRows = rows.stream().filter(row -> "REVENUE".equals(row.accountType()) || "EXPENSE".equals(row.accountType())).map(row -> new StatementRow(row.accountCode(), row.accountName(), row.accountType(), "REVENUE".equals(row.accountType()) ? row.credit().subtract(row.debit()) : row.debit().subtract(row.credit()))).toList();
-        BigDecimal total = statementRows.stream().map(StatementRow::amount).reduce(BigDecimal.ZERO, BigDecimal::add);
+        BigDecimal total = statementRows.stream().map(row -> "EXPENSE".equals(row.accountType()) ? row.amount().negate() : row.amount()).reduce(BigDecimal.ZERO, BigDecimal::add);
         return new FinancialStatementResponse(from, to, statementRows, total);
     }
 
@@ -204,6 +206,17 @@ public class AccountingService {
     private JournalEntryEntity postEntry(String organizationId, String userId, String sourceType, String sourceId, LocalDate entryDate, String memo, String currencyCode, List<PostingLine> lines) {
         var existing = journalEntryRepository.findByOrganizationIdAndSourceTypeAndSourceId(organizationId, sourceType, sourceId);
         if (existing.isPresent()) return existing.get();
+        if (canonicalLedger != null) {
+            String currency = clean(currencyCode).toUpperCase();
+            String base = canonicalLedger.baseCurrency(organizationId);
+            if (!base.equals(currency)) throw com.flowora.erp.finance.v2.FinanceLedgerService.conflict("EXCHANGE_RATE_REQUIRED_USE_V2", Map.of());
+            for (PostingLine line : lines) requirePostingAccount(organizationId, line.accountCode());
+            var postings = lines.stream().map(line -> new com.flowora.erp.finance.v2.FinancePostingPolicy.PostingLine(
+                    line.accountCode(), clean(line.description()), line.debit(), line.credit(), null, null, null, null)).toList();
+            var posted = canonicalLedger.post(organizationId, userId, sourceType, sourceId, null, entryDate, entryDate,
+                    entryDate, currency, base, BigDecimal.ONE, clean(memo), "compat-finance:" + sourceType + ":" + sourceId, postings);
+            return journalEntryRepository.findById(posted.id()).orElseThrow();
+        }
         if (lines == null || lines.size() < 2) throw new IllegalArgumentException("A journal entry requires at least two lines");
         BigDecimal totalDebit = BigDecimal.ZERO;
         BigDecimal totalCredit = BigDecimal.ZERO;
@@ -235,8 +248,8 @@ public class AccountingService {
         if (entries.isEmpty()) return result;
         for (JournalLineEntity line : journalLineRepository.byJournalEntryIds(organizationId, entries.stream().map(JournalEntryEntity::id).toList())) {
             Amount amount = result.computeIfAbsent(line.accountCode(), ignored -> new Amount());
-            amount.debit = amount.debit.add(line.debit());
-            amount.credit = amount.credit.add(line.credit());
+            amount.debit = amount.debit.add(line.baseDebit());
+            amount.credit = amount.credit.add(line.baseCredit());
         }
         return result;
     }

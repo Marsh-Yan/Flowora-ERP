@@ -19,8 +19,13 @@ const customers = ref<MasterDataRecord[]>([])
 const suppliers = ref<MasterDataRecord[]>([])
 const invoiceVisible = ref(false)
 const paymentVisible = ref(false)
-const today = () => new Date().toISOString().slice(0, 10)
-const plusDays = (days: number) => { const value = new Date(); value.setDate(value.getDate() + days); return value.toISOString().slice(0, 10) }
+const localDate = (value: Date) => `${value.getFullYear()}-${String(value.getMonth() + 1).padStart(2, '0')}-${String(value.getDate()).padStart(2, '0')}`
+const today = () => localDate(new Date())
+const plusDays = (days: number) => { const value = new Date(); value.setDate(value.getDate() + days); return localDate(value) }
+const dateRange = ref<[string, string]>([`${today().slice(0, 7)}-01`, today()])
+type Section = 'dashboard' | 'invoices' | 'payments' | 'statements' | 'parties'
+const errors = reactive<Record<Section, boolean>>({ dashboard: false, invoices: false, payments: false, statements: false, parties: false })
+let loadVersion = 0
 const invoiceForm = reactive({ documentType: 'SALES_INVOICE' as 'SALES_INVOICE' | 'SUPPLIER_INVOICE', partyId: '', description: '', quantity: 1, unitPrice: 0, taxRate: 0 })
 const paymentForm = reactive({ paymentType: 'RECEIPT' as 'RECEIPT' | 'PAYMENT', partyId: '', amount: 0, reference: '' })
 
@@ -29,15 +34,27 @@ function statusType(status: string) { return ['POSTED', 'PAID', 'ALLOCATED', 'MA
 function parties(type: string) { return type === 'SALES_INVOICE' || type === 'RECEIPT' ? customers.value : suppliers.value }
 
 async function load() {
+  if (!dateRange.value || dateRange.value.length !== 2) return
+  const version = ++loadVersion
+  const [from, to] = dateRange.value
   loading.value = true
-  try {
-    const [summary, invoiceRows, paymentRows, statementRows, customerPage, supplierPage] = await Promise.all([
-      getFinanceDashboard(), listFinanceInvoices(), listFinancePayments(), listBankStatementLines(),
-      listMasterData<MasterDataRecord>('customers', '', 0, 100), listMasterData<MasterDataRecord>('suppliers', '', 0, 100),
-    ])
-    dashboard.value = summary; invoices.value = invoiceRows; payments.value = paymentRows; statements.value = statementRows
-    customers.value = customerPage.content; suppliers.value = supplierPage.content
-  } catch { ElMessage.error(t('finance.m4.loadFailed')) } finally { loading.value = false }
+  dashboard.value = null; invoices.value = []; payments.value = []; statements.value = []
+  const inRange = (date: string) => date >= from && date <= to
+  async function section(key: Section, work: () => Promise<void>) {
+    errors[key] = false
+    try { await work() } catch { if (version === loadVersion) errors[key] = true }
+  }
+  await Promise.all([
+    section('dashboard', async () => { const value = await getFinanceDashboard(from, to); if (version === loadVersion) dashboard.value = value }),
+    section('invoices', async () => { const value = await listFinanceInvoices(); if (version === loadVersion) invoices.value = value.filter(row => inRange(row.accountingDate)) }),
+    section('payments', async () => { const value = await listFinancePayments(); if (version === loadVersion) payments.value = value.filter(row => inRange(row.accountingDate)) }),
+    section('statements', async () => { const value = await listBankStatementLines(); if (version === loadVersion) statements.value = value.filter(row => inRange(row.transactionDate)) }),
+    section('parties', async () => {
+      const [customerPage, supplierPage] = await Promise.all([listMasterData<MasterDataRecord>('customers', '', 0, 100), listMasterData<MasterDataRecord>('suppliers', '', 0, 100)])
+      if (version === loadVersion) { customers.value = customerPage.content; suppliers.value = supplierPage.content }
+    }),
+  ])
+  if (version === loadVersion) loading.value = false
 }
 
 async function submitInvoice() {
@@ -68,12 +85,17 @@ onMounted(load)
 <template>
   <el-card v-loading="loading" shadow="never" class="m4-panel">
     <div class="section-heading"><div><span class="eyebrow">M4 · Finance close</span><h2>{{ t('finance.m4.title') }}</h2><p>{{ t('finance.m4.subtitle') }}</p></div><div><el-button plain @click="invoiceVisible = true">{{ t('finance.m4.newInvoice') }}</el-button><el-button type="primary" @click="paymentVisible = true">{{ t('finance.m4.newPayment') }}</el-button></div></div>
-    <div class="m4-metrics">
+    <div class="finance-range"><el-date-picker v-model="dateRange" type="daterange" value-format="YYYY-MM-DD" :clearable="false" @change="load" /><el-button @click="load">{{ t('finance.m4.retry') }}</el-button><span>{{ t('finance.m4.rangeNote') }}</span></div>
+    <el-alert v-if="errors.dashboard" :title="t('finance.m4.dashboardFailed')" type="error" :closable="false" show-icon />
+    <el-alert v-if="errors.parties" :title="t('finance.m4.partiesFailed')" type="error" :closable="false" show-icon />
+    <div v-if="dashboard" class="m4-metrics">
       <div><span>{{ t('finance.m4.receivables') }}</span><strong>{{ money(dashboard?.receivables) }}</strong></div>
       <div><span>{{ t('finance.m4.payables') }}</span><strong>{{ money(dashboard?.payables) }}</strong></div>
       <div><span>{{ t('finance.m4.netIncome') }}</span><strong>{{ money(dashboard?.netIncome) }}</strong></div>
       <div><span>{{ t('finance.m4.unmatched') }}</span><strong>{{ dashboard?.unmatchedBankLines ?? 0 }}</strong></div>
     </div>
+    <div v-else class="m4-metrics" aria-live="polite"><span>—</span><span>—</span><span>—</span><span>—</span></div>
+    <el-alert v-for="section in (['invoices', 'payments', 'statements'] as const)" v-show="errors[section]" :key="section" :title="t(`finance.m4.${section}Failed`)" type="error" :closable="false" show-icon />
     <el-tabs>
       <el-tab-pane :label="t('finance.m4.invoices')"><el-table :data="invoices" size="small"><el-table-column prop="number" :label="t('finance.number')" /><el-table-column prop="documentType" :label="t('finance.m4.type')" /><el-table-column prop="accountingDate" :label="t('finance.entryDate')" /><el-table-column :label="t('finance.amount')"><template #default="{ row }">{{ money(row.totalAmount) }} {{ row.currencyCode }}</template></el-table-column><el-table-column :label="t('finance.statusLabel')"><template #default="{ row }"><el-tag :type="statusType(row.status)">{{ row.status }}</el-tag></template></el-table-column><el-table-column :label="t('finance.actions')"><template #default="{ row }"><el-button v-if="row.status === 'DRAFT'" link type="primary" @click="postInvoice(row)">{{ t('finance.m4.post') }}</el-button></template></el-table-column></el-table></el-tab-pane>
       <el-tab-pane :label="t('finance.m4.payments')"><el-table :data="payments" size="small"><el-table-column prop="number" :label="t('finance.number')" /><el-table-column prop="paymentType" :label="t('finance.m4.type')" /><el-table-column prop="accountingDate" :label="t('finance.entryDate')" /><el-table-column :label="t('finance.amount')"><template #default="{ row }">{{ money(row.amount) }} {{ row.currencyCode }}</template></el-table-column><el-table-column :label="t('finance.statusLabel')"><template #default="{ row }"><el-tag :type="statusType(row.status)">{{ row.status }}</el-tag></template></el-table-column><el-table-column :label="t('finance.actions')"><template #default="{ row }"><el-button v-if="row.status === 'DRAFT'" link type="primary" @click="postPayment(row)">{{ t('finance.m4.post') }}</el-button></template></el-table-column></el-table></el-tab-pane>
