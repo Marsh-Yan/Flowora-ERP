@@ -40,6 +40,8 @@ jobs:
       - name: Lint
         run: pnpm lint
       - name: Unit tests
+        env:
+          TZ: Asia/Shanghai
         run: pnpm test
       - name: Build
         run: pnpm build

@@ -1,7 +1,7 @@
 import { flushPromises, mount } from '@vue/test-utils'
 import { createPinia } from 'pinia'
 import ElementPlus from 'element-plus'
-import { beforeEach, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 import AnalyticsView from '@/views/AnalyticsView.vue'
 import { useAuthStore, type AuthUser } from '@/stores/auth'
 import * as api from '@/api/analytics'
@@ -16,6 +16,7 @@ beforeEach(() => {
   vi.mocked(api.getAnalytics).mockResolvedValue({ from: '2026-10-01', to: '2026-10-01', currencyCode: 'USD', refreshedAt: '',
     trends: [{ period: '2026-10', sales: 71, purchases: null, revenue: null, expense: null, grossProfit: null }] })
 })
+afterEach(() => vi.useRealTimers())
 async function render(scope: AuthUser['dataScope']) {
   const pinia = createPinia()
   const auth = useAuthStore(pinia)
@@ -38,5 +39,12 @@ it('does not offer unsupported assigned exports or request organization-wide agg
   const wrapper = await render('ASSIGNED')
   expect(api.getOrganizationAnalytics).not.toHaveBeenCalled()
   expect(wrapper.findAll('button').some(button => button.text() === 'SALES')).toBe(false)
+  wrapper.unmount()
+})
+it('starts its range on the local first day and preserves today near local midnight', async () => {
+  vi.useFakeTimers({ toFake: ['Date'] })
+  vi.setSystemTime(new Date(2026, 9, 1, 0, 30))
+  const wrapper = await render('SELF')
+  expect(api.getAnalytics).toHaveBeenCalledWith('2026-05-01', '2026-10-01')
   wrapper.unmount()
 })

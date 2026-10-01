@@ -11,7 +11,8 @@ import {
 const auth = useAuthStore()
 const now = new Date()
 const start = new Date(now.getFullYear(), now.getMonth() - 5, 1)
-const dateRange = ref<[string, string]>([start.toISOString().slice(0, 10), now.toISOString().slice(0, 10)])
+const localDate = (value: Date) => `${value.getFullYear()}-${String(value.getMonth() + 1).padStart(2, '0')}-${String(value.getDate()).padStart(2, '0')}`
+const dateRange = ref<[string, string]>([localDate(start), localDate(now)])
 const reportCurrency = ref('USD')
 const loading = ref(false)
 const snapshot = ref<AnalyticsSnapshot>()
