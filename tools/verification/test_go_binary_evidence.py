@@ -18,6 +18,7 @@ class GoBinaryEvidenceTest(unittest.TestCase):
     def test_complete_package_scan_can_classify_module_only_finding(self):
         messages = self.evidence()
         self.assertTrue(package_absent(stream_messages("\n".join(map(json.dumps, messages))), "0.56.0"))
+        self.assertTrue(package_absent(messages, "v0.56.0"))
 
     def test_affected_package_or_stripped_binary_fallback_stays_blocking(self):
         messages = self.evidence()

@@ -34,7 +34,7 @@ def package_absent(messages, version):
             or config.get("db") != "https://vuln.go.dev"):
         raise ValueError("Go scan must use the official database and binary/package analysis")
     modules = [module for message in messages for module in message.get("SBOM", {}).get("modules", [])]
-    if {"path": MODULE, "version": "v" + version} not in modules:
+    if {"path": MODULE, "version": "v" + version.removeprefix("v")} not in modules:
         raise ValueError("Go binary module version differs from Trivy inventory")
     advisories = [message["osv"] for message in messages if message.get("osv", {}).get("id") == ADVISORY]
     if len(advisories) != 1:
