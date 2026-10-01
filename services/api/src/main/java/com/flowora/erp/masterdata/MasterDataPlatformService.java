@@ -84,9 +84,9 @@ public class MasterDataPlatformService {
             TrackingMethod trackingMethod
     ) {
         Integer movements = jdbcTemplate.queryForObject("""
-                SELECT COUNT(*) FROM flowora_stock_ledger_entry
-                WHERE organization_id = ? AND item_id = ?
-                """, Integer.class, organizationId, itemId);
+                SELECT (SELECT COUNT(*) FROM flowora_stock_ledger_entry WHERE organization_id=? AND item_id=?)
+                     + (SELECT COUNT(*) FROM flowora_stock_movement_line WHERE organization_id=? AND item_id=?)
+                """, Integer.class, organizationId, itemId, organizationId, itemId);
         String current = jdbcTemplate.query("""
                 SELECT tracking_method FROM flowora_item WHERE id = ? AND organization_id = ?
                 """, rs -> rs.next() ? rs.getString("tracking_method") : null, itemId, organizationId);

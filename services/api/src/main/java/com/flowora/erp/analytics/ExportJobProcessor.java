@@ -170,7 +170,7 @@ public class ExportJobProcessor {
         values.put("PURCHASES", new ExportDefinition(List.of("number","status","currency_code","total_amount","order_date"),
                 "SELECT number,status,currency_code,total_amount,order_date,buyer_user_id owner_user_id FROM flowora_purchase_order WHERE organization_id=?", "order_date"));
         values.put("INVENTORY", new ExportDefinition(List.of("warehouse_code","item_code","quantity","average_cost"),
-                "SELECT w.code warehouse_code,i.code item_code,b.quantity,b.average_cost FROM flowora_stock_balance b JOIN flowora_warehouse w ON w.id=b.warehouse_id JOIN flowora_item i ON i.id=b.item_id WHERE b.organization_id=? ORDER BY w.code,i.code", null));
+                "SELECT w.code warehouse_code,i.code item_code,b.quantity,b.average_cost FROM flowora_inventory_summary_v2 b JOIN flowora_warehouse w ON w.id=b.warehouse_id JOIN flowora_item i ON i.id=b.item_id WHERE b.organization_id=? ORDER BY w.code,i.code", null));
         values.put("FINANCE", new ExportDefinition(List.of("number","document_type","party_type","status","settlement_status","currency_code","total_amount","accounting_date"),
                 "SELECT number,document_type,party_type,status,settlement_status,currency_code,total_amount,accounting_date FROM flowora_finance_invoice WHERE organization_id=? ORDER BY accounting_date DESC", "accounting_date"));
         values.put("PROJECTS", new ExportDefinition(List.of("number","name","status","currency_code","budget_revenue","budget_cost","target_date"),

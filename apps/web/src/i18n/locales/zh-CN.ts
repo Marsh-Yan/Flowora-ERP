@@ -384,6 +384,9 @@ export default {
       TRANSFER_OUT: '调拨出库',
       COUNT: '盘点差异',
       ADJUSTMENT: '库存调整',
+      OPENING: '期初库存',
+      SALES_RETURN: '销售退货',
+      PURCHASE_RETURN: '采购退货',
     },
   },
   finance: {

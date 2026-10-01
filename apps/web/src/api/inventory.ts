@@ -13,7 +13,7 @@ interface ApiEnvelope<T> {
   requestId: string
 }
 
-export type MovementType = 'RECEIPT' | 'SHIPMENT' | 'TRANSFER_IN' | 'TRANSFER_OUT' | 'COUNT' | 'ADJUSTMENT'
+export type MovementType = 'RECEIPT' | 'SHIPMENT' | 'TRANSFER_IN' | 'TRANSFER_OUT' | 'COUNT' | 'ADJUSTMENT' | 'OPENING' | 'SALES_RETURN' | 'PURCHASE_RETURN'
 export type AdjustmentStatus = 'DRAFT' | 'PENDING_APPROVAL' | 'POSTED' | 'REJECTED' | 'CANCELLED'
 
 export interface StockBalance {

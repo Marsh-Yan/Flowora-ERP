@@ -44,6 +44,36 @@ import java.util.UUID;
 
 @Service
 public class InventoryService {
+    private CanonicalInventoryReader canonicalReader;
+    private com.flowora.erp.trade.v2.TradeInventoryService canonicalWriter;
+
+    @org.springframework.beans.factory.annotation.Autowired(required = false)
+    public void useCanonicalWriter(com.flowora.erp.trade.v2.TradeInventoryService canonicalWriter) {
+        this.canonicalWriter = canonicalWriter;
+    }
+
+    public void lockSalesForFulfillment(FloworaPrincipal actor, String orderId) {
+        if (canonicalWriter != null) canonicalWriter.lockCompatibilityOrder(actor.organizationId(), true, orderId);
+    }
+
+    public boolean usesCanonicalInventory() { return canonicalWriter != null; }
+
+    public void requireUnreservedSalesQuantity(FloworaPrincipal actor, String orderId, String lineId, BigDecimal quantity) {
+        if (canonicalWriter != null) canonicalWriter.requireCompatibilitySalesQuantity(actor.organizationId(), orderId, lineId, quantity);
+    }
+
+    public boolean hasOpenOrderLines(String organizationId, boolean sales, String orderId) {
+        return canonicalWriter.hasOpenOrderLines(organizationId, sales, orderId);
+    }
+
+    public void linkSalesMovement(FloworaPrincipal actor, String deliveryId, String lineId) {
+        if (canonicalWriter != null) canonicalWriter.linkCompatibilityMovement(actor.organizationId(), "SALES_DELIVERY", deliveryId, lineId);
+    }
+
+    @org.springframework.beans.factory.annotation.Autowired(required = false)
+    public void useCanonicalReader(CanonicalInventoryReader canonicalReader) {
+        this.canonicalReader = canonicalReader;
+    }
     private static final BigDecimal DEFAULT_APPROVAL_THRESHOLD = new BigDecimal("10000.0000");
 
     private final PurchaseOrderRepository orderRepository;
@@ -107,12 +137,14 @@ public class InventoryService {
 
     @Transactional(readOnly = true)
     public PageResponse<StockBalanceResponse> balances(String organizationId, String warehouseId, Pageable pageable) {
+        if (canonicalReader != null) return canonicalReader.balances(organizationId, clean(warehouseId), pageable);
         Page<StockBalanceEntity> page = balanceRepository.search(organizationId, clean(warehouseId), pageable);
         return PageResponse.from(page.map(this::balanceResponse));
     }
 
     @Transactional(readOnly = true)
     public PageResponse<StockLedgerResponse> ledger(String organizationId, String warehouseId, String itemId, Pageable pageable) {
+        if (canonicalReader != null) return canonicalReader.ledger(organizationId, clean(warehouseId), clean(itemId), pageable);
         return PageResponse.from(ledgerRepository.search(organizationId, clean(warehouseId), clean(itemId), pageable).map(this::ledgerResponse));
     }
 
@@ -123,12 +155,14 @@ public class InventoryService {
 
     @Transactional
     public PurchaseReceiptResponse receive(FloworaPrincipal actor, PurchaseReceiptRequest body, String idempotencyKey) {
+        if (canonicalWriter != null) canonicalWriter.lockCompatibilityOrder(actor.organizationId(), false, body.purchaseOrderId());
         PurchaseOrderEntity order = orderRepository.findByIdAndOrganizationId(body.purchaseOrderId(), actor.organizationId())
                 .orElseThrow(() -> new ResourceNotFoundException("purchaseOrder", body.purchaseOrderId()));
         if (!order.warehouseId().equals(body.warehouseId())) {
             throw new IllegalArgumentException("Receipt warehouse must match the purchase order warehouse");
         }
-        if (order.status() == ProcurementDocumentStatus.CANCELLED || order.status() == ProcurementDocumentStatus.RECEIVED) {
+        if (order.status() != ProcurementDocumentStatus.APPROVED && order.status() != ProcurementDocumentStatus.CONFIRMED
+                && order.status() != ProcurementDocumentStatus.PARTIALLY_RECEIVED) {
             throw new IllegalStateException("Purchase order is not open for receiving");
         }
         PurchaseOrderLineEntity orderLine = orderLineRepository.findByIdAndOrganizationId(body.purchaseOrderLineId(), actor.organizationId())
@@ -145,8 +179,16 @@ public class InventoryService {
                 actor.organizationId(), receipt.id(), orderLine.id(), orderLine.itemId(), body.quantity(), body.unitCost()
         ));
         applyDelta(actor.organizationId(), order.warehouseId(), orderLine.itemId(), body.quantity(), body.unitCost(), InventoryMovementType.RECEIPT, "PURCHASE_RECEIPT", receipt.id(), actor.userId());
-        orderLineRepository.save(orderLine);
-        if (orderLine.remainingQuantity().signum() == 0) order.markReceived(); else order.markPartiallyReceived();
+        boolean complete;
+        if (canonicalWriter != null) {
+            orderLineRepository.saveAndFlush(orderLine);
+            canonicalWriter.linkCompatibilityMovement(actor.organizationId(), "PURCHASE_RECEIPT", receipt.id(), receiptLine.id());
+            complete = !canonicalWriter.hasOpenOrderLines(actor.organizationId(), false, order.id());
+        } else {
+            orderLineRepository.save(orderLine);
+            complete = orderLine.remainingQuantity().signum() == 0;
+        }
+        if (complete) order.markReceived(); else order.markPartiallyReceived();
         orderRepository.save(order);
         accountingService.postPurchaseReceipt(actor.organizationId(), actor.userId(), receipt.id(), order.supplierId(), body.quantity().multiply(body.unitCost()), baseCurrency(actor.organizationId()), LocalDate.now().plusDays(30));
         return new PurchaseReceiptResponse(receipt.id(), receipt.number(), receipt.purchaseOrderId(), receipt.warehouseId(), receiptLine.itemId(), receiptLine.quantity(), receiptLine.unitCost(), receipt.receivedAt());
@@ -251,11 +293,14 @@ public class InventoryService {
     }
 
     private StockBalanceEntity lockedBalance(String organizationId, String warehouseId, String itemId, BigDecimal defaultCost) {
+        if (canonicalWriter != null) return canonicalWriter.compatibilityBalance(organizationId, warehouseId, itemId);
         return balanceRepository.findForUpdate(organizationId, warehouseId, itemId)
                 .orElseGet(() -> balanceRepository.save(new StockBalanceEntity(organizationId, warehouseId, itemId, BigDecimal.ZERO, defaultCost)));
     }
 
     private BigDecimal applyDelta(String organizationId, String warehouseId, String itemId, BigDecimal quantityDelta, BigDecimal unitCost, InventoryMovementType movementType, String documentType, String documentId, String actorUserId) {
+        if (canonicalWriter != null) return canonicalWriter.postCompatibilityDelta(organizationId, warehouseId, itemId,
+                quantityDelta, unitCost, movementType.name(), documentType, documentId, actorUserId);
         if (ledgerRepository.existsByOrganizationIdAndDocumentTypeAndDocumentIdAndMovementType(organizationId, documentType, documentId, movementType)) return null;
         StockBalanceEntity balance = lockedBalance(organizationId, warehouseId, itemId, unitCost);
         BigDecimal oldAverageCost = balance.averageCost();

@@ -56,6 +56,61 @@ jobs:
       - name: Test and package
         run: ./mvnw -B -pl services/api -am test package
 
+  inventory-mysql:
+    name: Inventory MySQL regression
+    runs-on: ubuntu-latest
+    services:
+      mysql:
+        image: mysql:8.0
+        env:
+          MYSQL_ROOT_PASSWORD: r2-ci-only-password
+          MYSQL_DATABASE: audit_flowora
+        ports:
+          - 13306:3306
+        options: >-
+          --health-cmd="mysqladmin ping -h localhost -pr2-ci-only-password"
+          --health-interval=5s --health-timeout=5s --health-retries=30
+      redis:
+        image: redis:7-alpine
+        ports:
+          - 16379:6379
+        options: --health-cmd="redis-cli ping" --health-interval=5s --health-timeout=5s --health-retries=20
+    env:
+      FLOWORA_R2_MYSQL_URL: jdbc:mysql://127.0.0.1:13306/audit_flowora?serverTimezone=UTC
+      FLOWORA_R2_MYSQL_PASSWORD: r2-ci-only-password
+      FLOWORA_R2_EMPTY_CI_DATABASE: 'true'
+      DB_URL: jdbc:mysql://127.0.0.1:13306/audit_flowora?serverTimezone=UTC
+      DB_USERNAME: root
+      DB_PASSWORD: r2-ci-only-password
+      REDIS_HOST: 127.0.0.1
+      REDIS_PORT: 16379
+      REDIS_PASSWORD: ''
+      FLOWORA_MFA_ENCRYPTION_KEY: r2-ci-only-mfa-key-32-characters-minimum
+      FLOWORA_R2_HTTP_PASSWORD: Demo123!
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 25
+          cache: maven
+      - name: Test historical cutover, repeated demo initialization, fulfillment and cancellation races
+        run: ./mvnw -B -pl services/api -Dtest=TradeInventoryMySqlTest test package
+      - name: Start disposable API with demo fixtures
+        run: |
+          java -jar services/api/target/flowora-api-2.0.0-SNAPSHOT.jar --spring.profiles.active=local --server.port=18080 --server.address=127.0.0.1 --management.endpoint.health.probes.enabled=true --flowora.demo.enabled=true --flowora.demo.seed-on-start=true > /tmp/r2-api.log 2>&1 &
+          for attempt in $(seq 1 60); do
+            if curl --fail --silent http://127.0.0.1:18080/actuator/health/readiness >/dev/null; then exit 0; fi
+            sleep 2
+          done
+          exit 1
+      - name: Verify compatibility multi-line fulfillment and native returns through HTTP
+        shell: pwsh
+        run: ./tools/verification/compat-stock-smoke.ps1
+      - name: Show API errors on failure
+        if: failure()
+        run: tail -100 /tmp/r2-api.log || true
+
   production-smoke:
     name: Production Compose smoke
     runs-on: ubuntu-latest
