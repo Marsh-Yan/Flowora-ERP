@@ -1,5 +1,7 @@
 # R5 依赖扫描记录（2026-10-01）
 
+> 历史范围：本页保留 R5 第一批升级前的扫描，告警与“未执行”状态均是当时结果。R5 第二批已更新 lockfile、后端依赖与运行镜像，并加入持续门禁；当前记录见 [依赖与镜像整改](dependency-remediation-2026-10-01.md)。不要将旧扫描用作当前版本结论。
+
 基于 R4 合并提交 `a338671df5f9e604beb74eb18a15112d58c1ee84` 的现有 lockfile，执行 `pnpm audit --registry=https://registry.npmjs.org --json` 与 `pnpm audit --prod --registry=https://registry.npmjs.org --json`。两次均退出 1：全部依赖 25 条（15 high、10 moderate），生产依赖 13 条（8 high、5 moderate），critical 为 0。扫描使用 npm 官方审计端点；默认旧镜像源不提供此接口，不能将该错误当作零漏洞。
 
 这是依赖版本匹配结果，**没有证明应用存在 25 个可利用漏洞**。生产依赖分类也不等于所有包都进入浏览器产物；Axios 的 Node HTTP/HTTP2 问题与浏览器适配器问题须分别判断。原始扫描与依赖路径留在本地，不包含在公开报告中。本批不修改 lockfile，安全发布门禁保持未通过。

@@ -36,6 +36,10 @@ class SecurityReportTest(unittest.TestCase):
     def test_unknown_severity_blocks(self):
         self.assertEqual(self.run_gate(self.report([{"Severity": "UNKNOWN"}])), 1)
 
+    def test_unrecognized_or_missing_severity_blocks(self):
+        for vulnerability in ({"Severity": "UNRATED"}, {}):
+            self.assertEqual(self.run_gate(self.report([vulnerability])), 1)
+
     def test_medium_is_retained_but_not_blocking(self):
         self.assertEqual(self.run_gate(self.report([{"Severity": "MEDIUM"}])), 0)
 

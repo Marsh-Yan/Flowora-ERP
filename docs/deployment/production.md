@@ -23,6 +23,8 @@ docker compose ps
 
 ## 安全基线
 
+Compose 的 MySQL 与 Redis 使用仓库 Dockerfile 构建：MySQL 8.4.11 移除未使用的 mysql-shell，保留 mysql/mysqladmin/mysqldump，以固定源码和校验和重建 gosu；API、Web、MySQL、Redis 在构建时更新发行版补丁，Prometheus 使用 3.15.0。构建和更新须重新执行五镜像扫描及目标启动检查，不能依赖可变标签的旧结果。依赖版本、扫描边界及实际二进制分析见 [安全整改记录](../development/dependency-remediation-2026-10-01.md)。数据库与附件备份恢复仍需独立演练。
+
 - 生产配置强制安全、HttpOnly、SameSite 会话 Cookie，CSRF、CSP、防嵌入和来源策略保持开启。
 - v1 只允许读取和认证兼容；v1 业务写入返回 426，客户端全部使用 v2。
 - 演示数据关闭；诊断包只包含白名单配置和健康状态。

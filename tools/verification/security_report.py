@@ -26,7 +26,7 @@ def verify(report, expected, binary_dir=None, evidence_dir=None):
     print(f"Inventory: {len(packages)} packages; findings: {dict(sorted(counts.items()))}")
     decisions = classify(report, binary_dir, evidence_dir) if binary_dir else set()
     blocking = [v for result in report["Results"] for v in result.get("Vulnerabilities", [])
-                if v.get("Severity") in {"HIGH", "CRITICAL", "UNKNOWN", None}
+                if v.get("Severity") not in {"LOW", "MEDIUM"}
                 and (result.get("Target"), v.get("VulnerabilityID"), v.get("PkgName"),
                      v.get("InstalledVersion")) not in decisions]
     for vulnerability in blocking:
