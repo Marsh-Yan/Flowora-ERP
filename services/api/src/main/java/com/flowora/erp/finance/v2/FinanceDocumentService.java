@@ -125,10 +125,12 @@ public class FinanceDocumentService {
 
     @Transactional
     public InvoiceView postInvoice(FloworaPrincipal actor, String invoiceId, long version) {
+        ledger.lockOrganizationFinance(actor.organizationId());
         InvoiceView invoice = invoiceForUpdate(actor.organizationId(), invoiceId);
         if (invoice.version() != version) throw conflict("OPTIMISTIC_LOCK_CONFLICT", Map.of("expectedVersion", version));
         if (!"DRAFT".equals(invoice.status())) throw conflict("INVOICE_NOT_DRAFT", Map.of("status", invoice.status()));
         if ("EXCEPTION".equals(invoice.matchStatus())) throw conflict("MATCH_EXCEPTION_NOT_APPROVED", Map.of());
+        requireSourceCapacity(actor.organizationId(), invoice);
         List<PostingLine> postings = invoicePostings(actor.organizationId(), invoice);
         ledger.post(actor.organizationId(), actor.userId(), invoice.documentType(), invoice.id(), null,
                 invoice.businessDate(), invoice.accountingDate(), invoice.exchangeRateDate(), invoice.currencyCode(),
@@ -223,6 +225,7 @@ public class FinanceDocumentService {
 
     @Transactional
     public PaymentView postPayment(FloworaPrincipal actor, String paymentId, long version) {
+        ledger.lockOrganizationFinance(actor.organizationId());
         PaymentView payment = paymentForUpdate(actor.organizationId(), paymentId);
         if (!"DRAFT".equals(payment.status()) || payment.version() != version) {
             throw conflict("PAYMENT_STATE_CONFLICT", Map.of("status", payment.status()));
@@ -248,8 +251,10 @@ public class FinanceDocumentService {
 
     @Transactional
     public AllocationView allocate(FloworaPrincipal actor, String paymentId, AllocationCreate body) {
+        ledger.lockOrganizationFinance(actor.organizationId());
         PaymentView payment = paymentForUpdate(actor.organizationId(), paymentId);
         InvoiceView invoice = invoiceForUpdate(actor.organizationId(), body.invoiceId());
+        ledger.requireNoActiveRevaluation(actor.organizationId(), invoice.id());
         if (!"POSTED".equals(payment.status()) || !"POSTED".equals(invoice.status())) throw conflict("ALLOCATION_REQUIRES_POSTED_DOCUMENTS", Map.of());
         if (!payment.partyType().equals(invoice.partyType()) || !payment.partyId().equals(invoice.partyId())) throw conflict("ALLOCATION_PARTY_MISMATCH", Map.of());
         if (!payment.currencyCode().equals(invoice.currencyCode())) throw conflict("ALLOCATION_CURRENCY_MISMATCH", Map.of());
@@ -276,13 +281,32 @@ public class FinanceDocumentService {
 
     @Transactional
     public AllocationView reverseAllocation(FloworaPrincipal actor, String allocationId, String requestId, AllocationReverse body) {
+        ledger.lockOrganizationFinance(actor.organizationId());
+        String key = requiredKey(requestId);
+        AllocationView reference = allocation(actor.organizationId(), allocationId);
+        paymentForUpdate(actor.organizationId(), reference.paymentId());
+        InvoiceView invoice = invoiceForUpdate(actor.organizationId(), reference.invoiceId());
         AllocationView allocation = allocationForUpdate(actor.organizationId(), allocationId);
+        List<String> replay = jdbc.query("SELECT allocation_id FROM flowora_allocation_reversal WHERE organization_id=? AND request_id=?",
+                (rs, row) -> rs.getString(1), actor.organizationId(), key);
+        if (!replay.isEmpty()) {
+            if (!replay.getFirst().equals(allocationId)) throw conflict("IDEMPOTENCY_KEY_REUSED", Map.of());
+            return allocation;
+        }
         if (!"ACTIVE".equals(allocation.status())) throw conflict("ALLOCATION_ALREADY_REVERSED", Map.of());
+        ledger.requireOpenAccountingPeriod(actor.organizationId(), invoice.accountingDate());
+        if (allocation.realizedExchangeDifference().signum() != 0) {
+            List<String> journals = jdbc.query("SELECT id FROM flowora_journal_entry WHERE organization_id=? AND source_type='REALIZED_EXCHANGE' AND source_id=?",
+                    (rs, row) -> rs.getString(1), actor.organizationId(), allocationId);
+            if (journals.size() != 1) throw conflict("ALLOCATION_FX_JOURNAL_MISSING", Map.of("allocationId", allocationId));
+            ledger.reverse(actor.organizationId(), actor.userId(), journals.getFirst(), invoice.accountingDate(),
+                    body.reason().trim(), "allocation-fx-reverse:" + allocationId);
+        }
         jdbc.update("""
                 INSERT INTO flowora_allocation_reversal(id,organization_id,allocation_id,reason,actor_user_id,request_id)
                 VALUES (?,?,?,?,?,?)
                 """, UUID.randomUUID().toString(), actor.organizationId(), allocationId, body.reason().trim(),
-                actor.userId(), requiredKey(requestId));
+                actor.userId(), key);
         jdbc.update("UPDATE flowora_payment_allocation SET status='REVERSED',reversed_at=CURRENT_TIMESTAMP,version_no=version_no+1 WHERE id=?", allocationId);
         jdbc.update("UPDATE flowora_payment_v2 SET allocated_amount=allocated_amount-?,version_no=version_no+1 WHERE id=?", allocation.amount(), allocation.paymentId());
         jdbc.update("UPDATE flowora_finance_invoice SET allocated_amount=allocated_amount-?,version_no=version_no+1 WHERE id=?", allocation.amount(), allocation.invoiceId());
@@ -341,7 +365,7 @@ public class FinanceDocumentService {
             if (!"PURCHASE_RECEIPT_LINE".equals(upper(source.sourceType())) || source.sourceLineId() == null) continue;
             List<ReceiptBasis> basis = jdbc.query("""
                     SELECT rl.accepted_quantity,rl.unit_cost,pol.unit_price,pol.tax_rate,
-                           COALESCE((SELECT SUM(s.quantity) FROM flowora_finance_invoice_source s
+                           COALESCE((SELECT SUM(s.quantity*(il.quantity-il.credited_quantity)/il.quantity) FROM flowora_finance_invoice_source s
                              JOIN flowora_finance_invoice_line il ON il.id=s.invoice_line_id
                              JOIN flowora_finance_invoice i ON i.id=il.invoice_id
                              WHERE s.organization_id=rl.organization_id AND s.source_type='PURCHASE_RECEIPT_LINE'
@@ -353,7 +377,7 @@ public class FinanceDocumentService {
                     rs.getBigDecimal("invoiced")), organizationId, source.sourceLineId());
             if (basis.isEmpty()) throw notFound("purchaseReceiptLine", source.sourceLineId());
             ReceiptBasis item = basis.getFirst();
-            quantityVariance = quantityVariance.add(source.quantity().subtract(item.accepted().subtract(item.invoiced())));
+            quantityVariance = quantityVariance.add(source.quantity().subtract(item.accepted().subtract(item.invoiced())).max(BigDecimal.ZERO));
             if (item.orderPrice().signum() > 0) {
                 priceVariance = priceVariance.max(line.unitPrice().subtract(item.orderPrice()).abs()
                         .divide(item.orderPrice(), 4, RoundingMode.HALF_UP).multiply(new BigDecimal("100")));
@@ -394,7 +418,7 @@ public class FinanceDocumentService {
             normal.add(PostingLine.credit(control, "Supplier payable", invoice.totalAmount(), invoice.projectId(), invoice.partyType(), invoice.partyId(), null));
             for (InvoiceLineView line : invoice.lines()) {
                 String semantic = line.sources().stream().anyMatch(s -> "PURCHASE_RECEIPT_LINE".equals(s.sourceType())) ? "ACCRUED_PAYABLE" : "EXPENSE";
-                String account = line.accountCode() == null ? ledger.mapping(organizationId, semantic) : line.accountCode();
+                String account = line.accountCode() == null ? supplierSourceAccount(organizationId, line, semantic) : line.accountCode();
                 normal.add(PostingLine.debit(account, line.description(), line.netAmount(), line.projectId(), invoice.partyType(), invoice.partyId(), line.id()));
             }
             if (invoice.taxAmount().signum() > 0) normal.add(PostingLine.debit(tax, "Input tax", invoice.taxAmount(), invoice.projectId(), invoice.partyType(), invoice.partyId(), null));
@@ -406,6 +430,7 @@ public class FinanceDocumentService {
 
     private void applyCredit(String organizationId, InvoiceView credit) {
         InvoiceView original = invoiceForUpdate(organizationId, credit.originalInvoiceId());
+        ledger.requireNoActiveRevaluation(organizationId, original.id());
         BigDecimal remaining = original.totalAmount().subtract(original.creditedAmount());
         if (credit.totalAmount().compareTo(remaining) > 0) throw conflict("CREDIT_EXCEEDS_REMAINING", Map.of("remaining", remaining));
         jdbc.update("""
@@ -425,41 +450,108 @@ public class FinanceDocumentService {
         }
     }
 
+    private String supplierSourceAccount(String organizationId, InvoiceLineView line, String semantic) {
+        Set<String> accounts = new java.util.HashSet<>();
+        for (InvoiceSourceView source : line.sources()) {
+            if (!"PURCHASE_RECEIPT_LINE".equals(source.sourceType())) continue;
+            // Compatibility receipts may have accrued directly to the payable account.
+            // Clear their actual posted accrual instead of creating a second liability.
+            accounts.addAll(jdbc.query("""
+                    SELECT DISTINCT l.account_code FROM flowora_journal_line l
+                    JOIN flowora_journal_entry e ON e.id=l.journal_entry_id
+                    WHERE e.organization_id=? AND l.organization_id=e.organization_id
+                      AND e.source_type='PURCHASE_RECEIPT' AND e.source_id=? AND e.status='POSTED' AND l.credit>0
+                    """, (rs, row) -> rs.getString(1), organizationId, source.sourceId()));
+        }
+        if (accounts.size() > 1) throw conflict("INVOICE_SOURCE_ACCOUNTS_REQUIRE_SEPARATE_LINES", Map.of("lineId", line.id()));
+        return accounts.isEmpty() ? ledger.mapping(organizationId, semantic) : accounts.iterator().next();
+    }
+
+    private void requireSourceCapacity(String organizationId, InvoiceView invoice) {
+        if (invoice.documentType().endsWith("CREDIT")) return;
+        Map<String, BigDecimal> quantities = new java.util.TreeMap<>();
+        Map<String, InvoiceSourceView> references = new java.util.HashMap<>();
+        for (InvoiceLineView line : invoice.lines()) {
+            List<InvoiceSourceView> stock = line.sources().stream().filter(source ->
+                    Set.of("PURCHASE_RECEIPT_LINE", "SALES_DELIVERY_LINE").contains(source.sourceType())).toList();
+            if (!stock.isEmpty() && sum(stock.stream().map(InvoiceSourceView::quantity).toList()).compareTo(line.quantity()) != 0)
+                throw conflict("INVOICE_SOURCE_QUANTITY_MISMATCH", Map.of("lineId", line.id()));
+            for (InvoiceSourceView source : stock) {
+                String key = source.sourceType() + ":" + source.sourceLineId();
+                quantities.merge(key, source.quantity(), BigDecimal::add); references.put(key, source);
+            }
+        }
+        for (var entry : quantities.entrySet()) {
+            InvoiceSourceView source = references.get(entry.getKey());
+            boolean purchase = source.sourceType().equals("PURCHASE_RECEIPT_LINE");
+            String table = purchase ? "flowora_purchase_receipt_line" : "flowora_sales_delivery_line";
+            String quantity = purchase ? "accepted_quantity" : "quantity";
+            List<BigDecimal> capacity = jdbc.query("SELECT " + quantity + "-returned_quantity FROM " + table + " WHERE organization_id=? AND id=? FOR UPDATE",
+                    (rs, row) -> rs.getBigDecimal(1), organizationId, source.sourceLineId());
+            if (capacity.isEmpty()) throw conflict("INVALID_INVOICE_SOURCE", Map.of());
+            BigDecimal consumed = jdbc.queryForObject("""
+                    SELECT COALESCE(SUM(s.quantity*(il.quantity-il.credited_quantity)/il.quantity),0)
+                    FROM flowora_finance_invoice_source s JOIN flowora_finance_invoice_line il ON il.id=s.invoice_line_id
+                    JOIN flowora_finance_invoice i ON i.id=il.invoice_id
+                    WHERE s.organization_id=? AND s.source_type=? AND s.source_line_id=?
+                      AND i.status='POSTED' AND i.document_type=?
+                    FOR UPDATE
+                    """, BigDecimal.class, organizationId, source.sourceType(), source.sourceLineId(), invoice.documentType());
+            if (consumed.add(entry.getValue()).compareTo(capacity.getFirst()) > 0)
+                throw conflict("INVOICE_SOURCE_QUANTITY_EXCEEDED", Map.of("sourceLineId", source.sourceLineId()));
+        }
+    }
+
     private void postExchangeDifference(FloworaPrincipal actor, InvoiceView invoice, String allocationId, BigDecimal difference) {
         String control = ledger.mapping(actor.organizationId(), "CUSTOMER".equals(invoice.partyType()) ? "RECEIVABLE" : "PAYABLE");
-        String fx = ledger.mapping(actor.organizationId(), difference.signum() > 0 ? "FX_GAIN" : "FX_LOSS");
-        BigDecimal amount = difference.abs().divide(invoice.exchangeRate(), 4, RoundingMode.HALF_UP);
-        List<PostingLine> lines = difference.signum() > 0
+        boolean gain = "CUSTOMER".equals(invoice.partyType()) ? difference.signum() > 0 : difference.signum() < 0;
+        String fx = ledger.mapping(actor.organizationId(), gain ? "FX_GAIN" : "FX_LOSS");
+        // Realized FX is already a base-currency difference. Record it directly to
+        // avoid divide/multiply rounding changing the realized amount.
+        BigDecimal amount = difference.abs();
+        boolean debitControl = gain;
+        List<PostingLine> lines = debitControl
                 ? List.of(PostingLine.debit(control, "Realized exchange", amount, invoice.projectId(), invoice.partyType(), invoice.partyId(), null),
                 PostingLine.credit(fx, "Realized exchange gain", amount, invoice.projectId(), invoice.partyType(), invoice.partyId(), null))
                 : List.of(PostingLine.debit(fx, "Realized exchange loss", amount, invoice.projectId(), invoice.partyType(), invoice.partyId(), null),
                 PostingLine.credit(control, "Realized exchange", amount, invoice.projectId(), invoice.partyType(), invoice.partyId(), null));
         ledger.post(actor.organizationId(), actor.userId(), "REALIZED_EXCHANGE", allocationId, null,
-                invoice.accountingDate(), invoice.accountingDate(), invoice.exchangeRateDate(), invoice.currencyCode(),
-                invoice.baseCurrencyCode(), invoice.exchangeRate(), "Realized exchange difference", "allocation-fx:" + allocationId, lines);
+                invoice.accountingDate(), invoice.accountingDate(), invoice.exchangeRateDate(), invoice.baseCurrencyCode(),
+                invoice.baseCurrencyCode(), BigDecimal.ONE, "Realized exchange difference", "allocation-fx:" + allocationId, lines);
     }
 
     private void validateSource(String organizationId, String invoiceType, String partyId, Original original,
                                 InvoiceSourceCreate source) {
         String type = upper(source.sourceType());
+        boolean sales = invoiceType.equals("SALES_INVOICE");
+        boolean supplier = invoiceType.equals("SUPPLIER_INVOICE");
+        if ((type.equals("SALES_DELIVERY_LINE") || type.equals("PROJECT_BILLING_BASIS")) && !sales
+                || type.equals("PURCHASE_RECEIPT_LINE") && !supplier
+                || type.equals("ORIGINAL_INVOICE_LINE") && original == null) {
+            throw conflict("INVALID_INVOICE_SOURCE", Map.of("sourceType", type));
+        }
         int count;
         count = switch (type) {
             case "SALES_DELIVERY_LINE" -> jdbc.queryForObject("""
                     SELECT COUNT(*) FROM flowora_sales_delivery_line l JOIN flowora_sales_delivery d ON d.id=l.delivery_id
                     JOIN flowora_sales_order o ON o.id=d.sales_order_id
-                    WHERE l.organization_id=? AND l.id=? AND o.customer_id=?
-                    """, Integer.class, organizationId, source.sourceLineId(), partyId);
+                    WHERE l.organization_id=? AND d.organization_id=l.organization_id AND o.organization_id=l.organization_id
+                      AND l.id=? AND d.id=? AND o.customer_id=? AND d.status='POSTED'
+                    """, Integer.class, organizationId, source.sourceLineId(), source.sourceId(), partyId);
             case "PURCHASE_RECEIPT_LINE" -> jdbc.queryForObject("""
                     SELECT COUNT(*) FROM flowora_purchase_receipt_line l JOIN flowora_purchase_receipt r ON r.id=l.purchase_receipt_id
-                    WHERE l.organization_id=? AND l.id=? AND r.supplier_id=?
-                    """, Integer.class, organizationId, source.sourceLineId(), partyId);
+                    JOIN flowora_purchase_order o ON o.id=r.purchase_order_id
+                    WHERE l.organization_id=? AND r.organization_id=l.organization_id AND o.organization_id=l.organization_id
+                      AND l.id=? AND r.id=? AND o.supplier_id=? AND r.status='POSTED'
+                    """, Integer.class, organizationId, source.sourceLineId(), source.sourceId(), partyId);
             case "PROJECT_BILLING_BASIS" -> jdbc.queryForObject("""
                     SELECT COUNT(*) FROM flowora_project_billing_basis b JOIN flowora_project p ON p.id=b.project_id
-                    WHERE b.organization_id=? AND b.id=? AND p.customer_id=? AND b.status IN ('AVAILABLE','PARTIAL')
-                    """, Integer.class, organizationId, source.sourceLineId(), partyId);
+                    WHERE b.organization_id=? AND p.organization_id=b.organization_id AND b.id=? AND p.id=?
+                      AND p.customer_id=? AND b.status IN ('AVAILABLE','PARTIAL')
+                    """, Integer.class, organizationId, source.sourceLineId(), source.sourceId(), partyId);
             case "ORIGINAL_INVOICE_LINE" -> original == null ? 0 : jdbc.queryForObject("""
-                    SELECT COUNT(*) FROM flowora_finance_invoice_line WHERE organization_id=? AND id=? AND invoice_id=?
-                    """, Integer.class, organizationId, source.sourceLineId(), original.id());
+                    SELECT COUNT(*) FROM flowora_finance_invoice_line WHERE organization_id=? AND id=? AND invoice_id=? AND invoice_id=?
+                    """, Integer.class, organizationId, source.sourceLineId(), original.id(), source.sourceId());
             default -> 0;
         };
         if (count == 0) throw conflict("INVALID_INVOICE_SOURCE", Map.of("sourceType", type, "sourceLineId", String.valueOf(source.sourceLineId())));

@@ -34,8 +34,8 @@ export interface PaymentInput {
   accountingDate: string; exchangeRateDate: string; currencyCode: string; exchangeRate: number; amount: number; reference?: string
 }
 
-export async function getFinanceDashboard() {
-  const response = await apiClient.get<ApiEnvelope<FinanceDashboard>>('/v2/finance/dashboard')
+export async function getFinanceDashboard(from: string, to: string) {
+  const response = await apiClient.get<ApiEnvelope<FinanceDashboard>>('/v2/finance/dashboard', { params: { from, to } })
   return response.data.data
 }
 

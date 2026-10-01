@@ -13,7 +13,7 @@ interface ApiEnvelope<T> {
   requestId: string
 }
 
-export type JournalEntryStatus = 'POSTED' | 'VOID'
+export type JournalEntryStatus = 'POSTED' | 'REVERSED' | 'VOID'
 export type PayableStatus = 'OPEN' | 'PARTIALLY_SETTLED' | 'SETTLED' | 'CANCELLED'
 export type PaymentMethod = 'BANK' | 'CASH' | 'OTHER'
 

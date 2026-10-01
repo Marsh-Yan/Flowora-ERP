@@ -190,7 +190,8 @@ public class InventoryService {
         }
         if (complete) order.markReceived(); else order.markPartiallyReceived();
         orderRepository.save(order);
-        accountingService.postPurchaseReceipt(actor.organizationId(), actor.userId(), receipt.id(), order.supplierId(), body.quantity().multiply(body.unitCost()), baseCurrency(actor.organizationId()), LocalDate.now().plusDays(30));
+        LocalDate accountingDate = LocalDate.now();
+        accountingService.postPurchaseReceipt(actor.organizationId(), actor.userId(), receipt.id(), order.supplierId(), body.quantity().multiply(body.unitCost()), baseCurrency(actor.organizationId()), accountingDate, accountingDate.plusDays(30));
         return new PurchaseReceiptResponse(receipt.id(), receipt.number(), receipt.purchaseOrderId(), receipt.warehouseId(), receiptLine.itemId(), receiptLine.quantity(), receiptLine.unitCost(), receipt.receivedAt());
     }
 
@@ -333,7 +334,7 @@ public class InventoryService {
         return organizationRepository.findById(organizationId).map(OrganizationEntity::approvalThreshold).orElse(DEFAULT_APPROVAL_THRESHOLD);
     }
 
-    private String baseCurrency(String organizationId) {
+    public String baseCurrency(String organizationId) {
         return organizationRepository.findById(organizationId).map(OrganizationEntity::baseCurrencyCode).orElse("USD");
     }
 

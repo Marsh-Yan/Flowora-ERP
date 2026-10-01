@@ -18,6 +18,7 @@ public final class FinancePostingPolicy {
         for (PostingLine line : lines) {
             BigDecimal dr = amount(line.debit());
             BigDecimal cr = amount(line.credit());
+            if (dr.signum() < 0 || cr.signum() < 0) throw invalid("JOURNAL_NEGATIVE_AMOUNT");
             if ((dr.signum() > 0) == (cr.signum() > 0)) throw invalid("JOURNAL_LINE_REQUIRES_ONE_SIDE");
             debit = debit.add(dr);
             credit = credit.add(cr);
@@ -25,15 +26,22 @@ public final class FinancePostingPolicy {
         if (debit.signum() <= 0 || debit.compareTo(credit) != 0) throw invalid("JOURNAL_NOT_BALANCED");
     }
 
+    public static void requireBaseBalanced(List<PostingLine> lines, BigDecimal exchangeRate) {
+        BigDecimal debit = lines.stream().map(line -> base(amount(line.debit()), exchangeRate)).reduce(BigDecimal.ZERO, BigDecimal::add);
+        BigDecimal credit = lines.stream().map(line -> base(amount(line.credit()), exchangeRate)).reduce(BigDecimal.ZERO, BigDecimal::add);
+        if (debit.compareTo(credit) != 0) throw invalid("JOURNAL_BASE_NOT_BALANCED");
+    }
+
     public static BigDecimal base(BigDecimal transactionAmount, BigDecimal exchangeRate) {
-        if (transactionAmount == null || exchangeRate == null || exchangeRate.signum() <= 0) {
+        if (transactionAmount == null || exchangeRate == null || exchangeRate.signum() <= 0 || exchangeRate.stripTrailingZeros().scale() > 8) {
             throw invalid("INVALID_EXCHANGE_RATE");
         }
         return transactionAmount.multiply(exchangeRate).setScale(4, RoundingMode.HALF_UP);
     }
 
     private static BigDecimal amount(BigDecimal value) {
-        return value == null ? BigDecimal.ZERO : value.setScale(4, RoundingMode.HALF_UP);
+        if (value != null && value.stripTrailingZeros().scale() > 4) throw invalid("JOURNAL_AMOUNT_PRECISION");
+        return value == null ? BigDecimal.ZERO : value.setScale(4);
     }
 
     private static PlatformApiException invalid(String code) {

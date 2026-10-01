@@ -9,12 +9,18 @@ import org.springframework.security.access.AccessDeniedException;
 import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
+import org.springframework.web.servlet.mvc.method.annotation.ResponseEntityExceptionHandler;
+import org.springframework.web.context.request.WebRequest;
+import org.springframework.web.context.request.ServletWebRequest;
+import org.springframework.http.HttpHeaders;
+import org.springframework.http.HttpStatusCode;
+import jakarta.validation.ConstraintViolationException;
 
 import java.util.HashMap;
 import java.util.Map;
 
 @RestControllerAdvice
-public class GlobalExceptionHandler {
+public class GlobalExceptionHandler extends ResponseEntityExceptionHandler {
     private static final Logger log = LoggerFactory.getLogger(GlobalExceptionHandler.class);
 
     @ExceptionHandler(PlatformApiException.class)
@@ -69,7 +75,6 @@ public class GlobalExceptionHandler {
         ));
     }
 
-    @ExceptionHandler(MethodArgumentNotValidException.class)
     public ResponseEntity<ApiError> handleValidation(
             MethodArgumentNotValidException exception,
             HttpServletRequest request
@@ -87,6 +92,25 @@ public class GlobalExceptionHandler {
                         .toList(),
                 RequestIdFilter.get(request)
         ));
+    }
+
+    @Override
+    protected ResponseEntity<Object> handleExceptionInternal(Exception exception, Object body,
+            HttpHeaders headers, HttpStatusCode status, WebRequest webRequest) {
+        HttpServletRequest request = ((ServletWebRequest) webRequest).getRequest();
+        if (exception instanceof MethodArgumentNotValidException validation) {
+            var response = handleValidation(validation, request);
+            return new ResponseEntity<>(response.getBody(), headers, response.getStatusCode());
+        }
+        String code = status.value() == 404 ? "RESOURCE_NOT_FOUND" : status.is4xxClientError() ? "BAD_REQUEST" : "INTERNAL_ERROR";
+        String messageKey = status.value() == 404 ? "errors.resourceNotFound" : status.is4xxClientError() ? "errors.badRequest" : "errors.internal";
+        if (status.is5xxServerError()) log.error("Framework API exception, requestId={}", RequestIdFilter.get(request), exception);
+        return new ResponseEntity<>(new ApiError(code, messageKey, Map.of(), RequestIdFilter.get(request)), headers, status);
+    }
+
+    @ExceptionHandler(ConstraintViolationException.class)
+    public ResponseEntity<ApiError> handleConstraintViolation(ConstraintViolationException exception, HttpServletRequest request) {
+        return ResponseEntity.badRequest().body(new ApiError("VALIDATION_FAILED", "errors.validation", Map.of(), RequestIdFilter.get(request)));
     }
 
     @ExceptionHandler(IllegalArgumentException.class)

@@ -27,6 +27,12 @@ public class JournalLineEntity extends AccountingEntity {
     @Column(precision = 19, scale = 4, nullable = false)
     private BigDecimal credit;
 
+    @Column(name = "base_debit", precision = 19, scale = 4, nullable = false)
+    private BigDecimal baseDebit;
+
+    @Column(name = "base_credit", precision = 19, scale = 4, nullable = false)
+    private BigDecimal baseCredit;
+
     @Column(name = "currency_code", length = 3, nullable = false)
     private String currencyCode;
 
@@ -41,6 +47,8 @@ public class JournalLineEntity extends AccountingEntity {
         this.description = description;
         this.debit = debit;
         this.credit = credit;
+        this.baseDebit = debit;
+        this.baseCredit = credit;
         this.currencyCode = currencyCode;
     }
 
@@ -50,5 +58,7 @@ public class JournalLineEntity extends AccountingEntity {
     public String description() { return description; }
     public BigDecimal debit() { return debit; }
     public BigDecimal credit() { return credit; }
+    public BigDecimal baseDebit() { return baseDebit; }
+    public BigDecimal baseCredit() { return baseCredit; }
     public String currencyCode() { return currencyCode; }
 }

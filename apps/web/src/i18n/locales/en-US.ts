@@ -451,6 +451,7 @@ export default {
     journalCreated: 'Journal posted.',
     paymentCreated: 'Supplier payment posted.',
     periodClosed: 'Accounting period closed.',
+    period: 'Accounting period',
     loadFailed: 'Unable to load finance data.',
     saveFailed: 'Unable to post the finance transaction.',
     emptyJournals: 'No journals in the selected period.',
@@ -458,6 +459,7 @@ export default {
     emptyPayables: 'No payables yet.',
     status: {
       POSTED: 'Posted',
+      REVERSED: 'Reversed',
       VOID: 'Void',
       OPEN: 'Open',
       PARTIALLY_SETTLED: 'Partially settled',
@@ -491,6 +493,9 @@ export default {
       quantity: 'Quantity', unitPrice: 'Unit price', taxRate: 'Tax rate (%)', reference: 'Reference', counterparty: 'Counterparty',
       post: 'Post', posted: 'Document posted.', invoiceCreated: 'Invoice draft created.', paymentCreated: 'Payment draft created.',
       loadFailed: 'Unable to load the M4 finance workspace.',
+      retry: 'Reload', rangeNote: 'The range applies to income, expenses and lists; balances and pending counts show current status.',
+      dashboardFailed: 'Unable to load finance metrics. Reload to retry.', partiesFailed: 'Unable to load customers and suppliers. Reload to retry.',
+      invoicesFailed: 'Unable to load invoices. Reload to retry.', paymentsFailed: 'Unable to load payments. Reload to retry.', statementsFailed: 'Unable to load bank lines. Reload to retry.',
     },
   },
   projects: {

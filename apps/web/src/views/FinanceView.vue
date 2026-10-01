@@ -44,21 +44,28 @@ const endDate = ref(today())
 const manualForm = reactive({ entryDate: today(), memo: '', currencyCode: 'USD', debitAccountCode: '1000', creditAccountCode: '1100', amount: 0 })
 const paymentForm = reactive({ amount: 0, method: 'BANK' as PaymentMethod, paymentDate: today(), reference: '' })
 
-const outstandingTotal = computed(() => payables.value.reduce((sum, item) => sum + Number(item.outstandingAmount), 0))
-const postedTotal = computed(() => journals.value.filter((item) => item.status === 'POSTED').reduce((sum, item) => sum + Number(item.totalDebit), 0))
-const profitTotal = computed(() => Number(incomeStatement.value?.total ?? 0))
+const failedSections = ref<string[]>([])
+const payablesLoaded = ref(false)
+let loadVersion = 0
+const outstandingTotal = computed(() => payablesLoaded.value ? payables.value.reduce((sum, item) => sum + Number(item.outstandingAmount), 0) : undefined)
+const postedTotal = computed(() => trialBalance.value?.totalDebit)
+const profitTotal = computed(() => incomeStatement.value?.total)
+
+function localDate(value: Date) {
+  return `${value.getFullYear()}-${String(value.getMonth() + 1).padStart(2, '0')}-${String(value.getDate()).padStart(2, '0')}`
+}
 
 function today() {
-  return new Date().toISOString().slice(0, 10)
+  return localDate(new Date())
 }
 
 function firstDayOfMonth() {
   const date = new Date()
-  return new Date(date.getFullYear(), date.getMonth(), 1).toISOString().slice(0, 10)
+  return localDate(new Date(date.getFullYear(), date.getMonth(), 1))
 }
 
 function formatAmount(value: number | undefined) {
-  return Number(value ?? 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })
+  return value === undefined ? '—' : Number(value).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })
 }
 
 function statusType(status: string) {
@@ -82,31 +89,27 @@ function bucketLabel(bucket: string) {
 }
 
 async function load() {
+  if (!startDate.value || !endDate.value || startDate.value > endDate.value) return
+  const version = ++loadVersion
+  const from = startDate.value, to = endDate.value
   loading.value = true
-  try {
-    const [journalPage, periodPage, trial, income, balance, payablePage, receivableAgingRows, payableAgingRows] = await Promise.all([
-      listJournalEntries(startDate.value, endDate.value),
-      listAccountingPeriods(),
-      getTrialBalance(startDate.value, endDate.value),
-      getIncomeStatement(startDate.value, endDate.value),
-      getBalanceSheet(startDate.value, endDate.value),
-      listPayables(),
-      getReceivableAging(endDate.value),
-      getPayableAging(endDate.value),
-    ])
-    journals.value = journalPage.content
-    periods.value = periodPage.content
-    trialBalance.value = trial
-    incomeStatement.value = income
-    balanceSheet.value = balance
-    payables.value = payablePage.content
-    receivableAging.value = receivableAgingRows
-    payableAging.value = payableAgingRows
-  } catch {
-    ElMessage.error(t('finance.loadFailed'))
-  } finally {
-    loading.value = false
+  failedSections.value = []; payablesLoaded.value = false
+  journals.value = []; periods.value = []; trialBalance.value = null; incomeStatement.value = null; balanceSheet.value = null
+  payables.value = []; receivableAging.value = []; payableAging.value = []
+  async function section(key: string, work: () => Promise<void>) {
+    try { await work() } catch { if (version === loadVersion) failedSections.value.push(key) }
   }
+  await Promise.all([
+    section('journals', async () => { const value = await listJournalEntries(from, to); if (version === loadVersion) journals.value = value.content }),
+    section('periods', async () => { const value = await listAccountingPeriods(); if (version === loadVersion) periods.value = value.content }),
+    section('trialBalance', async () => { const value = await getTrialBalance(from, to); if (version === loadVersion) trialBalance.value = value }),
+    section('incomeStatement', async () => { const value = await getIncomeStatement(from, to); if (version === loadVersion) incomeStatement.value = value }),
+    section('balanceSheet', async () => { const value = await getBalanceSheet(from, to); if (version === loadVersion) balanceSheet.value = value }),
+    section('payables', async () => { const value = await listPayables(); if (version === loadVersion) { payables.value = value.content; payablesLoaded.value = true } }),
+    section('receivableAging', async () => { const value = await getReceivableAging(to); if (version === loadVersion) receivableAging.value = value }),
+    section('payableAging', async () => { const value = await getPayableAging(to); if (version === loadVersion) payableAging.value = value }),
+  ])
+  if (version === loadVersion) loading.value = false
 }
 
 function openManualJournal() {
@@ -177,14 +180,15 @@ onMounted(load)
         <p>{{ t('finance.subtitle') }}</p>
       </div>
       <div class="operations-actions">
-        <el-date-picker v-model="startDate" type="date" value-format="YYYY-MM-DD" :placeholder="t('finance.from')" />
-        <el-date-picker v-model="endDate" type="date" value-format="YYYY-MM-DD" :placeholder="t('finance.to')" />
+        <el-date-picker v-model="startDate" type="date" value-format="YYYY-MM-DD" :clearable="false" :placeholder="t('finance.from')" @change="load" />
+        <el-date-picker v-model="endDate" type="date" value-format="YYYY-MM-DD" :clearable="false" :placeholder="t('finance.to')" @change="load" />
         <el-button round plain :loading="loading" @click="load"><el-icon><Refresh /></el-icon>{{ t('finance.refresh') }}</el-button>
         <el-button type="primary" round @click="openManualJournal"><el-icon><Plus /></el-icon>{{ t('finance.manualJournal') }}</el-button>
       </div>
     </div>
 
     <FinanceClosurePanel />
+    <el-alert v-for="section in failedSections" :key="section" :title="`${t(`finance.${section}`)}：${t('finance.loadFailed')}`" type="error" :closable="false" show-icon />
 
     <div class="inventory-summary-grid">
       <el-card shadow="never"><span class="eyebrow">{{ t('finance.postedDebit') }}</span><strong>{{ formatAmount(postedTotal) }}</strong><small>{{ t('finance.postedDebitHint') }}</small></el-card>
