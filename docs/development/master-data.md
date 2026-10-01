@@ -1,5 +1,7 @@
 # 阶段 02：主数据与系统设置
 
+> 历史文档（1.0 阶段 02）。下文接口和权限描述不作为 2.0 实施依据。当前主数据使用 `/api/v2/masters`，组织配置使用 v2 平台接口；v1 业务写返回 426。参见 [OpenAPI v2](../api/openapi-v2.yaml)、[安全契约](security.md) 和 [验收覆盖及待办](audit-verification.md)。
+
 阶段 02 提供业务单据可以引用的主数据基础能力，所有记录都按 `organization_id` 隔离。
 
 ## 接口分组

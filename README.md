@@ -44,7 +44,7 @@ Flowora ERP 采用前后端分离的模块化单体架构，默认中文并支�
 | 工作流与协作 | 模板和版本、条件路由、并行审批、转交/委托、SLA、评论、附件、@ 提及与通知 outbox |
 | 项目经营 | 项目、任务、里程碑、工时、费用、预算、开票与项目收入/成本/毛利分析 |
 | 分析与导出 | 经营看板、跨组织聚合、保存视图、权限治理导出、异步任务与运行诊断 |
-| 兼容与升级 | v1 读取兼容、v2 统一写入、Flyway V1–V15、升级预检、控制总数、备份恢复 |
+| 兼容与升级 | v1 读取兼容、v2 统一写入、Flyway V1–V18、升级预检、控制总数、备份恢复 |
 
 ## 系统架构
 
@@ -170,7 +170,7 @@ Web 默认发布到 `http://localhost:8080`。`.env` 不得提交；正式上线
 
 ## 数据库升级
 
-数据库迁移覆盖 Flyway `V1` 至 `V15`。从 1.0 升级必须在维护窗口内按“预检 → 备份 → 迁移 → 控制总数核对 → 业务冒烟”执行：
+数据库迁移覆盖 Flyway `V1` 至 `V18`。V17/V18 的库存切换和数量核对见[库存切换规则](docs/development/inventory-cutover.md)。从 1.0 升级必须在维护窗口内按“预检 → 备份 → 迁移 → 控制总数核对 → 业务冒烟”执行：
 
 ```powershell
 tools\upgrade\flowora-upgrade.ps1 -Stage Prepare
@@ -184,10 +184,10 @@ tools\upgrade\flowora-upgrade.ps1 -Stage Migrate -ConfirmMigration
 ```powershell
 pnpm verify:web       # 规范、类型、单测和生产构建
 pnpm test:api         # API 单元与集成测试
-pnpm verify:release   # 完整发布门禁
+pnpm verify:release   # 本地质量检查；完整发布门禁见验证文档
 ```
 
-对 `main` 的推送和 Pull Request 会触发 GitHub Actions，分别执行 Web 检查及 API 测试打包。发布前还需完成角色权限、业务闭环、升级迁移和生产拓扑的人工验收。
+对 `main` 的推送和 Pull Request 会触发 GitHub Actions，执行 Web、API、隔离 MySQL/Redis 事务与 HTTP、目标 Compose 和 Windows Wrapper 检查。入口见[发布验证](docs/development/release-verification.md)，实际覆盖与剩余发布门禁见[验收记录](docs/development/audit-verification.md)。CI 通过仍需补齐浏览器全业务分支、升级恢复及部署验收。
 
 ## 安全与运维基线
 

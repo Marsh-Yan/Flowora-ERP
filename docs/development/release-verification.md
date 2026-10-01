@@ -1,4 +1,33 @@
-# Flowora ERP 1.0 发布验证
+# Flowora ERP 2.0 发布验证
+
+## 当前可重复入口
+
+在仓库根目录执行 `pnpm verify:web` 与 `./mvnw -B -pl services/api -am test package`（Windows 使用 `mvnw.cmd`）。`pnpm verify:release` 合并这些本地检查；它不等同于全部发布验收。
+
+CI 必须通过五个 job：Web checks、API checks、Isolated MySQL HTTP regression、Production Compose smoke、Windows Maven Wrapper paths。普通 API job 不启用真实 MySQL 专项测试；隔离数据库 job 必须分别运行 `TradeInventoryMySqlTest`、`FinanceMySqlTest`、`WorkflowOperationsMySqlTest` 和三个 HTTP 脚本。
+
+| 层级 | 入口与断言 | 环境 |
+| --- | --- | --- |
+| Web | 类型、lint、组件单测、生产构建 | Node 24 / pnpm 11.9.0 |
+| API | 默认 standalone 启动、服务单测、迁移防篡改、打包 | Java 25 / Maven Wrapper |
+| 数据库 | 库存历史切换及重复 seed、履约竞争、财务来源锁及 FX、outbox 并发和恢复 | CI 临时 MySQL 8.0 / Redis 7 |
+| HTTP | [库存](../../tools/verification/compat-stock-smoke.ps1)、[财务](../../tools/verification/finance-smoke.ps1)、[身份安全](../../tools/verification/security-smoke.ps1) | 固定 loopback API 18080 / `audit_flowora` |
+| 部署 | 空库 V1–V18、production readiness、无 demo 用户、Redis 密码及重启、Nginx 头与缓存、告警激活及恢复 | Compose MySQL 8.4 / Redis 7.4 / Nginx 1.29 |
+| Windows | 新缓存安装和 Junction 路径下 Wrapper 执行 | CI Windows |
+
+本地业务测试仅可连接明确授权的 `jdbc:mysql://127.0.0.1:13306/audit_flowora?serverTimezone=UTC` 和 Redis 16379；不得连接默认业务库。专项测试设置 `FLOWORA_R2_MYSQL_URL`（密码用 `FLOWORA_R2_MYSQL_PASSWORD`）；HTTP API 使用同一 `DB_URL`。合成账号密码分别通过 `FLOWORA_R2_HTTP_PASSWORD`、`FLOWORA_R3_HTTP_PASSWORD`、`FLOWORA_R5_HTTP_PASSWORD` 注入，脚本支持 `-Username`。
+
+安全脚本创建本次唯一的角色、用户、子组织、草稿订单和附件；退出时禁用本次用户并注销会话，保留合成业务记录以供检查。不要把 `FLOWORA_R2_EMPTY_CI_DATABASE=true` 设置到已有数据库：该开关仅用于 CI 临时空库的历史样本构造。
+
+## 证据和发布门禁
+
+记录 PR/head SHA、CI run URL、日期、profile、数据库/Redis 版本、用例 ID、实际通过/失败/未执行和限制。HTTP 端到端不能替代浏览器端到端；unit 的通过不能替代真实事务和迁移演练。
+
+目前整改覆盖和未完成的发布门禁见 [audit-verification.md](audit-verification.md)。历史 V14→V15 演练不能作为最新 V18 的备份恢复证据；完整角色矩阵、浏览器全业务分支、备份恢复、依赖与镜像扫描、TLS/容量及 UAT 必须分别记录完成状态。
+
+## 历史记录：1.0 发布验证
+
+> 下文为原 1.0 验收记录。旧产物名、CI 范围和数据库认证描述已过期，不作为 2.0 操作指引。
 
 本文件定义 1.0.0 发布前的可重复验证入口。所有命令都应在仓库根目录执行；依赖缓存可以放在项目目录的 `.cache/`，避免把项目依赖写入系统盘。
 

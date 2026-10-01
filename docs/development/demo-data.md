@@ -1,5 +1,15 @@
 # Demo data and quality hardening
 
+## Current 2.0 contract
+
+Database-backed demo authentication uses persisted encoded accounts. `standalone` is an in-memory preview and does not validate MySQL/Redis or MFA. Production must not enable demo seed/reset. The artifact is `services/api/target/flowora-api-2.0.0-SNAPSHOT.jar`; explicitly configure `DB_URL`, database credentials, Redis and `FLOWORA_MFA_ENCRYPTION_KEY` before starting a disposable `demo` instance.
+
+Current seed initializes canonical v2 stock and opening movements; repeated initialization is covered by the isolated MySQL CI job. See [inventory cutover](inventory-cutover.md), [demo accounts](demo-accounts.md) and [verification](release-verification.md). v1 business writes return 426; v2/compat actions preserve their own idempotency contracts. Do not apply the old blanket “reusing a key always returns 409” statement to v2.
+
+## Historical record: 1.0
+
+> The commands, in-memory database-profile authentication statement, v1 reset endpoints and idempotency description below are historical. Do not copy them into a 2.0 deployment or current test plan.
+
 ## Demo profile
 
 The default `standalone` profile is intentionally database-free and does not expose demo reset APIs. Use the `demo` profile with MySQL and Redis:
