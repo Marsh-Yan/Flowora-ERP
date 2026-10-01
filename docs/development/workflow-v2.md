@@ -96,6 +96,8 @@ Purchase requests and sales quotes are the first supported integration resource 
 
 ## Verification
 
+See [workspace and outbox operations](workspace-operations.md) for current task-count semantics, dispatch transactions, dead-letter metrics and mandatory regression checks.
+
 - `mvn -pl services/api -am test`
 - `npm --prefix apps/web run typecheck`
 - `npm --prefix apps/web run build`

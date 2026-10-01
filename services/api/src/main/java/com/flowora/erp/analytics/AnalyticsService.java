@@ -38,10 +38,7 @@ public class AnalyticsService {
     public WorkspaceSnapshot workspace(FloworaPrincipal actor) {
         String org = actor.organizationId();
         List<WorkspaceCard> cards = new ArrayList<>();
-        cards.add(card("MY_APPROVALS", decimal("""
-                SELECT COUNT(*) FROM flowora_workflow_task
-                WHERE organization_id=? AND assignee_user_id=? AND status IN ('OPEN','TRANSFERRED')
-                """, org, actor.userId()), null, "/workflow", "workflow:view", "INFO", actor));
+        cards.add(card("MY_APPROVALS", approvalCount(actor), null, "/workflow", "workflow:view", "INFO", actor));
         cards.add(card("OPEN_SALES", scopedCount("flowora_sales_order", "sales_user_id", actor,
                 "status IN ('DRAFT','CONFIRMED','PARTIALLY_FULFILLED')"), null,
                 "/sales", "sales:view", "INFO", actor));
@@ -64,13 +61,20 @@ public class AnalyticsService {
         cards.add(card("AT_RISK_PROJECTS", scopedCount("flowora_project", "manager_user_id", actor,
                 "status='AT_RISK'"), null, "/projects", "project:view", "DANGER", actor));
         List<String> risks = new ArrayList<>();
-        if (decimal("SELECT COUNT(*) FROM flowora_outbox_event WHERE organization_id=? AND status='FAILED'", org).signum() > 0) {
+        if (actor.permissions().contains("workflow:admin") && decimal("SELECT COUNT(*) FROM flowora_outbox_event WHERE organization_id=? AND status='DEAD'", org).signum() > 0) {
             risks.add("OUTBOX_FAILURES");
         }
-        if (decimal("SELECT COUNT(*) FROM flowora_bank_statement_line WHERE organization_id=? AND reconciliation_status='UNMATCHED'", org).signum() > 0) {
+        if (actor.permissions().contains("finance:view") && decimal("SELECT COUNT(*) FROM flowora_bank_statement_line WHERE organization_id=? AND reconciliation_status='UNMATCHED'", org).signum() > 0) {
             risks.add("UNMATCHED_BANK_LINES");
         }
         return new WorkspaceSnapshot(org, actor.roles(), Instant.now(), cards.stream().filter(c -> c != null).toList(), risks);
+    }
+
+    private BigDecimal approvalCount(FloworaPrincipal actor) {
+        if (!actor.permissions().contains("workflow:view")) return BigDecimal.ZERO;
+        BigDecimal nativeCount = decimal("SELECT COUNT(*) FROM flowora_workflow_approval_task WHERE organization_id=? AND assignee_user_id=? AND status='OPEN'", actor.organizationId(), actor.userId());
+        // The workspace links to the v2 MINE inbox. Legacy tasks remain on the compatibility API.
+        return nativeCount;
     }
 
     private WorkspaceCard card(String code, BigDecimal value, String currency, String route,

@@ -10,7 +10,7 @@ groups:
         expr: flowora_outbox_failed > 0
         for: 5m
         labels: { severity: warning }
-        annotations: { summary: "Flowora outbox contains failed events" }
+        annotations: { summary: "Flowora outbox contains dead events requiring replay" }
       - alert: FloworaExportBacklog
         expr: flowora_exports_pending > 20
         for: 10m

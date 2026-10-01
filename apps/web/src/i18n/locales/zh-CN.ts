@@ -2,6 +2,8 @@ export default {
   common: {
     appName: 'Flowora ERP',
     workspace: 'Flowora 工作台',
+    navigation: '导航菜单',
+    organization: '当前组织',
     search: '搜索模块、单据或客户',
     notifications: '通知',
     language: '语言',
@@ -139,7 +141,7 @@ export default {
     approvedTasks: '已批准',
     unreadNotifications: '未读通知',
     inbox: '我的流程待办',
-    inboxSubtitle: '分配给你、你的角色或由你发起的任务',
+    inboxSubtitle: '当前组织分配给你的待处理审批任务',
     all: '全部',
     statusOpen: '待处理',
     statusApproved: '已批准',

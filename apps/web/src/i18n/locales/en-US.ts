@@ -1,5 +1,7 @@
 export default {
   common: {
+    navigation: 'Navigation menu',
+    organization: 'Current organization',
     appName: 'Flowora ERP',
     workspace: 'Flowora Workspace',
     search: 'Search modules, documents or customers',
@@ -140,7 +142,7 @@ export default {
     approvedTasks: 'Approved tasks',
     unreadNotifications: 'Unread notifications',
     inbox: 'My workflow inbox',
-    inboxSubtitle: 'Tasks assigned to you, your roles or requested by you',
+    inboxSubtitle: 'Open approval tasks assigned to you in the current organization',
     all: 'All',
     statusOpen: 'Open',
     statusApproved: 'Approved',

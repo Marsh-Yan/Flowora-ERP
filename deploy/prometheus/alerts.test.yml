@@ -1,0 +1,19 @@
+rule_files: [alerts.yml]
+evaluation_interval: 1m
+tests:
+  - interval: 1m
+    input_series:
+      - series: flowora_outbox_failed
+        values: '0 1 1 1 1 1 1 0 0'
+    alert_rule_test:
+      - eval_time: 5m
+        alertname: FloworaOutboxFailed
+        exp_alerts: []
+      - eval_time: 6m
+        alertname: FloworaOutboxFailed
+        exp_alerts:
+          - exp_labels: {severity: warning}
+            exp_annotations: {summary: 'Flowora outbox contains dead events requiring replay'}
+      - eval_time: 8m
+        alertname: FloworaOutboxFailed
+        exp_alerts: []

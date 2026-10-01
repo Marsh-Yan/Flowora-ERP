@@ -54,9 +54,10 @@ public class DiagnosticsService {
         dependencies.put("mail", new DependencyHealth(mailConfigured ? "CONFIGURED" : "NOT_CONFIGURED", Map.of()));
         Map<String, Long> backlog = jdbc == null ? Map.of() : Map.of(
                 "outboxPending", count("SELECT COUNT(*) FROM flowora_outbox_event WHERE status IN ('PENDING','RETRY')"),
-                "outboxFailed", count("SELECT COUNT(*) FROM flowora_outbox_event WHERE status='FAILED'"),
+                "outboxFailed", count("SELECT COUNT(*) FROM flowora_outbox_event WHERE status='DEAD'"),
+                "outboxRetry", count("SELECT COUNT(*) FROM flowora_outbox_event WHERE status='RETRY'"),
                 "exportsPending", count("SELECT COUNT(*) FROM flowora_export_job WHERE status IN ('PENDING','RUNNING')"),
-                "workflowOverdue", count("SELECT COUNT(*) FROM flowora_workflow_task WHERE status IN ('OPEN','TRANSFERRED') AND due_at<CURRENT_TIMESTAMP")
+                "workflowOverdue", count("SELECT (SELECT COUNT(*) FROM flowora_workflow_approval_task WHERE status='OPEN' AND due_at<CURRENT_TIMESTAMP) + (SELECT COUNT(*) FROM flowora_workflow_task WHERE status='OPEN' AND due_at<CURRENT_TIMESTAMP)")
         );
         return new DiagnosticSnapshot(version, stage, migrationVersion(), Instant.now(), dependencies, backlog);
     }

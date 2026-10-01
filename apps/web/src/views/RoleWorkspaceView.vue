@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { onMounted, ref } from 'vue'
+import { onMounted, onUnmounted, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import { getWorkspace, type WorkspaceSnapshot } from '@/api/analytics'
 
@@ -7,17 +7,22 @@ const router = useRouter()
 const loading = ref(true)
 const error = ref(false)
 const workspace = ref<WorkspaceSnapshot>()
+let requestVersion = 0
 
 async function refresh() {
+  const version = ++requestVersion
   loading.value = true
   error.value = false
-  try { workspace.value = await getWorkspace() } catch { error.value = true } finally { loading.value = false }
+  try { const result = await getWorkspace(); if (version === requestVersion) workspace.value = result }
+  catch { if (version === requestVersion) error.value = true }
+  finally { if (version === requestVersion) loading.value = false }
 }
 function formatValue(value: number, currency?: string) {
   if (currency) return new Intl.NumberFormat(undefined, { style: 'currency', currency }).format(value)
   return new Intl.NumberFormat().format(value)
 }
 onMounted(refresh)
+onUnmounted(() => { requestVersion++ })
 </script>
 
 <template>
