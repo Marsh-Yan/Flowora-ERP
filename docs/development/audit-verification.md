@@ -17,7 +17,7 @@ R5 第一批补齐真实安全 HTTP 回归、覆盖矩阵与过期文档。F01�
 | F05 | 会话列表与密码重置撤销 | SEC-02/03/06/10 / HTTP |
 | F06 | 最大会话限制 | SEC-02 / HTTP；并发请求边界仍需专项扩展 |
 | F07 | 兼容读取和搜索模块权限 | SEC-07 / HTTP；`GlobalSearchServiceTest`、`FloworaAuthorizationTest` |
-| F08 | SELF 查询及导出范围 | SEC-12：详情、分页总数、附件、CSV 行、下载撤权 / HTTP；其他数据范围见待办 |
+| F08 | 查询、导出和汇总范围 | SEC-12；SCOPE-01–11：DEPARTMENT/SELF/ASSIGNED/模块、部门变更下载、项目成员及分析；AnalyticsScopeMySqlTest / 数据库、HTTP |
 | F09 | 组织管理边界 | SEC-08 / HTTP；`PlatformDirectoryServiceTest` |
 | F10 | 必须改密限制 | SEC-01/10 / HTTP |
 | F11 | 非法履约状态 | `TradeInventoryMySqlTest`、compat-stock-smoke / 数据库、HTTP |
@@ -58,6 +58,8 @@ R5 第一批补齐真实安全 HTTP 回归、覆盖矩阵与过期文档。F01�
 ## 尚未完成的发布门禁及下一批顺序
 
 R5 第二批已完成前端依赖补丁、后端补丁和实际 JAR/五个镜像扫描门禁；第一批表中的 25 条 npm 告警是历史结果，第二批全依赖及生产依赖均为 0。新增版本、扫描范围、Prometheus OpenPGP 二进制判断和持续限制见 [第二批整改记录](dependency-remediation-2026-10-01.md)。F27 保持未完成，下一批优先浏览器与角色矩阵。
+
+R5 第三批补齐部门/本人/受派项目与分析汇总范围对照，修复复现的 7 个失败场景；具体读取边界和 11 个 HTTP 场景见 [分析数据范围](analytics-scope.md)。这些结果不替代全业务 UI、所有模块的角色/写入四象限或事务异常覆盖。
 
 | 顺序 | 待办 | 放行证据 |
 | --- | --- | --- |

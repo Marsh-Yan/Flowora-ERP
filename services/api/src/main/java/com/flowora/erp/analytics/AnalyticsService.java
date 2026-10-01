@@ -5,6 +5,8 @@ import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.flowora.erp.identity.DataScope;
 import com.flowora.erp.identity.FloworaPrincipal;
+import com.flowora.erp.identity.DatabaseIdentityAuthenticator;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -28,6 +30,12 @@ public class AnalyticsService {
     private static final TypeReference<Map<String, Object>> MAP_TYPE = new TypeReference<>() { };
     private final JdbcTemplate jdbc;
     private final ObjectMapper objectMapper;
+    private DatabaseIdentityAuthenticator authenticator;
+
+    @Autowired(required = false)
+    void setAuthenticator(DatabaseIdentityAuthenticator authenticator) {
+        this.authenticator = authenticator;
+    }
 
     public AnalyticsService(JdbcTemplate jdbc, ObjectMapper objectMapper) {
         this.jdbc = jdbc;
@@ -64,10 +72,12 @@ public class AnalyticsService {
         if (actor.permissions().contains("workflow:admin") && decimal("SELECT COUNT(*) FROM flowora_outbox_event WHERE organization_id=? AND status='DEAD'", org).signum() > 0) {
             risks.add("OUTBOX_FAILURES");
         }
-        if (actor.permissions().contains("finance:view") && decimal("SELECT COUNT(*) FROM flowora_bank_statement_line WHERE organization_id=? AND reconciliation_status='UNMATCHED'", org).signum() > 0) {
+        if (actor.dataScope() == DataScope.ALL && actor.permissions().contains("finance:view") && decimal("SELECT COUNT(*) FROM flowora_bank_statement_line WHERE organization_id=? AND reconciliation_status='UNMATCHED'", org).signum() > 0) {
             risks.add("UNMATCHED_BANK_LINES");
         }
-        return new WorkspaceSnapshot(org, actor.roles(), Instant.now(), cards.stream().filter(c -> c != null).toList(), risks);
+        return new WorkspaceSnapshot(org, actor.roles(), Instant.now(), cards.stream().filter(c -> c != null)
+                .filter(c -> actor.dataScope() == DataScope.ALL || !List.of("STOCK_EXCEPTIONS", "RECEIVABLES", "PAYABLES").contains(c.code()))
+                .toList(), risks);
     }
 
     private BigDecimal approvalCount(FloworaPrincipal actor) {
@@ -85,20 +95,44 @@ public class AnalyticsService {
 
     private BigDecimal scopedCount(String table, String ownerColumn, FloworaPrincipal actor, String condition) {
         StringBuilder sql = new StringBuilder("SELECT COUNT(*) FROM ").append(table)
-                .append(" WHERE organization_id=? AND ").append(condition);
+                .append(" records WHERE organization_id=? AND ").append(condition);
         List<Object> args = new ArrayList<>();
         args.add(actor.organizationId());
-        if (actor.dataScope() == DataScope.SELF) {
-            sql.append(" AND ").append(ownerColumn).append("=?");
-            args.add(actor.userId());
-        } else if (actor.dataScope() == DataScope.DEPARTMENT && actor.departmentId() != null) {
-            sql.append(" AND ").append(ownerColumn).append(" IN (SELECT user_id FROM flowora_organization_membership WHERE organization_id=? AND department_id=?)");
-            args.add(actor.organizationId());
-            args.add(actor.departmentId());
-        } else if (actor.dataScope() == DataScope.ASSIGNED) {
-            sql.append(" AND 1=0");
-        }
+        appendScope(sql, args, table, ownerColumn, actor);
         return decimal(sql.toString(), args.toArray());
+    }
+
+    private void appendScope(StringBuilder sql, List<Object> args, String table, String ownerColumn, FloworaPrincipal actor) {
+        switch (actor.dataScope()) {
+            case ALL -> { }
+            case SELF -> { sql.append(" AND records.").append(ownerColumn).append("=?"); args.add(actor.userId()); }
+            case DEPARTMENT -> {
+                if (table.equals("flowora_project")) {
+                    sql.append(" AND records.department_id=?");
+                } else {
+                    sql.append(" AND records.").append(ownerColumn).append(" IN (SELECT user_id FROM flowora_organization_membership WHERE organization_id=? AND department_id=? AND status='ACTIVE')");
+                    args.add(actor.organizationId());
+                }
+                // SQL NULL matches no department, never the whole organization.
+                args.add(actor.departmentId());
+            }
+            case ASSIGNED -> {
+                if (table.equals("flowora_project")) {
+                    sql.append(" AND EXISTS (SELECT 1 FROM flowora_project_member m WHERE m.project_id=records.id AND m.organization_id=? AND m.user_id=? AND m.active=TRUE)");
+                    args.add(actor.organizationId()); args.add(actor.userId());
+                } else { sql.append(" AND 1=0"); }
+            }
+        }
+    }
+
+    private void orderTrend(FloworaPrincipal actor, String table, String ownerColumn, LocalDate from, LocalDate to,
+                            java.util.function.BiConsumer<String, BigDecimal> consume) {
+        StringBuilder sql = new StringBuilder("SELECT DATE_FORMAT(order_date,'%Y-%m') period,COALESCE(SUM(total_amount),0) amount FROM ")
+                .append(table).append(" records WHERE organization_id=? AND order_date BETWEEN ? AND ?");
+        List<Object> args = new ArrayList<>(List.of(actor.organizationId(), from, to));
+        appendScope(sql, args, table, ownerColumn, actor);
+        sql.append(" GROUP BY DATE_FORMAT(order_date,'%Y-%m') ORDER BY period");
+        jdbc.query(sql.toString(), rs -> { consume.accept(rs.getString("period"), rs.getBigDecimal("amount")); }, args.toArray());
     }
 
     @Transactional(readOnly = true)
@@ -106,21 +140,14 @@ public class AnalyticsService {
         validateRange(from, to);
         String org = actor.organizationId();
         Map<String, TrendAccumulator> periods = new LinkedHashMap<>();
-        jdbc.query("""
-                SELECT DATE_FORMAT(order_date,'%Y-%m') period,COALESCE(SUM(total_amount),0) amount
-                FROM flowora_sales_order WHERE organization_id=? AND order_date BETWEEN ? AND ?
-                GROUP BY DATE_FORMAT(order_date,'%Y-%m') ORDER BY period
-                """, rs -> {
-                    periods.computeIfAbsent(rs.getString("period"), ignored -> new TrendAccumulator()).sales = rs.getBigDecimal("amount");
-                }, org, from, to);
-        jdbc.query("""
-                SELECT DATE_FORMAT(order_date,'%Y-%m') period,COALESCE(SUM(total_amount),0) amount
-                FROM flowora_purchase_order WHERE organization_id=? AND order_date BETWEEN ? AND ?
-                GROUP BY DATE_FORMAT(order_date,'%Y-%m') ORDER BY period
-                """, rs -> {
-                    periods.computeIfAbsent(rs.getString("period"), ignored -> new TrendAccumulator()).purchases = rs.getBigDecimal("amount");
-                }, org, from, to);
-        jdbc.query("""
+        boolean salesAllowed = actor.permissions().contains("sales:view");
+        boolean purchasesAllowed = actor.permissions().contains("procurement:view");
+        boolean financeAllowed = actor.dataScope() == DataScope.ALL && actor.permissions().contains("finance:view");
+        if (salesAllowed) orderTrend(actor, "flowora_sales_order", "sales_user_id", from, to,
+                (period, amount) -> periods.computeIfAbsent(period, ignored -> new TrendAccumulator()).sales = amount);
+        if (purchasesAllowed) orderTrend(actor, "flowora_purchase_order", "buyer_user_id", from, to,
+                (period, amount) -> periods.computeIfAbsent(period, ignored -> new TrendAccumulator()).purchases = amount);
+        if (financeAllowed) jdbc.query("""
                 SELECT DATE_FORMAT(accounting_date,'%Y-%m') period,
                        COALESCE(SUM(CASE WHEN document_type='SALES_INVOICE' THEN base_total_amount ELSE 0 END),0) revenue,
                        COALESCE(SUM(CASE WHEN document_type='SUPPLIER_INVOICE' THEN base_total_amount ELSE 0 END),0) expense
@@ -131,7 +158,8 @@ public class AnalyticsService {
                     row.revenue = rs.getBigDecimal("revenue");
                     row.expense = rs.getBigDecimal("expense");
                 }, org, from, to);
-        List<TrendPoint> trends = periods.entrySet().stream().map(entry -> entry.getValue().view(entry.getKey())).toList();
+        List<TrendPoint> trends = periods.entrySet().stream().sorted(Map.Entry.comparingByKey())
+                .map(entry -> entry.getValue().view(entry.getKey(), salesAllowed, purchasesAllowed, financeAllowed)).toList();
         return new AnalyticsSnapshot(from, to, baseCurrency(org), trends, Instant.now());
     }
 
@@ -139,6 +167,8 @@ public class AnalyticsService {
     public List<OrganizationSummary> crossOrganization(FloworaPrincipal actor, List<String> requested,
                                                         String reportCurrency) {
         if (!actor.permissions().contains("analytics:cross-org")) throw new org.springframework.security.access.AccessDeniedException("Cross organization analytics permission required");
+        if (actor.dataScope() != DataScope.ALL || authenticator == null)
+            throw new org.springframework.security.access.AccessDeniedException("Organization aggregates require ALL scope and target membership validation");
         List<Map<String, Object>> organizations = jdbc.queryForList("""
                 SELECT o.id,o.name,s.base_currency_code FROM flowora_organization o
                 JOIN flowora_organization_membership m ON m.organization_id=o.id AND m.user_id=? AND m.status='ACTIVE'
@@ -146,10 +176,14 @@ public class AnalyticsService {
                 ORDER BY o.name
                 """, actor.userId());
         return organizations.stream().filter(row -> requested == null || requested.isEmpty() || requested.contains(row.get("id").toString()))
-                .map(row -> organizationSummary(row, reportCurrency)).toList();
+                .map(row -> {
+                    FloworaPrincipal target = authenticator.principalForOrganization(actor.userId(), row.get("id").toString());
+                    if (target.dataScope() != DataScope.ALL || !target.permissions().contains("analytics:cross-org")) return null;
+                    return organizationSummary(row, reportCurrency, target);
+                }).filter(java.util.Objects::nonNull).toList();
     }
 
-    private OrganizationSummary organizationSummary(Map<String, Object> row, String requestedCurrency) {
+    private OrganizationSummary organizationSummary(Map<String, Object> row, String requestedCurrency, FloworaPrincipal target) {
         String org = row.get("id").toString();
         String source = row.get("base_currency_code").toString();
         String report = requestedCurrency == null || requestedCurrency.isBlank() ? source : requestedCurrency.toUpperCase();
@@ -168,8 +202,10 @@ public class AnalyticsService {
                 FROM flowora_payment_v2 WHERE organization_id=? AND status='POSTED'
                 """, org);
         return new OrganizationSummary(org, row.get("name").toString(), source, report, rate.date, rate.missing,
-                convert(sales, rate.value), convert(receivables, rate.value), convert(payables, rate.value),
-                convert(cash, rate.value), false);
+                target.permissions().contains("sales:view") ? convert(sales, rate.value) : null,
+                target.permissions().contains("finance:view") ? convert(receivables, rate.value) : null,
+                target.permissions().contains("finance:view") ? convert(payables, rate.value) : null,
+                target.permissions().contains("finance:view") ? convert(cash, rate.value) : null, false);
     }
 
     @Transactional
@@ -252,7 +288,10 @@ public class AnalyticsService {
         private BigDecimal purchases = BigDecimal.ZERO;
         private BigDecimal revenue = BigDecimal.ZERO;
         private BigDecimal expense = BigDecimal.ZERO;
-        private TrendPoint view(String period) { return new TrendPoint(period, sales, purchases, revenue, expense, revenue.subtract(expense)); }
+        private TrendPoint view(String period, boolean salesAllowed, boolean purchasesAllowed, boolean financeAllowed) {
+            return new TrendPoint(period, salesAllowed ? sales : null, purchasesAllowed ? purchases : null,
+                    financeAllowed ? revenue : null, financeAllowed ? expense : null, financeAllowed ? revenue.subtract(expense) : null);
+        }
     }
 
     private record Rate(BigDecimal value, LocalDate date, boolean missing) { }

@@ -123,6 +123,8 @@ jobs:
         run: ./mvnw -B -pl services/api -Dtest=FinanceMySqlTest test
       - name: Test scheduled outbox concurrency, rollback recovery, dead metrics and approval cards
         run: ./mvnw -B -pl services/api -Dtest=WorkflowOperationsMySqlTest test
+      - name: Test project scope counts and cross-organization permission refresh
+        run: ./mvnw -B -pl services/api -Dtest=AnalyticsScopeMySqlTest test
       - name: Start disposable API with demo fixtures
         run: |
           java -jar services/api/target/flowora-api-2.0.0-SNAPSHOT.jar --spring.profiles.active=local --server.port=18080 --server.address=127.0.0.1 --management.endpoint.health.probes.enabled=true --flowora.demo.enabled=true --flowora.demo.seed-on-start=true --flowora.cors.allowed-origins=http://127.0.0.1:15173 > /tmp/r2-api.log 2>&1 &
@@ -149,6 +151,20 @@ jobs:
           if-no-files-found: ignore
           retention-days: 14
       - name: Show API errors on failure
+        if: failure()
+        run: tail -100 /tmp/r2-api.log || true
+      - name: Verify department, self, assigned and aggregate scope through HTTP
+        shell: pwsh
+        run: ./tools/verification/scope-smoke.ps1 | Tee-Object -FilePath /tmp/r5-scope-results.txt
+      - name: Retain sanitized scope scenario results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: scope-scenarios-${{ github.sha }}
+          path: /tmp/r5-scope-results.txt
+          if-no-files-found: ignore
+          retention-days: 14
+      - name: Show API errors after scope failure
         if: failure()
         run: tail -100 /tmp/r2-api.log || true
 

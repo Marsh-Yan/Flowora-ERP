@@ -19,11 +19,11 @@ export interface WorkspaceSnapshot {
 }
 export interface TrendPoint {
   period: string
-  sales: number
-  purchases: number
-  revenue: number
-  expense: number
-  grossProfit: number
+  sales: number | null
+  purchases: number | null
+  revenue: number | null
+  expense: number | null
+  grossProfit: number | null
 }
 export interface AnalyticsSnapshot {
   from: string
@@ -39,10 +39,10 @@ export interface OrganizationSummary {
   reportCurrencyCode: string
   exchangeRateDate?: string
   exchangeRateMissing: boolean
-  sales: number
-  receivables: number
-  payables: number
-  cash: number
+  sales: number | null
+  receivables: number | null
+  payables: number | null
+  cash: number | null
   includesEliminations: boolean
 }
 export interface SavedView {
