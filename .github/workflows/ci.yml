@@ -61,7 +61,7 @@ jobs:
       - name: Install verified security scanner
         run: bash tools/verification/install-trivy.sh
       - name: Verify security report gate fails closed
-        run: python3 -m unittest discover -s tools/verification -p 'test_security_report.py'
+        run: python3 -m unittest discover -s tools/verification -p 'test_*.py'
       - name: Scan actual API artifact and enforce security gate
         run: |
           mkdir -p security-reports security-inputs/api
@@ -190,6 +190,13 @@ jobs:
           curl --fail --retry 10 --retry-delay 2 --retry-connrefused http://localhost:8080/healthz
       - name: Install verified security scanner
         run: bash tools/verification/install-trivy.sh
+      - name: Setup Go for actual binary reachability analysis
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.27.1'
+          cache: false
+      - name: Install pinned official Go vulnerability analyzer
+        run: go install golang.org/x/vuln/cmd/govulncheck@v1.8.0
       - name: Scan all actual Compose runtime images
         run: |
           mkdir -p security-reports
@@ -204,7 +211,14 @@ jobs:
               prometheus) expected=prometheus ;;
             esac
             if ! trivy image --scanners vuln --list-all-pkgs --format json --output "security-reports/$service.json" --timeout 10m "$image"; then failed=1; continue; fi
-            if ! python3 tools/verification/security_report.py "security-reports/$service.json" --expected "$expected"; then failed=1; fi
+            extra=()
+            if [ "$service" = prometheus ]; then
+              mkdir -p security-inputs/prometheus
+              docker cp "$(docker compose ps -q prometheus):/bin/prometheus" security-inputs/prometheus/prometheus
+              docker cp "$(docker compose ps -q prometheus):/bin/promtool" security-inputs/prometheus/promtool
+              extra=(--prometheus-binaries security-inputs/prometheus)
+            fi
+            if ! python3 tools/verification/security_report.py "security-reports/$service.json" --expected "$expected" "${extra[@]}"; then failed=1; fi
           done
           exit "$failed"
       - name: Retain image scan evidence
