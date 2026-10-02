@@ -11,7 +11,8 @@ import {
 const auth = useAuthStore()
 const now = new Date()
 const start = new Date(now.getFullYear(), now.getMonth() - 5, 1)
-const dateRange = ref<[string, string]>([start.toISOString().slice(0, 10), now.toISOString().slice(0, 10)])
+const localDate = (value: Date) => `${value.getFullYear()}-${String(value.getMonth() + 1).padStart(2, '0')}-${String(value.getDate()).padStart(2, '0')}`
+const dateRange = ref<[string, string]>([localDate(start), localDate(now)])
 const reportCurrency = ref('USD')
 const loading = ref(false)
 const snapshot = ref<AnalyticsSnapshot>()
@@ -20,9 +21,16 @@ const views = ref<SavedView[]>([])
 const exports = ref<ExportJob[]>([])
 const diagnostics = ref<DiagnosticSnapshot>()
 const viewName = ref('')
-const canCrossOrg = computed(() => auth.hasPermission('analytics:cross-org'))
+const canCrossOrg = computed(() => auth.user?.dataScope === 'ALL' && auth.hasPermission('analytics:cross-org'))
 const canExport = computed(() => auth.hasPermission('analytics:export'))
 const canDiagnose = computed(() => auth.hasPermission('admin:diagnostics'))
+const exportResources = computed(() => {
+  const scope = auth.user?.dataScope
+  if (!scope || scope === 'ASSIGNED') return []
+  const resources = { SALES: 'sales:view', PURCHASES: 'procurement:view', INVENTORY: 'inventory:view', FINANCE: 'finance:view', PROJECTS: 'project:view' }
+  return Object.entries(resources).filter(([resource, permission]) => auth.hasPermission(permission)
+    && (scope === 'ALL' || resource === 'SALES' || resource === 'PURCHASES')).map(([resource]) => resource)
+})
 
 async function refresh() {
   loading.value = true
@@ -57,7 +65,8 @@ async function requestExport(resourceType: string) {
   exports.value = await getExports()
   ElMessage.success('导出任务已提交')
 }
-function money(value: number, currency = snapshot.value?.currencyCode || 'USD') {
+function money(value: number | null, currency = snapshot.value?.currencyCode || 'USD') {
+  if (value === null) return '—'
   return new Intl.NumberFormat(undefined, { style: 'currency', currency }).format(value)
 }
 onMounted(refresh)
@@ -102,7 +111,7 @@ onMounted(refresh)
       </el-table>
     </el-card>
     <el-card v-if="canExport" shadow="never">
-      <template #header><div class="card-title"><strong>受控数据导出</strong><div><el-button v-for="resource in ['SALES','PURCHASES','INVENTORY','FINANCE','PROJECTS']" :key="resource" size="small" @click="requestExport(resource)">{{ resource }}</el-button></div></div></template>
+      <template #header><div class="card-title"><strong>受控数据导出</strong><div><el-button v-for="resource in exportResources" :key="resource" size="small" @click="requestExport(resource)">{{ resource }}</el-button></div></div></template>
       <el-table :data="exports" empty-text="暂无导出任务">
         <el-table-column prop="resourceType" label="数据域" /><el-table-column prop="status" label="状态" /><el-table-column prop="rowCount" label="行数" /><el-table-column prop="createdAt" label="创建时间" min-width="190" />
         <el-table-column label="操作"><template #default="{ row }"><el-button v-if="row.status === 'COMPLETED'" link type="primary" @click="downloadExport(row.id, row.resultFilename || `${row.resourceType}.csv`)">下载</el-button></template></el-table-column>

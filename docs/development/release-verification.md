@@ -4,7 +4,7 @@
 
 在仓库根目录执行 `pnpm verify:web` 与 `./mvnw -B -pl services/api -am test package`（Windows 使用 `mvnw.cmd`）。`pnpm verify:release` 合并这些本地检查；它不等同于全部发布验收。
 
-CI 必须通过五个 job：Web checks、API checks、Isolated MySQL HTTP regression、Production Compose smoke、Windows Maven Wrapper paths。普通 API job 不启用真实 MySQL 专项测试；隔离数据库 job 必须分别运行 `TradeInventoryMySqlTest`、`FinanceMySqlTest`、`WorkflowOperationsMySqlTest` 和三个 HTTP 脚本。
+CI 必须通过五个 job：Web checks、API checks、Isolated MySQL HTTP regression、Production Compose smoke、Windows Maven Wrapper paths。普通 API job 不启用真实 MySQL 专项测试；隔离数据库 job 必须分别运行 `TradeInventoryMySqlTest`、`FinanceMySqlTest`、`WorkflowOperationsMySqlTest`、`AnalyticsScopeMySqlTest` 和四个 HTTP 脚本（库存、财务、身份安全、scope-smoke）。
 
 | 层级 | 入口与断言 | 环境 |
 | --- | --- | --- |
