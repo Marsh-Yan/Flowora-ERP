@@ -166,7 +166,18 @@ jobs:
           path: /tmp/r5-scope-results.txt
           if-no-files-found: ignore
           retention-days: 14
-      - name: Show API errors after scope failure
+      - name: Verify shared inventory and finance module authorization through HTTP
+        shell: pwsh
+        run: ./tools/verification/module-smoke.ps1 | Tee-Object -FilePath /tmp/r5-module-results.txt
+      - name: Retain sanitized module scenario results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: module-scenarios-${{ github.sha }}
+          path: /tmp/r5-module-results.txt
+          if-no-files-found: ignore
+          retention-days: 14
+      - name: Show API errors after scope or module failure
         if: failure()
         run: tail -100 /tmp/r2-api.log || true
 
@@ -186,7 +197,7 @@ jobs:
       - name: Build and start target services
         run: docker compose up --build --wait --wait-timeout 300
       - name: Verify readiness through web proxy
-        run: curl --fail --retry 20 --retry-delay 3 --retry-connrefused http://localhost:8080/healthz
+        run: curl --fail --retry 20 --retry-delay 3 --retry-connrefused --retry-all-errors --retry-max-time 90 --connect-timeout 5 --max-time 10 http://localhost:8080/healthz
       - name: Verify target Nginx security headers and cache policy
         run: bash tools/verification/nginx-headers.sh
       - name: Verify dead event alert activation and recovery
@@ -205,7 +216,7 @@ jobs:
         run: |
           docker compose restart redis
           docker compose up --wait --wait-timeout 120
-          curl --fail --retry 10 --retry-delay 2 --retry-connrefused http://localhost:8080/healthz
+          curl --fail --retry 10 --retry-delay 2 --retry-connrefused --retry-all-errors --retry-max-time 60 --connect-timeout 5 --max-time 10 http://localhost:8080/healthz
       - name: Install verified security scanner
         run: bash tools/verification/install-trivy.sh
       - name: Setup Go for actual binary reachability analysis

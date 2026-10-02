@@ -25,6 +25,9 @@ import {
   type TrialBalanceResponse,
 } from '@/api/finance'
 
+import { useAuthStore } from '@/stores/auth'
+
+const auth = useAuthStore()
 const { t } = useI18n()
 const activeTab = ref<'journals' | 'periods' | 'trialBalance' | 'incomeStatement' | 'balanceSheet' | 'payables' | 'aging'>('journals')
 const loading = ref(false)
@@ -183,7 +186,7 @@ onMounted(load)
         <el-date-picker v-model="startDate" type="date" value-format="YYYY-MM-DD" :clearable="false" :placeholder="t('finance.from')" @change="load" />
         <el-date-picker v-model="endDate" type="date" value-format="YYYY-MM-DD" :clearable="false" :placeholder="t('finance.to')" @change="load" />
         <el-button round plain :loading="loading" @click="load"><el-icon><Refresh /></el-icon>{{ t('finance.refresh') }}</el-button>
-        <el-button type="primary" round @click="openManualJournal"><el-icon><Plus /></el-icon>{{ t('finance.manualJournal') }}</el-button>
+        <el-button v-if="auth.hasPermission('finance:post')" type="primary" round @click="openManualJournal"><el-icon><Plus /></el-icon>{{ t('finance.manualJournal') }}</el-button>
       </div>
     </div>
 
@@ -217,7 +220,7 @@ onMounted(load)
             <el-table-column prop="startDate" :label="t('finance.from')" width="140" />
             <el-table-column prop="endDate" :label="t('finance.to')" width="140" />
             <el-table-column :label="t('finance.statusLabel')" width="130"><template #default="{ row }"><el-tag :type="statusType(row.status)">{{ statusLabel(row.status) }}</el-tag></template></el-table-column>
-            <el-table-column :label="t('finance.actions')" width="130"><template #default="{ row }"><el-button v-if="row.status === 'OPEN'" link type="primary" @click="closePeriod(row)">{{ t('finance.closePeriod') }}</el-button></template></el-table-column>
+            <el-table-column :label="t('finance.actions')" width="130"><template #default="{ row }"><el-button v-if="auth.hasPermission('finance:post') && row.status === 'OPEN'" link type="primary" @click="closePeriod(row)">{{ t('finance.closePeriod') }}</el-button></template></el-table-column>
           </el-table>
           <el-empty v-if="!periods.length && !loading" :description="t('finance.emptyPeriods')" />
         </el-tab-pane>
@@ -238,7 +241,7 @@ onMounted(load)
         </el-tab-pane>
 
         <el-tab-pane :label="t('finance.payables')" name="payables">
-          <el-table v-loading="loading" :data="payables" empty-text=""><el-table-column prop="number" :label="t('finance.number')" width="150" /><el-table-column prop="supplierId" :label="t('finance.supplier')" min-width="170" /><el-table-column prop="dueDate" :label="t('finance.dueDate')" width="130" /><el-table-column prop="totalAmount" :label="t('finance.amount')" width="140" /><el-table-column prop="outstandingAmount" :label="t('finance.outstanding')" width="150" /><el-table-column :label="t('finance.statusLabel')" width="150"><template #default="{ row }"><el-tag :type="statusType(row.status)">{{ statusLabel(row.status) }}</el-tag></template></el-table-column><el-table-column :label="t('finance.actions')" width="140"><template #default="{ row }"><el-button v-if="row.outstandingAmount > 0" link type="primary" @click="openPayment(row)"><el-icon><CreditCard /></el-icon>{{ t('finance.pay') }}</el-button></template></el-table-column></el-table>
+          <el-table v-loading="loading" :data="payables" empty-text=""><el-table-column prop="number" :label="t('finance.number')" width="150" /><el-table-column prop="supplierId" :label="t('finance.supplier')" min-width="170" /><el-table-column prop="dueDate" :label="t('finance.dueDate')" width="130" /><el-table-column prop="totalAmount" :label="t('finance.amount')" width="140" /><el-table-column prop="outstandingAmount" :label="t('finance.outstanding')" width="150" /><el-table-column :label="t('finance.statusLabel')" width="150"><template #default="{ row }"><el-tag :type="statusType(row.status)">{{ statusLabel(row.status) }}</el-tag></template></el-table-column><el-table-column :label="t('finance.actions')" width="140"><template #default="{ row }"><el-button v-if="auth.hasPermission('finance:post') && row.outstandingAmount > 0" link type="primary" @click="openPayment(row)"><el-icon><CreditCard /></el-icon>{{ t('finance.pay') }}</el-button></template></el-table-column></el-table>
           <el-empty v-if="!payables.length && !loading" :description="t('finance.emptyPayables')" />
         </el-tab-pane>
 

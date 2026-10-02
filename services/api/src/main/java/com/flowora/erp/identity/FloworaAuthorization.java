@@ -17,6 +17,12 @@ public class FloworaAuthorization {
         return principal(authentication).permissions().contains(permission);
     }
 
+    /** These modules contain shared organization balances, with no supported row scope. */
+    public boolean hasOrganizationPermission(Authentication authentication, String permission) {
+        FloworaPrincipal actor = principal(authentication);
+        return actor.dataScope() == DataScope.ALL && actor.permissions().contains(permission);
+    }
+
     public boolean canAccess(
             Authentication authentication,
             String ownerUserId,

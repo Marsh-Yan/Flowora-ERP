@@ -9,6 +9,9 @@ import {
   type BankStatementLine, type FinanceDashboard, type FinanceInvoice, type FinancePayment,
 } from '@/api/finance-v2'
 
+import { useAuthStore } from '@/stores/auth'
+
+const auth = useAuthStore()
 const { t, locale } = useI18n()
 const loading = ref(false)
 const dashboard = ref<FinanceDashboard | null>(null)
@@ -49,10 +52,10 @@ async function load() {
     section('invoices', async () => { const value = await listFinanceInvoices(); if (version === loadVersion) invoices.value = value.filter(row => inRange(row.accountingDate)) }),
     section('payments', async () => { const value = await listFinancePayments(); if (version === loadVersion) payments.value = value.filter(row => inRange(row.accountingDate)) }),
     section('statements', async () => { const value = await listBankStatementLines(); if (version === loadVersion) statements.value = value.filter(row => inRange(row.transactionDate)) }),
-    section('parties', async () => {
+    ...(auth.hasPermission('master:view') ? [section('parties', async () => {
       const [customerPage, supplierPage] = await Promise.all([listMasterData<MasterDataRecord>('customers', '', 0, 100), listMasterData<MasterDataRecord>('suppliers', '', 0, 100)])
       if (version === loadVersion) { customers.value = customerPage.content; suppliers.value = supplierPage.content }
-    }),
+    })] : []),
   ])
   if (version === loadVersion) loading.value = false
 }
@@ -84,7 +87,7 @@ onMounted(load)
 
 <template>
   <el-card v-loading="loading" shadow="never" class="m4-panel">
-    <div class="section-heading"><div><span class="eyebrow">M4 · Finance close</span><h2>{{ t('finance.m4.title') }}</h2><p>{{ t('finance.m4.subtitle') }}</p></div><div><el-button plain @click="invoiceVisible = true">{{ t('finance.m4.newInvoice') }}</el-button><el-button type="primary" @click="paymentVisible = true">{{ t('finance.m4.newPayment') }}</el-button></div></div>
+    <div class="section-heading"><div><span class="eyebrow">M4 · Finance close</span><h2>{{ t('finance.m4.title') }}</h2><p>{{ t('finance.m4.subtitle') }}</p></div><div><el-button v-if="auth.hasPermission('finance:invoice') && auth.hasPermission('master:view')" plain @click="invoiceVisible = true">{{ t('finance.m4.newInvoice') }}</el-button><el-button v-if="auth.hasPermission('finance:create') && auth.hasPermission('master:view')" type="primary" @click="paymentVisible = true">{{ t('finance.m4.newPayment') }}</el-button></div></div>
     <div class="finance-range"><el-date-picker v-model="dateRange" type="daterange" value-format="YYYY-MM-DD" :clearable="false" @change="load" /><el-button @click="load">{{ t('finance.m4.retry') }}</el-button><span>{{ t('finance.m4.rangeNote') }}</span></div>
     <el-alert v-if="errors.dashboard" :title="t('finance.m4.dashboardFailed')" type="error" :closable="false" show-icon />
     <el-alert v-if="errors.parties" :title="t('finance.m4.partiesFailed')" type="error" :closable="false" show-icon />
@@ -97,8 +100,8 @@ onMounted(load)
     <div v-else class="m4-metrics" aria-live="polite"><span>—</span><span>—</span><span>—</span><span>—</span></div>
     <el-alert v-for="section in (['invoices', 'payments', 'statements'] as const)" v-show="errors[section]" :key="section" :title="t(`finance.m4.${section}Failed`)" type="error" :closable="false" show-icon />
     <el-tabs>
-      <el-tab-pane :label="t('finance.m4.invoices')"><el-table :data="invoices" size="small"><el-table-column prop="number" :label="t('finance.number')" /><el-table-column prop="documentType" :label="t('finance.m4.type')" /><el-table-column prop="accountingDate" :label="t('finance.entryDate')" /><el-table-column :label="t('finance.amount')"><template #default="{ row }">{{ money(row.totalAmount) }} {{ row.currencyCode }}</template></el-table-column><el-table-column :label="t('finance.statusLabel')"><template #default="{ row }"><el-tag :type="statusType(row.status)">{{ row.status }}</el-tag></template></el-table-column><el-table-column :label="t('finance.actions')"><template #default="{ row }"><el-button v-if="row.status === 'DRAFT'" link type="primary" @click="postInvoice(row)">{{ t('finance.m4.post') }}</el-button></template></el-table-column></el-table></el-tab-pane>
-      <el-tab-pane :label="t('finance.m4.payments')"><el-table :data="payments" size="small"><el-table-column prop="number" :label="t('finance.number')" /><el-table-column prop="paymentType" :label="t('finance.m4.type')" /><el-table-column prop="accountingDate" :label="t('finance.entryDate')" /><el-table-column :label="t('finance.amount')"><template #default="{ row }">{{ money(row.amount) }} {{ row.currencyCode }}</template></el-table-column><el-table-column :label="t('finance.statusLabel')"><template #default="{ row }"><el-tag :type="statusType(row.status)">{{ row.status }}</el-tag></template></el-table-column><el-table-column :label="t('finance.actions')"><template #default="{ row }"><el-button v-if="row.status === 'DRAFT'" link type="primary" @click="postPayment(row)">{{ t('finance.m4.post') }}</el-button></template></el-table-column></el-table></el-tab-pane>
+      <el-tab-pane :label="t('finance.m4.invoices')"><el-table :data="invoices" size="small"><el-table-column prop="number" :label="t('finance.number')" /><el-table-column prop="documentType" :label="t('finance.m4.type')" /><el-table-column prop="accountingDate" :label="t('finance.entryDate')" /><el-table-column :label="t('finance.amount')"><template #default="{ row }">{{ money(row.totalAmount) }} {{ row.currencyCode }}</template></el-table-column><el-table-column :label="t('finance.statusLabel')"><template #default="{ row }"><el-tag :type="statusType(row.status)">{{ row.status }}</el-tag></template></el-table-column><el-table-column :label="t('finance.actions')"><template #default="{ row }"><el-button v-if="auth.hasPermission('finance:post') && row.status === 'DRAFT'" link type="primary" @click="postInvoice(row)">{{ t('finance.m4.post') }}</el-button></template></el-table-column></el-table></el-tab-pane>
+      <el-tab-pane :label="t('finance.m4.payments')"><el-table :data="payments" size="small"><el-table-column prop="number" :label="t('finance.number')" /><el-table-column prop="paymentType" :label="t('finance.m4.type')" /><el-table-column prop="accountingDate" :label="t('finance.entryDate')" /><el-table-column :label="t('finance.amount')"><template #default="{ row }">{{ money(row.amount) }} {{ row.currencyCode }}</template></el-table-column><el-table-column :label="t('finance.statusLabel')"><template #default="{ row }"><el-tag :type="statusType(row.status)">{{ row.status }}</el-tag></template></el-table-column><el-table-column :label="t('finance.actions')"><template #default="{ row }"><el-button v-if="auth.hasPermission('finance:post') && row.status === 'DRAFT'" link type="primary" @click="postPayment(row)">{{ t('finance.m4.post') }}</el-button></template></el-table-column></el-table></el-tab-pane>
       <el-tab-pane :label="t('finance.m4.bank')"><el-table :data="statements" size="small"><el-table-column prop="transactionDate" :label="t('finance.entryDate')" /><el-table-column prop="externalReference" :label="t('finance.m4.reference')" /><el-table-column prop="counterparty" :label="t('finance.m4.counterparty')" /><el-table-column prop="amount" :label="t('finance.amount')" /><el-table-column prop="reconciliationStatus" :label="t('finance.statusLabel')" /></el-table></el-tab-pane>
     </el-tabs>
   </el-card>

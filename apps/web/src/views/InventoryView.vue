@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { onMounted, reactive, ref } from 'vue'
+import { computed, onMounted, reactive, ref } from 'vue'
 import { ElMessage } from 'element-plus'
 import { ArrowRight, Plus, Refresh } from '@element-plus/icons-vue'
 import { useI18n } from 'vue-i18n'
@@ -8,6 +8,12 @@ import { createStockAdjustment, listStockBalances, listStockLedger, receivePurch
 import { listAvailability, traceInventory, type Availability, type TraceResult } from '@/api/trade'
 import { listPurchaseOrders, type PurchaseOrder } from '@/api/procurement'
 
+import { useAuthStore } from '@/stores/auth'
+
+const auth = useAuthStore()
+const canPost = computed(() => auth.hasPermission('inventory:post') && auth.hasPermission('master:view'))
+const canReceive = computed(() => canPost.value && auth.hasPermission('procurement:view'))
+const loaded = ref(false)
 const { t, locale } = useI18n()
 const activeTab = ref<'balances' | 'advanced' | 'ledger' | 'trace'>('balances')
 const loading = ref(false)
@@ -36,21 +42,28 @@ function formatDate(value: string) {
 
 async function load() {
   loading.value = true
+  loaded.value = false
+  balances.value = []; ledger.value = []; availability.value = []; orders.value = []; warehouses.value = []; items.value = []
   try {
-    const [balancePage, ledgerPage, orderPage, warehousePage, itemPage, availabilityRows] = await Promise.all([
-      listStockBalances(),
-      listStockLedger(),
-      listPurchaseOrders(),
-      listMasterData('warehouses', '', 0, 100),
-      listMasterData('items', '', 0, 100),
-      listAvailability(),
+    const [balancePage, ledgerPage, availabilityRows] = await Promise.all([
+      listStockBalances(), listStockLedger(), listAvailability(),
     ])
     balances.value = balancePage.content
     ledger.value = ledgerPage.content
-    orders.value = orderPage.content.filter((order) => order.remainingQuantity > 0 && ['CONFIRMED', 'APPROVED', 'PARTIALLY_RECEIVED'].includes(order.status))
-    warehouses.value = warehousePage.content
-    items.value = itemPage.content
     availability.value = availabilityRows
+    loaded.value = true
+    // Optional pickers must not prevent inventory readers from seeing their data.
+    const optional = []
+    if (auth.hasPermission('master:view')) optional.push((async () => {
+      const [warehousePage, itemPage] = await Promise.all([listMasterData('warehouses', '', 0, 100), listMasterData('items', '', 0, 100)])
+      warehouses.value = warehousePage.content; items.value = itemPage.content
+    })())
+    if (canReceive.value) optional.push((async () => {
+      const orderPage = await listPurchaseOrders()
+      orders.value = orderPage.content.filter(order => order.remainingQuantity > 0 && ['CONFIRMED', 'APPROVED', 'PARTIALLY_RECEIVED'].includes(order.status))
+    })())
+    const results = await Promise.allSettled(optional)
+    if (results.some(result => result.status === 'rejected')) ElMessage.error(t('inventory.loadFailed'))
   } catch {
     ElMessage.error(t('inventory.loadFailed'))
   } finally {
@@ -111,16 +124,16 @@ onMounted(load)
       </div>
       <div class="operations-actions">
         <el-button round plain :loading="loading" @click="load"><el-icon><Refresh /></el-icon>{{ t('inventory.refresh') }}</el-button>
-        <el-button round plain @click="openDialog('transfer')"><el-icon><ArrowRight /></el-icon>{{ t('inventory.transfer') }}</el-button>
-        <el-button round plain @click="openDialog('adjustment')"><el-icon><Plus /></el-icon>{{ t('inventory.adjustment') }}</el-button>
-        <el-button type="primary" round @click="openDialog('receipt')"><el-icon><Plus /></el-icon>{{ t('inventory.receive') }}</el-button>
+        <el-button v-if="canPost" round plain @click="openDialog('transfer')"><el-icon><ArrowRight /></el-icon>{{ t('inventory.transfer') }}</el-button>
+        <el-button v-if="canPost" round plain @click="openDialog('adjustment')"><el-icon><Plus /></el-icon>{{ t('inventory.adjustment') }}</el-button>
+        <el-button v-if="canReceive" type="primary" round @click="openDialog('receipt')"><el-icon><Plus /></el-icon>{{ t('inventory.receive') }}</el-button>
       </div>
     </div>
 
     <div class="inventory-summary-grid">
-      <el-card shadow="never" class="workflow-summary-card"><div class="workflow-summary-icon tone-blue"><span>Σ</span></div><div><span>{{ t('inventory.totalValue') }}</span><strong>{{ balances.reduce((sum, row) => sum + row.inventoryValue, 0).toFixed(2) }}</strong></div></el-card>
-      <el-card shadow="never" class="workflow-summary-card"><div class="workflow-summary-icon tone-mint"><span>Q</span></div><div><span>{{ t('inventory.skuCount') }}</span><strong>{{ balances.length }}</strong></div></el-card>
-      <el-card shadow="never" class="workflow-summary-card"><div class="workflow-summary-icon tone-amber"><span>↗</span></div><div><span>{{ t('inventory.ledgerCount') }}</span><strong>{{ ledger.length }}</strong></div></el-card>
+      <el-card shadow="never" class="workflow-summary-card"><div class="workflow-summary-icon tone-blue"><span>Σ</span></div><div><span>{{ t('inventory.totalValue') }}</span><strong>{{ loaded ? balances.reduce((sum, row) => sum + row.inventoryValue, 0).toFixed(2) : '—' }}</strong></div></el-card>
+      <el-card shadow="never" class="workflow-summary-card"><div class="workflow-summary-icon tone-mint"><span>Q</span></div><div><span>{{ t('inventory.skuCount') }}</span><strong>{{ loaded ? balances.length : '—' }}</strong></div></el-card>
+      <el-card shadow="never" class="workflow-summary-card"><div class="workflow-summary-icon tone-amber"><span>↗</span></div><div><span>{{ t('inventory.ledgerCount') }}</span><strong>{{ loaded ? ledger.length : '—' }}</strong></div></el-card>
     </div>
 
     <el-card shadow="never" class="operations-card">
@@ -133,7 +146,7 @@ onMounted(load)
             <el-table-column prop="averageCost" :label="t('inventory.averageCost')" width="150" />
             <el-table-column prop="inventoryValue" :label="t('inventory.inventoryValue')" width="160" />
           </el-table>
-          <el-empty v-if="!balances.length && !loading" :description="t('inventory.emptyBalances')" />
+          <el-empty v-if="loaded && !balances.length && !loading" :description="t('inventory.emptyBalances')" />
         </el-tab-pane>
         <el-tab-pane :label="t('inventory.advanced', 'Available stock')" name="advanced">
           <el-table v-loading="loading" :data="availability" empty-text="">
@@ -148,7 +161,7 @@ onMounted(load)
             <el-table-column :label="t('inventory.frozen', 'Frozen')" width="100"><template #default="{ row }"><el-tag :type="row.frozen ? 'danger' : 'success'">{{ row.frozen ? 'Yes' : 'No' }}</el-tag></template></el-table-column>
           </el-table>
         </el-tab-pane>
-        <el-tab-pane :label="t('inventory.trace', 'Trace')" name="trace">
+        <el-tab-pane v-if="auth.hasPermission('inventory:trace') && auth.hasPermission('master:view')" :label="t('inventory.trace', 'Trace')" name="trace">
           <div class="operations-actions">
             <el-select v-model="traceItemId" filterable :placeholder="t('inventory.item')" style="width: 280px"><el-option v-for="row in items" :key="row.id" :label="row.name" :value="row.id" /></el-select>
             <el-button type="primary" :loading="traceLoading" @click="runTrace">{{ t('inventory.trace', 'Trace') }}</el-button>
@@ -169,7 +182,7 @@ onMounted(load)
             <el-table-column prop="documentId" :label="t('inventory.document')" width="180" />
             <el-table-column :label="t('inventory.createdAt')" width="180"><template #default="{ row }">{{ formatDate(row.createdAt) }}</template></el-table-column>
           </el-table>
-          <el-empty v-if="!ledger.length && !loading" :description="t('inventory.emptyLedger')" />
+          <el-empty v-if="loaded && !ledger.length && !loading" :description="t('inventory.emptyLedger')" />
         </el-tab-pane>
       </el-tabs>
     </el-card>

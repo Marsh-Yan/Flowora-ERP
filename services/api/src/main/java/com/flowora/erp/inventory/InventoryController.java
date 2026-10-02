@@ -4,6 +4,7 @@ import com.flowora.erp.common.api.ApiResponse;
 import com.flowora.erp.common.api.PageResponse;
 import com.flowora.erp.common.api.RequestIdFilter;
 import com.flowora.erp.identity.FloworaPrincipal;
+import com.flowora.erp.identity.FloworaAuthorization;
 import com.flowora.erp.inventory.InventoryDtos.PurchaseReceiptRequest;
 import com.flowora.erp.inventory.InventoryDtos.PurchaseReceiptResponse;
 import com.flowora.erp.inventory.InventoryDtos.StockAdjustmentRequest;
@@ -33,13 +34,15 @@ import org.springframework.web.bind.annotation.RestController;
 @RequestMapping({"/api/v1/inventory", "/api/v2/compat/inventory"})
 public class InventoryController {
     private final InventoryService service;
+    private final FloworaAuthorization authorization;
 
-    public InventoryController(InventoryService service) {
+    public InventoryController(InventoryService service, FloworaAuthorization authorization) {
         this.service = service;
+        this.authorization = authorization;
     }
 
     @GetMapping("/balances")
-    @PreAuthorize("@floworaAuthorization.has(authentication, 'inventory:view')")
+    @PreAuthorize("@floworaAuthorization.hasOrganizationPermission(authentication, 'inventory:view')")
     public ApiResponse<PageResponse<StockBalanceResponse>> balances(
             @RequestParam(defaultValue = "") String warehouseId,
             @PageableDefault(size = 20) Pageable pageable,
@@ -50,7 +53,7 @@ public class InventoryController {
     }
 
     @GetMapping("/ledger")
-    @PreAuthorize("@floworaAuthorization.has(authentication, 'inventory:view')")
+    @PreAuthorize("@floworaAuthorization.hasOrganizationPermission(authentication, 'inventory:view')")
     public ApiResponse<PageResponse<StockLedgerResponse>> ledger(
             @RequestParam(defaultValue = "") String warehouseId,
             @RequestParam(defaultValue = "") String itemId,
@@ -62,45 +65,44 @@ public class InventoryController {
     }
 
     @PostMapping("/receipts")
-    @PreAuthorize("hasAnyRole('ADMIN', 'WAREHOUSE')")
+    @PreAuthorize("@floworaAuthorization.hasOrganizationPermission(authentication, 'inventory:post')")
     public ApiResponse<PurchaseReceiptResponse> receive(@Valid @RequestBody PurchaseReceiptRequest body, Authentication authentication, HttpServletRequest request,
                                                         @RequestHeader(value = "Idempotency-Key", required = false) String idempotencyKey) {
         return response(service.receive(principal(authentication), body, idempotencyKey), request);
     }
 
     @PostMapping("/transfers")
-    @PreAuthorize("hasAnyRole('ADMIN', 'WAREHOUSE')")
+    @PreAuthorize("@floworaAuthorization.hasOrganizationPermission(authentication, 'inventory:post')")
     public ApiResponse<StockTransferResponse> transfer(@Valid @RequestBody StockTransferRequest body, Authentication authentication, HttpServletRequest request) {
         return response(service.transfer(principal(authentication), body), request);
     }
 
     @PostMapping("/counts")
-    @PreAuthorize("hasAnyRole('ADMIN', 'WAREHOUSE')")
+    @PreAuthorize("@floworaAuthorization.hasOrganizationPermission(authentication, 'inventory:post')")
     public ApiResponse<StockCountResponse> count(@Valid @RequestBody StockCountRequest body, Authentication authentication, HttpServletRequest request) {
         return response(service.count(principal(authentication), body), request);
     }
 
     @PostMapping("/adjustments")
-    @PreAuthorize("hasAnyRole('ADMIN', 'WAREHOUSE')")
+    @PreAuthorize("@floworaAuthorization.hasOrganizationPermission(authentication, 'inventory:post')")
     public ApiResponse<StockAdjustmentResponse> createAdjustment(@Valid @RequestBody StockAdjustmentRequest body, Authentication authentication, HttpServletRequest request) {
         return response(service.createAdjustment(principal(authentication), body, RequestIdFilter.get(request)), request);
     }
 
     @PostMapping("/adjustments/{id}/approve")
-    @PreAuthorize("hasAnyRole('ADMIN', 'MANAGEMENT')")
+    @PreAuthorize("@floworaAuthorization.hasOrganizationPermission(authentication, 'inventory:post') && @floworaAuthorization.has(authentication, 'workflow:approve')")
     public ApiResponse<StockAdjustmentResponse> approveAdjustment(@PathVariable String id, Authentication authentication, HttpServletRequest request) {
         return response(service.approveAdjustment(principal(authentication), id, RequestIdFilter.get(request)), request);
     }
 
     @PostMapping("/adjustments/{id}/reject")
-    @PreAuthorize("hasAnyRole('ADMIN', 'MANAGEMENT')")
+    @PreAuthorize("@floworaAuthorization.hasOrganizationPermission(authentication, 'inventory:post') && @floworaAuthorization.has(authentication, 'workflow:approve')")
     public ApiResponse<StockAdjustmentResponse> rejectAdjustment(@PathVariable String id, Authentication authentication, HttpServletRequest request) {
         return response(service.rejectAdjustment(principal(authentication), id, RequestIdFilter.get(request)), request);
     }
 
     private FloworaPrincipal principal(Authentication authentication) {
-        if (authentication != null && authentication.getPrincipal() instanceof FloworaPrincipal current) return current;
-        throw new IllegalStateException("Authenticated FloworaPrincipal is required");
+        return authorization.principal(authentication);
     }
 
     private <T> ApiResponse<T> response(T data, HttpServletRequest request) {
