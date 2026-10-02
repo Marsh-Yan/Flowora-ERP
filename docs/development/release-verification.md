@@ -4,14 +4,14 @@
 
 在仓库根目录执行 `pnpm verify:web` 与 `./mvnw -B -pl services/api -am test package`（Windows 使用 `mvnw.cmd`）。`pnpm verify:release` 合并这些本地检查；它不等同于全部发布验收。
 
-CI 必须通过五个 job：Web checks、API checks、Isolated MySQL HTTP regression、Production Compose smoke、Windows Maven Wrapper paths。普通 API job 不启用真实 MySQL 专项测试；隔离数据库 job 必须分别运行 `TradeInventoryMySqlTest`、`FinanceMySqlTest`、`WorkflowOperationsMySqlTest`、`AnalyticsScopeMySqlTest`、`OrganizationFinanceMySqlTest`、`InventoryTimeZoneMySqlTest` 和八个 HTTP 脚本（库存、财务、身份安全、scope-smoke、module-smoke、workflow-compat-smoke、inventory-pagination-smoke、workflow-transfer-smoke）。
+CI 必须通过五个 job：Web checks、API checks、Isolated MySQL HTTP regression、Production Compose smoke、Windows Maven Wrapper paths。普通 API job 不启用真实 MySQL 专项测试；隔离数据库 job 必须分别运行 `TradeInventoryMySqlTest`、`FinanceMySqlTest`、`WorkflowOperationsMySqlTest`、`AnalyticsScopeMySqlTest`、`OrganizationFinanceMySqlTest`、`InventoryTimeZoneMySqlTest` 和九个 HTTP 脚本（库存、财务、身份安全、scope-smoke、module-smoke、workflow-compat-smoke、inventory-pagination-smoke、workflow-transfer-smoke、session-reservation-smoke）。
 
 | 层级 | 入口与断言 | 环境 |
 | --- | --- | --- |
 | Web | 官方 registry 全依赖审计、类型、lint、组件单测、生产构建 | Node 24 / pnpm 11.9.0 |
 | API | 默认 standalone 启动、服务单测、迁移防篡改、打包、实际 JAR 扫描 | Java 25 / Maven Wrapper |
 | 数据库 | 库存历史切换及重复 seed、履约竞争、财务来源锁及 FX、outbox 并发和恢复 | CI 临时 MySQL 8.0 / Redis 7 |
-| HTTP | [库存](../../tools/verification/compat-stock-smoke.ps1)、[财务](../../tools/verification/finance-smoke.ps1)、[身份安全](../../tools/verification/security-smoke.ps1)、[行范围](../../tools/verification/scope-smoke.ps1)、[组织模块](../../tools/verification/module-smoke.ps1)、[兼容工作流](../../tools/verification/workflow-compat-smoke.ps1)、[库存分页](../../tools/verification/inventory-pagination-smoke.ps1)、[指派资格](../../tools/verification/workflow-transfer-smoke.ps1) | 固定 loopback API 18080 / `audit_flowora` |
+| HTTP | [库存](../../tools/verification/compat-stock-smoke.ps1)、[财务](../../tools/verification/finance-smoke.ps1)、[身份安全](../../tools/verification/security-smoke.ps1)、[行范围](../../tools/verification/scope-smoke.ps1)、[组织模块](../../tools/verification/module-smoke.ps1)、[兼容工作流](../../tools/verification/workflow-compat-smoke.ps1)、[库存分页](../../tools/verification/inventory-pagination-smoke.ps1)、[指派资格](../../tools/verification/workflow-transfer-smoke.ps1)、[会话保留槽](../../tools/verification/session-reservation-smoke.ps1) | 固定 loopback API 18080 / `audit_flowora` |
 | 部署 | 空库 V1–V19、production readiness、无 demo 用户、Redis 密码及重启、Nginx 头与缓存、告警激活及恢复 | Compose MySQL 8.4 / Redis 7.4 / Nginx 1.29 |
 | Windows | 新缓存安装和 Junction 路径下 Wrapper 执行 | CI Windows |
 

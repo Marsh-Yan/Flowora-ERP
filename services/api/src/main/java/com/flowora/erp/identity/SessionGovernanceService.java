@@ -106,6 +106,14 @@ public class SessionGovernanceService {
         }
     }
 
+    /** Release only after the indexed session store confirms this login was saved. */
+    public void completeLogin(String username, String sessionId) {
+        if (repository == null || redis == null) return;
+        if (repository.findByPrincipalName(username).containsKey(sessionId)) {
+            clearReservation(username, sessionId);
+        }
+    }
+
     public void clearReservation(String username, String sessionId) {
         if (redis != null) redis.opsForSet().remove(pendingKey(username), sessionId);
     }

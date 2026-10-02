@@ -70,7 +70,9 @@ public class SessionV2Controller {
                 mfaService.verifyLogin(principal.userId(), body.mfaCode());
             }
             if (request.getSession(false) != null) request.changeSessionId();
-            sessionGovernance.reserveLogin(principal.username(), request.getSession(true).getId());
+            String sessionId = request.getSession(true).getId();
+            sessionGovernance.reserveLogin(principal.username(), sessionId);
+            LoginReservationFilter.track(request, principal.username(), sessionId);
             save(principal, request, response);
             auditService.record(principal.userId(), principal.organizationId(), "LOGIN", "SUCCESS", request, null);
             return ApiResponse.of(SessionUser.from(principal), RequestIdFilter.get(request));

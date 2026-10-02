@@ -212,6 +212,17 @@ jobs:
           path: /tmp/r5-workflow-transfer-results.txt
           if-no-files-found: ignore
           retention-days: 14
+      - name: Verify session rotation, reservation cleanup and concurrent login capacity through HTTP
+        shell: pwsh
+        run: ./tools/verification/session-reservation-smoke.ps1 | Tee-Object -FilePath /tmp/r5-session-reservation-results.txt
+      - name: Retain sanitized session reservation scenario results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: session-reservation-scenarios-${{ github.sha }}
+          path: /tmp/r5-session-reservation-results.txt
+          if-no-files-found: ignore
+          retention-days: 14
       - name: Show API errors after scope or module failure
         if: failure()
         run: tail -100 /tmp/r2-api.log || true
