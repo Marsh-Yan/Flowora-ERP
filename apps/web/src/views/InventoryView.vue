@@ -146,7 +146,7 @@ onMounted(load)
             <el-table-column prop="averageCost" :label="t('inventory.averageCost')" width="150" />
             <el-table-column prop="inventoryValue" :label="t('inventory.inventoryValue')" width="160" />
           </el-table>
-          <el-empty v-if="!balances.length && !loading" :description="t('inventory.emptyBalances')" />
+          <el-empty v-if="loaded && !balances.length && !loading" :description="t('inventory.emptyBalances')" />
         </el-tab-pane>
         <el-tab-pane :label="t('inventory.advanced', 'Available stock')" name="advanced">
           <el-table v-loading="loading" :data="availability" empty-text="">
@@ -182,7 +182,7 @@ onMounted(load)
             <el-table-column prop="documentId" :label="t('inventory.document')" width="180" />
             <el-table-column :label="t('inventory.createdAt')" width="180"><template #default="{ row }">{{ formatDate(row.createdAt) }}</template></el-table-column>
           </el-table>
-          <el-empty v-if="!ledger.length && !loading" :description="t('inventory.emptyLedger')" />
+          <el-empty v-if="loaded && !ledger.length && !loading" :description="t('inventory.emptyLedger')" />
         </el-tab-pane>
       </el-tabs>
     </el-card>

@@ -52,6 +52,7 @@ it('shows unavailable inventory totals as dashes when the core request fails', a
   const wrapper = mount(InventoryView, { global: context(['inventory:view']).global }); await flushPromises()
   expect(wrapper.find('.inventory-summary-grid').text().match(/—/g)).toHaveLength(3)
   expect(wrapper.find('.inventory-summary-grid').text()).not.toContain('0.00')
+  expect(wrapper.find('.el-empty').exists()).toBe(false)
   wrapper.unmount()
 })
 it('finance readers neither request master pickers nor offer invoice or payment creation', async () => {
