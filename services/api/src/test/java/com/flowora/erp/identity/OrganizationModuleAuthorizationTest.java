@@ -81,8 +81,21 @@ class OrganizationModuleAuthorizationTest {
             assertThatThrownBy(()->nativeFinance.invoices("","",a,request)).isInstanceOf(AccessDeniedException.class);
             assertThatThrownBy(()->nativeInventory.availability("","",a,request)).isInstanceOf(AccessDeniedException.class);
             assertThatThrownBy(()->inventory.count(null,a,request)).isInstanceOf(AccessDeniedException.class);
+            assertThatThrownBy(()->inventory.summary(a,request)).isInstanceOf(AccessDeniedException.class);
         }
         verifyNoInteractions(stock,accounting,trade,documents);
+    }
+    @Test void inventorySummaryRequiresActualViewPermissionAndUsesFreshOrganization() {
+        var denied = login(DataScope.ALL,List.of("ADMIN"),List.of());
+        assertThatThrownBy(()->inventory.summary(denied,request)).isInstanceOf(AccessDeniedException.class);
+        verifyNoInteractions(stock);
+        var a = login(DataScope.ALL,List.of("CUSTOM"),List.of("inventory:view"));
+        inventory.summary(a,request); verify(stock).summary("org");
+        var resolver=mock(DatabaseIdentityAuthenticator.class); auth.setAuthenticator(resolver);
+        when(resolver.principalForOrganization("user","org")).thenReturn(actor(DataScope.ALL,List.of("ADMIN"),List.of()));
+        final var existingSession=a;
+        assertThatThrownBy(()->inventory.summary(existingSession,request)).isInstanceOf(AccessDeniedException.class);
+        verify(stock,times(1)).summary("org");
     }
     @Test void compatibilityServicesReceiveFreshIdentityAndRevocationsTakeEffect() {
         var a=login(DataScope.ALL,List.of("CUSTOM"),List.of("finance:post","inventory:post"));

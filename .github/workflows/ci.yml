@@ -188,6 +188,17 @@ jobs:
           path: /tmp/r5-workflow-compat-results.txt
           if-no-files-found: ignore
           retention-days: 14
+      - name: Verify full inventory totals, pagination and organization boundaries through HTTP
+        shell: pwsh
+        run: ./tools/verification/inventory-pagination-smoke.ps1 | Tee-Object -FilePath /tmp/r5-inventory-pagination-results.txt
+      - name: Retain sanitized inventory pagination scenario results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: inventory-pagination-scenarios-${{ github.sha }}
+          path: /tmp/r5-inventory-pagination-results.txt
+          if-no-files-found: ignore
+          retention-days: 14
       - name: Show API errors after scope or module failure
         if: failure()
         run: tail -100 /tmp/r2-api.log || true

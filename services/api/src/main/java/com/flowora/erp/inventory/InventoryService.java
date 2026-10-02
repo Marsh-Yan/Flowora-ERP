@@ -136,6 +136,13 @@ public class InventoryService {
     }
 
     @Transactional(readOnly = true)
+    public InventoryDtos.StockSummaryResponse summary(String organizationId) {
+        if (canonicalReader != null) return canonicalReader.summary(organizationId);
+        return new InventoryDtos.StockSummaryResponse(balanceRepository.inventoryValue(organizationId),
+                balanceRepository.countByOrganizationId(organizationId), ledgerRepository.countByOrganizationId(organizationId));
+    }
+
+    @Transactional(readOnly = true)
     public PageResponse<StockBalanceResponse> balances(String organizationId, String warehouseId, Pageable pageable) {
         if (canonicalReader != null) return canonicalReader.balances(organizationId, clean(warehouseId), pageable);
         Page<StockBalanceEntity> page = balanceRepository.search(organizationId, clean(warehouseId), pageable);

@@ -43,6 +43,10 @@ public final class InventoryDtos {
     ) {
     }
 
+    /** Counts refer to warehouse/item balances and ledger rows, not distinct SKUs or documents. */
+    public record StockSummaryResponse(BigDecimal inventoryValue, long balanceCount, long ledgerCount) {
+    }
+
     public record StockLedgerResponse(
             String id,
             String warehouseId,

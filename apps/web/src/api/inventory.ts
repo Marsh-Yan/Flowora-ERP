@@ -25,6 +25,17 @@ export interface StockBalance {
   inventoryValue: number
 }
 
+export interface StockSummary {
+  inventoryValue: number
+  balanceCount: number
+  ledgerCount: number
+}
+
+export async function getStockSummary() {
+  const response = await apiClient.get<ApiEnvelope<StockSummary>>('/v2/compat/inventory/summary')
+  return response.data.data
+}
+
 export interface StockLedgerEntry {
   id: string
   warehouseId: string
