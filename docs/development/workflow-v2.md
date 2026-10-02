@@ -2,7 +2,26 @@
 
 ## Scope
 
-M2 replaces fixed approval routing with an organization-scoped, versioned workflow runtime. The v1 workflow API remains available for compatibility; new development uses `/api/v2/workflows` and `/api/v2/collaboration`.
+M2 replaces fixed approval routing with an organization-scoped, versioned workflow runtime. The v1 workflow API remains readable for compatibility; v1 writes are blocked and compatibility writes use `/api/v2/compat/workflow`; new development uses `/api/v2/workflows` and `/api/v2/collaboration`.
+
+## Compatibility workflow authorization (R5-E, 2026-10-02)
+
+The compatibility task model remains separate from v2 approval instances. Creating a task requires `workflow:submit` and access to its linked resource under the current organization and data scope. GENERAL resources require `workflow:view`. A fixed ADMIN/BUSINESS/FINANCE/WAREHOUSE/PROJECT role name does not replace submit permission.
+
+| Compatibility action | Required permission | Task relationship |
+| --- | --- | --- |
+| APPROVE / REJECT | `workflow:approve` | Current user or role assignee, or actual `workflow:admin` permission |
+| TRANSFER | `workflow:delegate` | Current user or role assignee, or actual `workflow:admin` permission |
+| COMPLETE | `workflow:submit` | Current user or role assignee, or actual `workflow:admin` permission |
+| CANCEL | Requester with `workflow:submit`, or `workflow:admin` | Requester or actual administrator |
+
+`workflow:admin` alone permits cancellation; it does not implicitly grant approval, delegation or completion. Existing status preconditions and organization-scoped task lookup still apply. Action permission checks are in the shared compatibility service, including its inventory and quote approval callers. Business module write permissions remain independent.
+
+Compatibility HTTP calls reload the current identity; role changes apply to an existing session. Bundled action comments require `collaboration:comment` and linked resource access before task mutation. Standalone demo operation has no database resource policy; local/production enforce that policy. Marking notifications read also requires `workflow:view` and recipient ownership.
+
+Default demo roles retain their catalog permissions. Custom roles must explicitly receive the required permissions; this change never adds permissions or changes assignments automatically. The v2 engine has its own action model and is not changed by this compatibility patch.
+
+Repeatable checks: `CompatibilityWorkflowAuthorizationTest` (real method-security proxies), `WorkflowServiceTest` (no mutation or persistence on denial), and [workflow-compat-smoke.ps1](../../tools/verification/workflow-compat-smoke.ps1) (ten isolated HTTP scenarios, including custom roles, assignment, live revocation, bundled comments and cross-organization task IDs). CI archives sanitized scenario results. Full browser coverage, concurrent task actions, all v2 action/scope combinations, compatibility transfer target eligibility, and legacy business-controller identity refresh remain separate verification work; these results do not close F27.
 
 ## Runtime model
 

@@ -1,6 +1,9 @@
 package com.flowora.erp.workflow;
 
 import com.flowora.erp.common.api.WorkflowStateConflictException;
+import com.flowora.erp.common.api.WorkflowPermissionException;
+import com.flowora.erp.identity.DataScope;
+import com.flowora.erp.workflow.v2.WorkflowResourceAccessPolicy;
 import com.flowora.erp.identity.FloworaPrincipal;
 import com.flowora.erp.masterdata.OrganizationRepository;
 import com.flowora.erp.workflow.WorkflowDtos.ActionRequest;
@@ -25,6 +28,9 @@ import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.verifyNoInteractions;
+import static org.mockito.Mockito.doThrow;
 
 @ExtendWith(MockitoExtension.class)
 class WorkflowServiceTest {
@@ -129,5 +135,81 @@ class WorkflowServiceTest {
 
         verify(taskRepository).findByIdAndOrganizationId(any(), organizationCaptor.capture());
         assertThat(organizationCaptor.getValue()).isEqualTo("org-a");
+    }
+
+    @Test
+    void eachActionRequiresItsPermissionEvenForAssignedAdministrativeRole() {
+        for (var action : WorkflowAction.values()) {
+            var task = task(WorkflowTaskStatus.OPEN);
+            when(taskRepository.findByIdAndOrganizationId(task.id(), "org-a")).thenReturn(Optional.of(task));
+            var actor = principal("user-1", List.of("ADMIN"), List.of());
+            assertThatThrownBy(() -> service.act(actor, task.id(), new ActionRequest(action, "target", "blocked"), "request"))
+                    .isInstanceOf(WorkflowPermissionException.class);
+            assertThat(task.status()).isEqualTo(WorkflowTaskStatus.OPEN);
+            verify(taskRepository, never()).save(task);
+        }
+        verifyNoInteractions(notificationRepository, activityRepository, auditRepository, commentRepository);
+    }
+
+    @Test
+    void actionPermissionsDoNotReplaceAssignmentAndRequesterBoundaries() {
+        for (var action : WorkflowAction.values()) {
+            var task = task(WorkflowTaskStatus.OPEN);
+            when(taskRepository.findByIdAndOrganizationId(task.id(), "org-a")).thenReturn(Optional.of(task));
+            var actor = principal("outsider", List.of("ADMIN"), List.of("workflow:approve", "workflow:delegate", "workflow:submit"));
+            assertThatThrownBy(() -> service.act(actor, task.id(), new ActionRequest(action, "target", null), "request"))
+                    .isInstanceOf(WorkflowPermissionException.class);
+            assertThat(task.status()).isEqualTo(WorkflowTaskStatus.OPEN);
+            verify(taskRepository, never()).save(task);
+        }
+        verifyNoInteractions(notificationRepository, activityRepository, auditRepository, commentRepository);
+    }
+
+    @Test
+    void customAdministrativePermissionCanCancelButDoesNotGrantApproval() {
+        var task = task(WorkflowTaskStatus.OPEN);
+        when(taskRepository.findByIdAndOrganizationId(task.id(), "org-a")).thenReturn(Optional.of(task));
+        var admin = principal("outsider", List.of("CUSTOM"), List.of("workflow:admin"));
+        assertThatThrownBy(() -> service.act(admin, task.id(), new ActionRequest(WorkflowAction.APPROVE, null, null), "request"))
+                .isInstanceOf(WorkflowPermissionException.class);
+        var result = service.act(admin, task.id(), new ActionRequest(WorkflowAction.CANCEL, null, null), "request");
+        assertThat(result.task().status()).isEqualTo(WorkflowTaskStatus.CANCELLED);
+    }
+
+    @Test
+    void bundledCommentRequiresCollaborationPermissionBeforeAnyMutation() {
+        var task = task(WorkflowTaskStatus.OPEN);
+        when(taskRepository.findByIdAndOrganizationId(task.id(), "org-a")).thenReturn(Optional.of(task));
+        var approver = principal("user-1", List.of("CUSTOM"), List.of("workflow:approve"));
+        assertThatThrownBy(() -> service.act(approver, task.id(), new ActionRequest(WorkflowAction.APPROVE, null, "blocked"), "request"))
+                .isInstanceOf(WorkflowPermissionException.class);
+        assertThat(task.status()).isEqualTo(WorkflowTaskStatus.OPEN);
+        verify(taskRepository, never()).save(task);
+        verifyNoInteractions(notificationRepository, activityRepository, auditRepository, commentRepository);
+    }
+
+    @Test
+    void bundledCommentRequiresLinkedResourceScopeBeforeAnyMutation() {
+        var task = task(WorkflowTaskStatus.OPEN);
+        when(taskRepository.findByIdAndOrganizationId(task.id(), "org-a")).thenReturn(Optional.of(task));
+        var approver = principal("user-1", List.of("CUSTOM"), List.of("workflow:approve", "collaboration:comment"));
+        var policy = mock(WorkflowResourceAccessPolicy.class);
+        service.setResourceAccess(policy);
+        doThrow(new WorkflowPermissionException("Out of scope")).when(policy).require(approver, "PURCHASE_ORDER", "po", "comment");
+        assertThatThrownBy(() -> service.act(approver, task.id(), new ActionRequest(WorkflowAction.APPROVE, null, "blocked"), "request"))
+                .isInstanceOf(WorkflowPermissionException.class);
+        assertThat(task.status()).isEqualTo(WorkflowTaskStatus.OPEN);
+        verify(taskRepository, never()).save(task);
+        verifyNoInteractions(notificationRepository, activityRepository, auditRepository, commentRepository);
+    }
+
+    private WorkflowTaskEntity task(WorkflowTaskStatus status) {
+        return new WorkflowTaskEntity("org-a", WorkflowResourceType.PURCHASE_ORDER, "po", "Synthetic", null,
+                new BigDecimal("12000"), "user-1", "user-1", null, status, null);
+    }
+
+    private FloworaPrincipal principal(String id, List<String> roles, List<String> permissions) {
+        return new FloworaPrincipal(id, id + "@audit.invalid", "Synthetic", "org-a", "Org", "membership", null,
+                DataScope.ALL, roles, permissions, false);
     }
 }

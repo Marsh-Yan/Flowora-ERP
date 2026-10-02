@@ -5,6 +5,8 @@ import com.flowora.erp.common.api.ResourceNotFoundException;
 import com.flowora.erp.common.api.WorkflowPermissionException;
 import com.flowora.erp.common.api.WorkflowStateConflictException;
 import com.flowora.erp.identity.FloworaPrincipal;
+import com.flowora.erp.workflow.v2.WorkflowResourceAccessPolicy;
+import org.springframework.beans.factory.annotation.Autowired;
 import com.flowora.erp.masterdata.OrganizationRepository;
 import com.flowora.erp.masterdata.OrganizationEntity;
 import com.flowora.erp.workflow.WorkflowDtos.ActionRequest;
@@ -39,6 +41,12 @@ public class WorkflowService {
     private final AuditEventRepository auditRepository;
     private final ApprovalPolicy approvalPolicy;
     private final OrganizationRepository organizationRepository;
+    private WorkflowResourceAccessPolicy resourceAccess;
+
+    @Autowired(required = false)
+    void setResourceAccess(WorkflowResourceAccessPolicy resourceAccess) {
+        this.resourceAccess = resourceAccess;
+    }
 
     public WorkflowService(
             WorkflowTaskRepository taskRepository,
@@ -96,6 +104,12 @@ public class WorkflowService {
         WorkflowTaskEntity task = taskRepository.findByIdAndOrganizationId(taskId, actor.organizationId())
                 .orElseThrow(() -> new ResourceNotFoundException("workflowTask", taskId));
         ensureCanAct(actor, task, request.action());
+        if (request.comment() != null && !request.comment().isBlank()) {
+            requirePermission(actor, "collaboration:comment");
+            if (resourceAccess != null) {
+                resourceAccess.require(actor, task.resourceType().name(), task.resourceId(), "comment");
+            }
+        }
         boolean notificationCreated;
         switch (request.action()) {
             case APPROVE -> {
@@ -130,7 +144,7 @@ public class WorkflowService {
                 record(task, actor, "COMPLETED", "Workflow task completed", requestId);
             }
             case CANCEL -> {
-                if (!actor.userId().equals(task.requesterUserId()) && !actor.roles().contains("ADMIN")) {
+                if (!actor.userId().equals(task.requesterUserId()) && !actor.permissions().contains("workflow:admin")) {
                     throw new WorkflowPermissionException("Only the requester or administrator can cancel this task");
                 }
                 requireNotTerminal(task);
@@ -199,13 +213,27 @@ public class WorkflowService {
     }
 
     private void ensureCanAct(FloworaPrincipal actor, WorkflowTaskEntity task, WorkflowAction action) {
+        String permission = switch (action) {
+            case APPROVE, REJECT -> "workflow:approve";
+            case TRANSFER -> "workflow:delegate";
+            case COMPLETE, CANCEL -> "workflow:submit";
+        };
+        if (action != WorkflowAction.CANCEL || !actor.permissions().contains("workflow:admin")) {
+            requirePermission(actor, permission);
+        }
         if (action == WorkflowAction.CANCEL && actor.userId().equals(task.requesterUserId())) {
             return;
         }
         boolean assignedUser = actor.userId().equals(task.assigneeUserId());
         boolean assignedRole = task.assigneeRole() != null && actor.roles().contains(task.assigneeRole());
-        if (!assignedUser && !assignedRole && !actor.roles().contains("ADMIN")) {
+        if (!assignedUser && !assignedRole && !actor.permissions().contains("workflow:admin")) {
             throw new WorkflowPermissionException("Current user is not assigned to this workflow task");
+        }
+    }
+
+    private void requirePermission(FloworaPrincipal actor, String permission) {
+        if (!actor.permissions().contains(permission)) {
+            throw new WorkflowPermissionException("Required permission: " + permission);
         }
     }
 
