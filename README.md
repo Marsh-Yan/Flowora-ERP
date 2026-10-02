@@ -44,7 +44,7 @@ Flowora ERP 采用前后端分离的模块化单体架构，默认中文并支�
 | 工作流与协作 | 模板和版本、条件路由、并行审批、转交/委托、SLA、评论、附件、@ 提及与通知 outbox |
 | 项目经营 | 项目、任务、里程碑、工时、费用、预算、开票与项目收入/成本/毛利分析 |
 | 分析与导出 | 经营看板、跨组织聚合、保存视图、权限治理导出、异步任务与运行诊断 |
-| 兼容与升级 | v1 读取兼容、v2 统一写入、Flyway V1–V18、升级预检、控制总数、备份恢复 |
+| 兼容与升级 | v1 读取兼容、v2 统一写入、Flyway V1–V19、升级预检、控制总数、备份恢复 |
 
 ## 系统架构
 
@@ -170,7 +170,7 @@ Web 默认发布到 `http://localhost:8080`。`.env` 不得提交；正式上线
 
 ## 数据库升级
 
-数据库迁移覆盖 Flyway `V1` 至 `V18`。V17/V18 的库存切换和数量核对见[库存切换规则](docs/development/inventory-cutover.md)。从 1.0 升级必须在维护窗口内按“预检 → 备份 → 迁移 → 控制总数核对 → 业务冒烟”执行：
+数据库迁移覆盖 Flyway `V1` 至 `V19`。V17/V18 的库存切换和数量核对见[库存切换规则](docs/development/inventory-cutover.md)，V19 财务设置补缺及应用 UTC 会话配置见[组织财务与时间](docs/development/organization-finance-time.md)。从 1.0 升级必须在维护窗口内按“预检 → 备份 → 迁移 → 控制总数核对 → 业务冒烟”执行：
 
 ```powershell
 tools\upgrade\flowora-upgrade.ps1 -Stage Prepare

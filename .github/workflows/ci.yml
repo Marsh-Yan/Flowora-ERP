@@ -127,6 +127,8 @@ jobs:
         run: ./mvnw -B -pl services/api -Dtest=WorkflowOperationsMySqlTest test
       - name: Test project scope counts and cross-organization permission refresh
         run: ./mvnw -B -pl services/api -Dtest=AnalyticsScopeMySqlTest test
+      - name: Test atomic organization finance initialization and JVM/session time zone matrix
+        run: ./mvnw -B -pl services/api -Dtest=OrganizationFinanceMySqlTest,InventoryTimeZoneMySqlTest test
       - name: Start disposable API with demo fixtures
         run: |
           java -jar services/api/target/flowora-api-2.0.0-SNAPSHOT.jar --spring.profiles.active=local --server.port=18080 --server.address=127.0.0.1 --management.endpoint.health.probes.enabled=true --flowora.demo.enabled=true --flowora.demo.seed-on-start=true --flowora.cors.allowed-origins=http://127.0.0.1:15173 > /tmp/r2-api.log 2>&1 &

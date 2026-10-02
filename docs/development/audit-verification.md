@@ -67,12 +67,14 @@ R5 第五批修复隔离 HTTP 复现的兼容工作流权限问题：创建改�
 
 R5 第六批增加库存余额/流水独立分页与服务端全量汇总，保护旧请求、失败重试和空/未知结果。新增后端4项、前端5项及HTTP6场景，详见 [库存分页](inventory-pagination.md)。本地完整Maven132项及Web18项通过。夹具准备发现新建组织缺少财务设置；本批仅补测试夹具，保留该问题待处理，不宣称全部分页或多币种估值完成。
 
+R5 第七批将组织财务设置纳入创建事务，V19只补旧组织缺失设置，保留已有配置；local/production连接使用UTC会话与瞬间保持，沿用数据库历史epoch。新增组织事务/补缺4项及实际JDBC时区8组合，本地完整Maven144项失败/错误/跳过0。库存HTTP扩展至8场景，取消SQL财务夹具写入，核对自动初始化及API/数据库epoch与实际操作窗口；本地API在UTC和上海JVM均通过该脚本。配置边界及剩余范围见 [组织财务与时间](organization-finance-time.md)，F27仍未全量完成。
+
 | 顺序 | 待办 | 放行证据 |
 | --- | --- | --- |
 | 1 | 已补依赖补丁及 JAR/镜像持续扫描；继续处置残余 OS 中低等级和 Redis 自身公告覆盖 | 每次构建的版本、包清单、原始扫描及实际二进制适用性证据；不得沿用旧 image ID |
 | 2 | 完整浏览器端到端和角色矩阵 | 桌面/窄屏登录 click/Enter/重复提交、MFA、改密、组织切换、采购/销售与退货、库存调拨/盘点/冻结、期间/预算/银行、项目工时/费用/开票/评论、导出；结果逐用例记录 |
 | 3 | 安全与事务边界扩展 | 跨组织四象限、DEPARTMENT/ASSIGNED 范围、并发登录、MFA 错误计数及恢复码并发、附件空文件/上限/丢失文件/事务回滚；附件删除当前无公开 API，需明确产品范围 |
-| 4 | 最新历史副本升级、备份恢复与中断演练 | 停写后的数据库及附件成对备份、校验 hash、隔离恢复、V18 validate、控制总数/附件下载/登录/权限、实际 RPO/RTO；MySQL DDL 不宣称事务回滚 |
+| 4 | 最新历史副本升级、备份恢复与中断演练 | 停写后的数据库及附件成对备份、校验 hash、隔离恢复、V19 validate、控制总数/附件下载/登录/权限、实际 RPO/RTO；MySQL DDL 不宣称事务回滚 |
 | 5 | 历史风险只读预检 | 凭证本位币不平、撤销核销遗留 FX、非法履约、库存旧账/canonical 差异的只读清单；发现业务数据修复须另行批准，不用测试库结果推断业务库 |
 | 6 | 性能、环境与发布决策 | chunk 和关键页面加载基线、容量与多 worker 应用演练、TLS、告警接收链路、v2BusinessWritesEnabled 语义、多币种分析口径、Pilot/UAT 和 GA 审批 |
 
@@ -80,4 +82,4 @@ R5 第六批增加库存余额/流水独立分页与服务端全量汇总，保�
 
 ## 文档状态
 
-`release-verification`、`demo-data`、`demo-accounts` 已新增当前启动/认证/验证说明；`master-data`、`procurement-inventory`、`sales-fulfillment`、`finance`、`projects`、`workbench`、`workflow` 保留旧阶段正文并显著标注历史范围，链接当前替代契约。README、升级手册、M5 迁移与发布记录同步明确 V18 和证据时效。标记历史文档不表示其中所有功能已重新验收。
+`release-verification`、`demo-data`、`demo-accounts` 已新增当前启动/认证/验证说明；`master-data`、`procurement-inventory`、`sales-fulfillment`、`finance`、`projects`、`workbench`、`workflow` 保留旧阶段正文并显著标注历史范围，链接当前替代契约。README、升级手册、M5 迁移与发布记录同步明确 V19 和证据时效。标记历史文档不表示其中所有功能已重新验收。

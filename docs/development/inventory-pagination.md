@@ -15,12 +15,12 @@ local/production 汇总读取 canonical 库存余额视图；按仓库/物料合
 | TradeInventoryMySqlTest 新增2项 | 51条余额/流水的两页完整性、全量金额1332（含第二库位6）、分组及另一组织99900排除、空组织0 |
 | InventoryServiceTest / OrganizationModuleAuthorizationTest 各新增1项 | legacy未分页聚合；真实方法安全代理、ALL/权限/撤权边界 |
 | organization-modules.test.ts 新增5项 | 独立分页、汇总不随页变、失败重试、刷新乱序、页码收缩及空/不可用区分 |
-| inventory-pagination-smoke.ps1 六场景 | 新建唯一组织，以HTTP建51个物料及盘点，全组织金额1326与两页对照、入账流水51、空数据、权限和跨组织排除 |
+| inventory-pagination-smoke.ps1 八场景（R5-G扩展） | 新建唯一组织自动财务初始化，以HTTP建51个物料及盘点，全组织金额1326与两页对照、入账流水51、时间epoch、空数据、权限和跨组织排除 |
 
-HTTP脚本严格限制 audit_flowora/127.0.0.1:13306 和API18080。MySQL client 默认 `mysql`，Windows可用 `FLOWORA_MYSQL_CLIENT` 指定已有可执行文件；密码沿用隔离 `DB_PASSWORD`，不打印到参数或日志。新建组织暂未通过目录API初始化 finance_setting，也没有公开配置入口；脚本仅为本次自有合成组织直接补齐财务设置，主数据/盘点/读取仍通过真实HTTP。这是显式夹具准备，不作为新组织财务功能已验收的证据；该问题保持待处理。
+HTTP脚本严格限制 audit_flowora/127.0.0.1:13306 和API18080。MySQL client 默认 `mysql`，Windows可用 `FLOWORA_MYSQL_CLIENT` 指定已有可执行文件；密码沿用隔离 `DB_PASSWORD`，不打印到参数或日志。R5-F曾直接初始化测试组织的财务夹具；R5-G已移除该写入，通过真实组织API初始化，SQL只读对照设置与时间epoch。当前契约见 [组织财务与时间](organization-finance-time.md)。
 
 本地完整后端132项（失败/错误/跳过0）、前端18项及lint/type/build通过。最终PR/head/CI以本阶段检查为准。手工浏览器证据仅证明当时隔离51行数据的翻页，不替代全业务端到端或F27验收。
 
 ## 仍需继续
 
-隔离非UTC MySQL session下的流水时间偏移（数据库epoch与API相差28800秒，待单独修复）、可用量和主数据/采购选项的完整分页、成本与币种/精度语义、容量和查询性能、新组织财务初始化、全业务/窄屏/项目/角色矩阵、事务竞争及成对恢复仍需后续阶段。F27保持部分完成。
+R5-G已处理新组织财务设置及默认连接配置下的流水读取偏移，未改写历史时间。可用量和主数据/采购选项的完整分页、成本与币种/精度语义、容量和查询性能、全业务/窄屏/项目/角色矩阵、事务竞争及成对恢复仍需后续阶段。F27保持部分完成。

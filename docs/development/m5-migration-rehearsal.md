@@ -1,6 +1,6 @@
 # M5 数据库迁移演练记录
 
-> 历史证据：本记录只证明 2026-08-31 的 V15 样本迁移，不证明当前 V18 的完整升级与恢复。当前 CI 的库存历史样本演练见 [inventory-cutover.md](inventory-cutover.md)，完整备份恢复门禁仍见 [audit-verification.md](audit-verification.md)。原始结果保留下文，禁止据此勾选最新版本发布门禁。
+> 历史证据：本记录只证明 2026-08-31 的 V15 样本迁移，不证明当前 V19 的完整升级与恢复。当前 CI 的库存历史样本演练见 [inventory-cutover.md](inventory-cutover.md)，V19补缺说明见 [组织财务与时间](organization-finance-time.md)，完整备份恢复门禁仍见 [audit-verification.md](audit-verification.md)。原始结果保留下文，禁止据此勾选最新版本发布门禁。
 
 演练日期：2026-08-31。演练均在本机隔离数据库完成，真实 `flowora_erp` 未迁移并保持 V14。
 
