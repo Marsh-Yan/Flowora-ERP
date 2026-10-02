@@ -1,10 +1,10 @@
 <script setup lang="ts">
-import { computed, onMounted, reactive, ref } from 'vue'
+import { computed, onBeforeUnmount, onMounted, reactive, ref, shallowRef } from 'vue'
 import { ElMessage } from 'element-plus'
 import { ArrowRight, Plus, Refresh } from '@element-plus/icons-vue'
 import { useI18n } from 'vue-i18n'
 import { listMasterData, type MasterDataRecord } from '@/api/master-data'
-import { createStockAdjustment, listStockBalances, listStockLedger, receivePurchaseOrder, transferStock, type StockBalance, type StockLedgerEntry } from '@/api/inventory'
+import { createStockAdjustment, getStockSummary, listStockBalances, listStockLedger, receivePurchaseOrder, transferStock, type PageResponse, type StockSummary, type StockBalance, type StockLedgerEntry } from '@/api/inventory'
 import { listAvailability, traceInventory, type Availability, type TraceResult } from '@/api/trade'
 import { listPurchaseOrders, type PurchaseOrder } from '@/api/procurement'
 
@@ -19,8 +19,14 @@ const activeTab = ref<'balances' | 'advanced' | 'ledger' | 'trace'>('balances')
 const loading = ref(false)
 const dialogVisible = ref(false)
 const dialogType = ref<'receipt' | 'adjustment' | 'transfer'>('receipt')
-const balances = ref<StockBalance[]>([])
-const ledger = ref<StockLedgerEntry[]>([])
+const pageSize = 50
+const balancePage = usePagedRows<StockBalance>((page) => listStockBalances('', page, pageSize))
+const ledgerPage = usePagedRows<StockLedgerEntry>((page) => listStockLedger('', '', page, pageSize))
+const balances = balancePage.rows
+const ledger = ledgerPage.rows
+const summary = ref<StockSummary | null>(null)
+let summaryRequest = 0
+let loadRequest = 0
 const availability = ref<Availability[]>([])
 const traceResult = ref<TraceResult | null>(null)
 const traceItemId = ref('')
@@ -40,36 +46,73 @@ function formatDate(value: string) {
   return new Intl.DateTimeFormat(locale.value === 'zh-CN' ? 'zh-CN' : 'en-US', { dateStyle: 'medium', timeStyle: 'short' }).format(new Date(value))
 }
 
-async function load() {
-  loading.value = true
-  loaded.value = false
-  balances.value = []; ledger.value = []; availability.value = []; orders.value = []; warehouses.value = []; items.value = []
+function usePagedRows<T>(fetchPage: (page: number) => Promise<PageResponse<T>>) {
+  const rows = shallowRef<T[]>([])
+  const state = reactive({ page: 1, total: 0, loading: false, loaded: false, error: false })
+  let request = 0
+  async function loadPage(page: number) {
+    const current = ++request
+    state.page = page
+    state.loading = true; state.loaded = false; state.error = false; rows.value = []
+    try {
+      const response = await fetchPage(page - 1)
+      if (current !== request) return
+      const lastPage = Math.max(1, response.totalPages)
+      if (page > lastPage) { await loadPage(lastPage); return }
+      rows.value = response.content
+      state.page = response.page + 1; state.total = response.totalElements; state.loaded = true
+    } catch {
+      if (current !== request) return
+      state.error = true
+      ElMessage.error(t('inventory.loadFailed'))
+    } finally {
+      if (current === request) state.loading = false
+    }
+  }
+  return { rows, state, loadPage, invalidate: () => { request++ } }
+}
+
+async function loadSummary() {
+  const current = ++summaryRequest
+  summary.value = null
   try {
-    const [balancePage, ledgerPage, availabilityRows] = await Promise.all([
-      listStockBalances(), listStockLedger(), listAvailability(),
+    const result = await getStockSummary()
+    if (current === summaryRequest) summary.value = result
+  } catch {
+    if (current === summaryRequest) ElMessage.error(t('inventory.loadFailed'))
+  }
+}
+
+async function load() {
+  const current = ++loadRequest
+  loading.value = true; loaded.value = false
+  availability.value = []; orders.value = []; warehouses.value = []; items.value = []
+  try {
+    await Promise.all([
+      loadSummary(), balancePage.loadPage(1), ledgerPage.loadPage(1),
+      listAvailability().then(rows => {
+        if (current === loadRequest) { availability.value = rows; loaded.value = true }
+      }).catch(() => { if (current === loadRequest) ElMessage.error(t('inventory.loadFailed')) }),
     ])
-    balances.value = balancePage.content
-    ledger.value = ledgerPage.content
-    availability.value = availabilityRows
-    loaded.value = true
+    if (current !== loadRequest) return
     // Optional pickers must not prevent inventory readers from seeing their data.
     const optional = []
     if (auth.hasPermission('master:view')) optional.push((async () => {
-      const [warehousePage, itemPage] = await Promise.all([listMasterData('warehouses', '', 0, 100), listMasterData('items', '', 0, 100)])
-      warehouses.value = warehousePage.content; items.value = itemPage.content
+      const [warehouseRows, itemRows] = await Promise.all([listMasterData('warehouses', '', 0, 100), listMasterData('items', '', 0, 100)])
+      if (current === loadRequest) { warehouses.value = warehouseRows.content; items.value = itemRows.content }
     })())
     if (canReceive.value) optional.push((async () => {
-      const orderPage = await listPurchaseOrders()
-      orders.value = orderPage.content.filter(order => order.remainingQuantity > 0 && ['CONFIRMED', 'APPROVED', 'PARTIALLY_RECEIVED'].includes(order.status))
+      const orderRows = await listPurchaseOrders()
+      if (current === loadRequest) orders.value = orderRows.content.filter(order => order.remainingQuantity > 0 && ['CONFIRMED', 'APPROVED', 'PARTIALLY_RECEIVED'].includes(order.status))
     })())
     const results = await Promise.allSettled(optional)
-    if (results.some(result => result.status === 'rejected')) ElMessage.error(t('inventory.loadFailed'))
-  } catch {
-    ElMessage.error(t('inventory.loadFailed'))
+    if (current === loadRequest && results.some(result => result.status === 'rejected')) ElMessage.error(t('inventory.loadFailed'))
   } finally {
-    loading.value = false
+    if (current === loadRequest) loading.value = false
   }
 }
+
+onBeforeUnmount(() => { loadRequest++; summaryRequest++; balancePage.invalidate(); ledgerPage.invalidate() })
 
 function openDialog(type: 'receipt' | 'adjustment' | 'transfer') {
   dialogType.value = type
@@ -131,22 +174,24 @@ onMounted(load)
     </div>
 
     <div class="inventory-summary-grid">
-      <el-card shadow="never" class="workflow-summary-card"><div class="workflow-summary-icon tone-blue"><span>Σ</span></div><div><span>{{ t('inventory.totalValue') }}</span><strong>{{ loaded ? balances.reduce((sum, row) => sum + row.inventoryValue, 0).toFixed(2) : '—' }}</strong></div></el-card>
-      <el-card shadow="never" class="workflow-summary-card"><div class="workflow-summary-icon tone-mint"><span>Q</span></div><div><span>{{ t('inventory.skuCount') }}</span><strong>{{ loaded ? balances.length : '—' }}</strong></div></el-card>
-      <el-card shadow="never" class="workflow-summary-card"><div class="workflow-summary-icon tone-amber"><span>↗</span></div><div><span>{{ t('inventory.ledgerCount') }}</span><strong>{{ loaded ? ledger.length : '—' }}</strong></div></el-card>
+      <el-card shadow="never" class="workflow-summary-card"><div class="workflow-summary-icon tone-blue"><span>Σ</span></div><div><span>{{ t('inventory.totalValue') }}</span><strong>{{ summary ? summary.inventoryValue.toFixed(2) : '—' }}</strong></div></el-card>
+      <el-card shadow="never" class="workflow-summary-card"><div class="workflow-summary-icon tone-mint"><span>Q</span></div><div><span>{{ t('inventory.skuCount') }}</span><strong>{{ summary ? summary.balanceCount : '—' }}</strong></div></el-card>
+      <el-card shadow="never" class="workflow-summary-card"><div class="workflow-summary-icon tone-amber"><span>↗</span></div><div><span>{{ t('inventory.ledgerCount') }}</span><strong>{{ summary ? summary.ledgerCount : '—' }}</strong></div></el-card>
     </div>
 
     <el-card shadow="never" class="operations-card">
       <el-tabs v-model="activeTab">
         <el-tab-pane :label="t('inventory.balances')" name="balances">
-          <el-table v-loading="loading" :data="balances" empty-text="">
+          <el-table v-loading="balancePage.state.loading" :data="balances" empty-text="">
             <el-table-column :label="t('inventory.warehouse')" min-width="170"><template #default="{ row }">{{ masterName(warehouses, row.warehouseId) }}</template></el-table-column>
             <el-table-column :label="t('inventory.item')" min-width="170"><template #default="{ row }">{{ masterName(items, row.itemId) }}</template></el-table-column>
             <el-table-column prop="quantity" :label="t('inventory.quantity')" width="130" />
             <el-table-column prop="averageCost" :label="t('inventory.averageCost')" width="150" />
             <el-table-column prop="inventoryValue" :label="t('inventory.inventoryValue')" width="160" />
           </el-table>
-          <el-empty v-if="loaded && !balances.length && !loading" :description="t('inventory.emptyBalances')" />
+          <el-empty v-if="balancePage.state.loaded && !balances.length && !balancePage.state.loading" :description="t('inventory.emptyBalances')" />
+          <div v-if="balancePage.state.error" role="alert"><span>{{ t('inventory.loadFailed') }}</span><el-button @click="balancePage.loadPage(balancePage.state.page)">{{ t('inventory.refresh') }}</el-button></div>
+          <el-pagination v-if="balancePage.state.loaded || balancePage.state.loading" data-testid="balances-pagination" :current-page="balancePage.state.page" :page-size="pageSize" :total="balancePage.state.total" :disabled="balancePage.state.loading || loading" :pager-count="5" layout="total, prev, pager, next" @update:current-page="balancePage.loadPage" />
         </el-tab-pane>
         <el-tab-pane :label="t('inventory.advanced', 'Available stock')" name="advanced">
           <el-table v-loading="loading" :data="availability" empty-text="">
@@ -174,7 +219,7 @@ onMounted(load)
           <el-empty v-else :description="t('inventory.traceHint', 'Choose an item to inspect its movement chain')" />
         </el-tab-pane>
         <el-tab-pane :label="t('inventory.ledger')" name="ledger">
-          <el-table v-loading="loading" :data="ledger" empty-text="">
+          <el-table v-loading="ledgerPage.state.loading" :data="ledger" empty-text="">
             <el-table-column :label="t('inventory.movement')" width="150"><template #default="{ row }"><el-tag>{{ t(`inventory.movementTypes.${row.movementType}`, row.movementType) }}</el-tag></template></el-table-column>
             <el-table-column :label="t('inventory.item')" min-width="170"><template #default="{ row }">{{ masterName(items, row.itemId) }}</template></el-table-column>
             <el-table-column prop="quantityDelta" :label="t('inventory.quantityDelta')" width="140" />
@@ -182,7 +227,9 @@ onMounted(load)
             <el-table-column prop="documentId" :label="t('inventory.document')" width="180" />
             <el-table-column :label="t('inventory.createdAt')" width="180"><template #default="{ row }">{{ formatDate(row.createdAt) }}</template></el-table-column>
           </el-table>
-          <el-empty v-if="loaded && !ledger.length && !loading" :description="t('inventory.emptyLedger')" />
+          <el-empty v-if="ledgerPage.state.loaded && !ledger.length && !ledgerPage.state.loading" :description="t('inventory.emptyLedger')" />
+          <div v-if="ledgerPage.state.error" role="alert"><span>{{ t('inventory.loadFailed') }}</span><el-button @click="ledgerPage.loadPage(ledgerPage.state.page)">{{ t('inventory.refresh') }}</el-button></div>
+          <el-pagination v-if="ledgerPage.state.loaded || ledgerPage.state.loading" data-testid="ledger-pagination" :current-page="ledgerPage.state.page" :page-size="pageSize" :total="ledgerPage.state.total" :disabled="ledgerPage.state.loading || loading" :pager-count="5" layout="total, prev, pager, next" @update:current-page="ledgerPage.loadPage" />
         </el-tab-pane>
       </el-tabs>
     </el-card>

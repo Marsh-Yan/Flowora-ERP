@@ -54,6 +54,18 @@ class InventoryServiceTest {
     private InventoryService service;
 
     @Test
+    void legacySummaryUsesUnpagedOrganizationAggregates() {
+        when(balanceRepository.inventoryValue("org-a")).thenReturn(new BigDecimal("1234.5678"));
+        when(balanceRepository.countByOrganizationId("org-a")).thenReturn(51L);
+        when(ledgerRepository.countByOrganizationId("org-a")).thenReturn(75L);
+        var summary = service.summary("org-a");
+        assertThat(summary.inventoryValue()).isEqualByComparingTo("1234.5678");
+        assertThat(summary.balanceCount()).isEqualTo(51); assertThat(summary.ledgerCount()).isEqualTo(75);
+        verify(balanceRepository, never()).search(any(), any(), any());
+        verify(ledgerRepository, never()).search(any(), any(), any(), any());
+    }
+
+    @Test
     void postsLowRiskAdjustmentAndWritesTheLedgerInOneServiceFlow() {
         FloworaPrincipal actor = actor();
         when(warehouseRepository.findByIdAndOrganizationId("warehouse-a", "org-a")).thenReturn(Optional.of(warehouse()));

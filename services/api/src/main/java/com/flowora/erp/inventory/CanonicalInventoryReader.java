@@ -16,6 +16,16 @@ public class CanonicalInventoryReader {
     public CanonicalInventoryReader(JdbcTemplate jdbc) { this.jdbc = jdbc; }
 
     @Transactional(readOnly = true)
+    public StockSummaryResponse summary(String organizationId) {
+        return jdbc.queryForObject("""
+                SELECT COALESCE(SUM(inventory_value),0) inventory_value, COUNT(*) balance_count,
+                  (SELECT COUNT(*) FROM flowora_inventory_delta_v2 WHERE organization_id=?) ledger_count
+                FROM flowora_inventory_summary_v2 WHERE organization_id=?
+                """, (rs, index) -> new StockSummaryResponse(rs.getBigDecimal("inventory_value"),
+                rs.getLong("balance_count"), rs.getLong("ledger_count")), organizationId, organizationId);
+    }
+
+    @Transactional(readOnly = true)
     public PageResponse<StockBalanceResponse> balances(String organizationId, String warehouseId, Pageable page) {
         String where = " WHERE organization_id=? AND (?='' OR warehouse_id=?)";
         Long count = jdbc.queryForObject("SELECT COUNT(*) FROM flowora_inventory_summary_v2" + where,

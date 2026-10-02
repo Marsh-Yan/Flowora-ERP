@@ -41,6 +41,12 @@ public class InventoryController {
         this.authorization = authorization;
     }
 
+    @GetMapping("/summary")
+    @PreAuthorize("@floworaAuthorization.hasOrganizationPermission(authentication, 'inventory:view')")
+    public ApiResponse<InventoryDtos.StockSummaryResponse> summary(Authentication authentication, HttpServletRequest request) {
+        return response(service.summary(principal(authentication).organizationId()), request);
+    }
+
     @GetMapping("/balances")
     @PreAuthorize("@floworaAuthorization.hasOrganizationPermission(authentication, 'inventory:view')")
     public ApiResponse<PageResponse<StockBalanceResponse>> balances(

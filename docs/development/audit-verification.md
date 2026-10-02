@@ -36,7 +36,7 @@ R5 第一批补齐真实安全 HTTP 回归、覆盖矩阵与过期文档。F01�
 | F24 | outbox 定时事务边界 | `WorkflowOperationsMySqlTest`：两个 worker、崩溃回滚、重试及重放 / 数据库 |
 | F25 | 个人审批使用 v2 任务 | `WorkflowOperationsMySqlTest`：实际流程、当前 assignee、旧任务排除 / 数据库；R4 浏览器卡片 |
 | F26 | 工作流 If-Match CORS | SEC-11：真实预检和不允许来源 / HTTP |
-| F27 | 持续验证不足 | CI 五个 job、六个 HTTP 脚本及本矩阵；发布剩余项未完成 |
+| F27 | 持续验证不足 | CI 五个 job、七个 HTTP 脚本及本矩阵；发布剩余项未完成 |
 
 所有入口见 [release-verification.md](release-verification.md)，专项测试代码位于 [API 测试目录](../../services/api/src/test/java/com/flowora/erp)，Web 测试位于 [Web 源码](../../apps/web/src)。HTTP 脚本输出稳定 SEC-01–SEC-12 用例 ID，只输出用例和结果，不打印密码、恢复码、Cookie 或 MFA secret。
 
@@ -64,6 +64,8 @@ R5 第三批补齐部门/本人/受派项目与分析汇总范围对照，修复
 R5 第四批补齐组织级库存/财务权限：不支持行范围的组织数据要求 ALL，兼容直接过账改用实际细分权限，页面只读与可选加载行为同步。新增方法安全代理 5 项及 MODULE 9 场景，见 [组织级访问边界](organization-module-access.md)。完整模块/项目/跨组织矩阵仍需继续。
 
 R5 第五批修复隔离 HTTP 复现的兼容工作流权限问题：创建改为 submit + 来源范围，审批/转派/完成/取消采用细分权限并保留受派限制，附带评论在动作修改前校验权限与范围。新增 10 项后端测试和 10 个 HTTP 场景；本地完整 Maven 128 项失败/错误/跳过均 0。具体规则及未覆盖边界见 [工作流当前契约](workflow-v2.md)。库存分页与全量汇总留待下一批，F27 继续部分完成。
+
+R5 第六批增加库存余额/流水独立分页与服务端全量汇总，保护旧请求、失败重试和空/未知结果。新增后端4项、前端5项及HTTP6场景，详见 [库存分页](inventory-pagination.md)。本地完整Maven132项及Web18项通过。夹具准备发现新建组织缺少财务设置；本批仅补测试夹具，保留该问题待处理，不宣称全部分页或多币种估值完成。
 
 | 顺序 | 待办 | 放行证据 |
 | --- | --- | --- |

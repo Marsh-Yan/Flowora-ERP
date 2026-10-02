@@ -124,6 +124,55 @@ class TradeInventoryMySqlTest {
     }
 
     @Test
+    void inventorySummaryIncludesEveryPageAndGroupsTrackingDimensionsWithinTheOrganization() {
+        tx.execute(status -> {
+            for (int i = 0; i < 51; i++) {
+                String dimensionItem = i == 0 ? item : UUID.randomUUID().toString();
+                jdbc.update("INSERT INTO flowora_inventory_balance_v2(id,organization_id,warehouse_id,item_id,on_hand_quantity,average_cost) VALUES (?,?,?,?,1,?)",
+                        UUID.randomUUID().toString(), org, warehouse, dimensionItem, i + 1);
+                String movement = UUID.randomUUID().toString();
+                jdbc.update("INSERT INTO flowora_stock_movement(id,organization_id,number,movement_type,source_type,source_id,actor_user_id,request_id) VALUES (?,?,?,'COUNT','STOCK_COUNT',?,?,?)",
+                        movement, org, movement, movement, actor.userId(), movement);
+                jdbc.update("INSERT INTO flowora_stock_movement_line(id,organization_id,movement_id,sequence_no,item_id,to_warehouse_id,quantity,unit_cost,value_amount) VALUES (?,?,?,1,?,?,1,?,?)",
+                        UUID.randomUUID().toString(), org, movement, dimensionItem, warehouse, i + 1, i + 1);
+            }
+            // A second location adds value to the same warehouse/item summary row.
+            jdbc.update("INSERT INTO flowora_inventory_balance_v2(id,organization_id,warehouse_id,location_id,item_id,on_hand_quantity,average_cost) VALUES (?,?,?,'second-location',?,2,3)",
+                    UUID.randomUUID().toString(), org, warehouse, item);
+            String otherOrg = UUID.randomUUID().toString();
+            jdbc.update("INSERT INTO flowora_organization(id,name,base_currency_code) VALUES (?,'Summary other org','USD')", otherOrg);
+            jdbc.update("INSERT INTO flowora_inventory_balance_v2(id,organization_id,warehouse_id,item_id,on_hand_quantity,average_cost) VALUES (?,?,?,?,100,999)",
+                    UUID.randomUUID().toString(), otherOrg, warehouse, item);
+            var reader = new CanonicalInventoryReader(jdbc);
+            var first = reader.balances(org, "", PageRequest.of(0, 50));
+            var last = reader.balances(org, "", PageRequest.of(1, 50));
+            var summary = reader.summary(org);
+            assertThat(first.content()).hasSize(50); assertThat(last.content()).hasSize(1);
+            assertThat(summary.balanceCount()).isEqualTo(51);
+            assertThat(summary.ledgerCount()).isEqualTo(51);
+            assertThat(summary.inventoryValue()).isEqualByComparingTo("1332");
+            assertThat(java.util.stream.Stream.concat(first.content().stream(), last.content().stream())
+                    .map(com.flowora.erp.inventory.InventoryDtos.StockBalanceResponse::inventoryValue)
+                    .reduce(BigDecimal.ZERO, BigDecimal::add)).isEqualByComparingTo(summary.inventoryValue());
+            var firstLedger = reader.ledger(org, "", "", PageRequest.of(0, 50));
+            var lastLedger = reader.ledger(org, "", "", PageRequest.of(1, 50));
+            assertThat(firstLedger.content()).hasSize(50); assertThat(lastLedger.content()).hasSize(1);
+            assertThat(java.util.stream.Stream.concat(firstLedger.content().stream(), lastLedger.content().stream())
+                    .map(com.flowora.erp.inventory.InventoryDtos.StockLedgerResponse::id).distinct().count()).isEqualTo(51);
+            assertThat(reader.summary(otherOrg).inventoryValue()).isEqualByComparingTo("99900");
+            assertThat(reader.summary(otherOrg).ledgerCount()).isZero();
+            status.setRollbackOnly(); return null;
+        });
+    }
+
+    @Test
+    void emptyInventorySummaryReturnsActualZeroValues() {
+        var summary = new CanonicalInventoryReader(jdbc).summary(org);
+        assertThat(summary.inventoryValue()).isEqualByComparingTo(BigDecimal.ZERO);
+        assertThat(summary.balanceCount()).isZero(); assertThat(summary.ledgerCount()).isZero();
+    }
+
+    @Test
     void rejectedFulfillmentLeavesEveryBusinessTableUnchanged() {
         for (String state : List.of("DRAFT", "CANCELLED", "CLOSED", "RECEIVED")) {
             var po = purchase("2");
