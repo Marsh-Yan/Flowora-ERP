@@ -129,6 +129,7 @@ export default {
     authForbidden: 'You do not have permission to perform this action.',
     authInvalidCredentials: 'The username or password is incorrect.',
     workflowStateConflict: 'This workflow task has already changed state. Refresh and try again.',
+    workflowAssigneeInvalid: 'Choose an active member of this organization who can handle the task and access its source record.',
     workflowForbidden: 'You are not assigned to this workflow task.',
     stateConflict: 'The current data state does not allow this operation. Refresh and try again.',
     internal: 'Something went wrong. Please try again.',

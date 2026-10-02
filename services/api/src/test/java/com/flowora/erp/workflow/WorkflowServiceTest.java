@@ -212,4 +212,49 @@ class WorkflowServiceTest {
         return new FloworaPrincipal(id, id + "@audit.invalid", "Synthetic", "org-a", "Org", "membership", null,
                 DataScope.ALL, roles, permissions, false);
     }
+
+    @Test void invalidTransferTargetNeverChangesTaskOrWritesAnySideEffect() {
+        var task = task(WorkflowTaskStatus.OPEN);
+        when(taskRepository.findByIdAndOrganizationId(task.id(), "org-a")).thenReturn(Optional.of(task));
+        var policy = mock(WorkflowAssigneePolicy.class); service.setAssignees(policy);
+        doThrow(WorkflowAssigneePolicy.invalid()).when(policy).require("org-a", "bad", WorkflowResourceType.PURCHASE_ORDER, "po", true);
+        var delegate = principal("user-1", List.of("CUSTOM"), List.of("workflow:delegate"));
+        assertThatThrownBy(() -> service.act(delegate, task.id(), new ActionRequest(WorkflowAction.TRANSFER, "bad", null), "request"))
+                .isInstanceOf(com.flowora.erp.common.api.PlatformApiException.class);
+        assertThat(task.assigneeUserId()).isEqualTo("user-1"); assertThat(task.status()).isEqualTo(WorkflowTaskStatus.OPEN);
+        verify(taskRepository, never()).save(any());
+        verifyNoInteractions(notificationRepository, activityRepository, auditRepository, commentRepository);
+    }
+
+    @Test void eligibleTransferIsValidatedBeforeMovingAssignmentAndPersistingNotification() {
+        var task = task(WorkflowTaskStatus.OPEN);
+        when(taskRepository.findByIdAndOrganizationId(task.id(), "org-a")).thenReturn(Optional.of(task));
+        var policy = mock(WorkflowAssigneePolicy.class); service.setAssignees(policy);
+        var delegate = principal("user-1", List.of("CUSTOM"), List.of("workflow:delegate"));
+        var result = service.act(delegate, task.id(), new ActionRequest(WorkflowAction.TRANSFER, " target ", null), "request");
+        var order = org.mockito.Mockito.inOrder(policy, notificationRepository, taskRepository);
+        order.verify(policy).require("org-a", "target", WorkflowResourceType.PURCHASE_ORDER, "po", true);
+        order.verify(notificationRepository).save(any(NotificationEntity.class));
+        order.verify(taskRepository).save(task);
+        assertThat(result.task().assigneeUserId()).isEqualTo("target"); assertThat(result.task().assigneeRole()).isNull();
+    }
+
+    @Test void invalidExplicitCreationAssignmentNeverCreatesTaskOrSideEffects() {
+        when(approvalPolicy.requiresApproval(any(), any(), any())).thenReturn(true);
+        var policy = mock(WorkflowAssigneePolicy.class); service.setAssignees(policy);
+        doThrow(WorkflowAssigneePolicy.invalid()).when(policy).require("org-a", "bad", WorkflowResourceType.PURCHASE_ORDER, "po", true);
+        assertThatThrownBy(() -> service.createTask(actor, new TaskRequest(WorkflowResourceType.PURCHASE_ORDER,
+                "po", "Blocked", null, new BigDecimal("12000"), "bad", null), "request"))
+                .isInstanceOf(com.flowora.erp.common.api.PlatformApiException.class);
+        verifyNoInteractions(taskRepository, notificationRepository, activityRepository, auditRepository, commentRepository);
+    }
+
+    @Test void missingTargetPolicyCannotSilentlyAllowExplicitAssignment() {
+        var task = task(WorkflowTaskStatus.OPEN);
+        when(taskRepository.findByIdAndOrganizationId(task.id(), "org-a")).thenReturn(Optional.of(task));
+        var delegate = principal("user-1", List.of("CUSTOM"), List.of("workflow:delegate"));
+        assertThatThrownBy(() -> service.act(delegate, task.id(), new ActionRequest(WorkflowAction.TRANSFER, "target", null), "request"))
+                .isInstanceOf(com.flowora.erp.common.api.PlatformApiException.class);
+        verifyNoInteractions(notificationRepository, activityRepository, auditRepository, commentRepository);
+    }
 }
