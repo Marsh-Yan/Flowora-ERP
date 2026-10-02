@@ -90,13 +90,13 @@ public class InventoryController {
     }
 
     @PostMapping("/adjustments/{id}/approve")
-    @PreAuthorize("@floworaAuthorization.hasOrganizationPermission(authentication, 'inventory:post')")
+    @PreAuthorize("@floworaAuthorization.hasOrganizationPermission(authentication, 'inventory:post') && @floworaAuthorization.has(authentication, 'workflow:approve')")
     public ApiResponse<StockAdjustmentResponse> approveAdjustment(@PathVariable String id, Authentication authentication, HttpServletRequest request) {
         return response(service.approveAdjustment(principal(authentication), id, RequestIdFilter.get(request)), request);
     }
 
     @PostMapping("/adjustments/{id}/reject")
-    @PreAuthorize("@floworaAuthorization.hasOrganizationPermission(authentication, 'inventory:post')")
+    @PreAuthorize("@floworaAuthorization.hasOrganizationPermission(authentication, 'inventory:post') && @floworaAuthorization.has(authentication, 'workflow:approve')")
     public ApiResponse<StockAdjustmentResponse> rejectAdjustment(@PathVariable String id, Authentication authentication, HttpServletRequest request) {
         return response(service.rejectAdjustment(principal(authentication), id, RequestIdFilter.get(request)), request);
     }

@@ -10,7 +10,8 @@
 | --- | --- |
 | 兼容库存余额/流水、原生可用量 | inventory:view |
 | 追踪 | inventory:trace |
-| 兼容收货/调拨/盘点/调整创建与批准/拒绝 | inventory:post |
+| 兼容收货/调拨/盘点/调整创建 | inventory:post |
+| 兼容调整批准/拒绝 | inventory:post + workflow:approve；仍需通过受派检查 |
 | 原生库存过账/预留/冻结/退货 | 保留原生 post/reserve/freeze/return 细分权限 |
 | 组织财务读取 | finance:view |
 | 兼容手工凭证、供应商付款、关账 | finance:post |
@@ -19,17 +20,17 @@
 
 库存调整创建会按阈值立即过账，因此不能只要求 inventory:create；兼容手工凭证与供应商付款也会立即入账，不能只要求 finance:create。已有 ADMIN/FINANCE/WAREHOUSE/MANAGEMENT 角色名不代替实际权限。工作流批准自身的受派与审批规则继续独立检查。每次操作通过身份解析器重载成员、权限和范围，撤权及缩小范围适用于已有会话。
 
-影响：之前能通过受限范围读取组织级资源的角色现在被拒绝；需要组织级职责的角色应由管理员按业务授权明确配置 ALL 和细分权限，不会由本次修复自动授予。只有视图权限的账号无法操作过账，只有 create 权限不能执行兼容直接过账。
+影响：之前能通过受限范围读取组织级资源的角色现在被拒绝；需要组织级职责的角色应由管理员按业务授权明确配置 ALL 和细分权限，不会由本次修复自动授予。只有视图权限的账号无法操作过账，只有 create 权限不能执行兼容直接过账。调整审批同时要求 inventory:post 与 workflow:approve；原默认 MANAGEMENT 若只有 view/approve，则现在被拒绝，需管理员按职责显式授权，不由代码自动授予。
 
 ## 页面和回归
 
 导航/路由及操作按钮遵循相同组织范围。库存只读账号不请求采购列表或主数据选项，不展示写入/追踪操作；有权限的可选选项失败不会抹掉已加载的库存。核心请求失败时汇总用“—”显示未知值。财务创建/过账/关账按钮按实际权限显示，往来方选项仅在有 master:view 时请求；无选项权限不展示依赖该选项的创建入口。
 
-- `OrganizationModuleAuthorizationTest`：实际 Spring 方法安全代理覆盖固定角色名不能绕过、CUSTOM 过账、三种范围拒绝、实时身份变化及传给兼容服务的身份。
+- `OrganizationModuleAuthorizationTest`：实际 Spring 方法安全代理覆盖固定角色名不能绕过、CUSTOM 过账、库存审批组合权限、三种范围拒绝、实时身份变化及传给兼容服务的身份。
 - `module-smoke.ps1`：9 个 HTTP 场景，含只读/no permission、SELF/DEPARTMENT/ASSIGNED、create 不能 post、CUSTOM 正常写入、撤权与缩小范围。仅接受授权 audit_flowora/18080，结束禁用夹具用户并退出会话；过账样本保留在隔离库。
 - `organization-modules.test.ts`：真实组件验证只读库存加载、可选失败保留核心数据、核心失败未知值、财务只读操作隐藏及范围导航策略。
 
-本地 API 117 项（失败/错误/跳过均 0）、Web 类型/lint/13 项测试/build、MODULE 9 / SCOPE 11 / SEC 12、库存和财务 HTTP 回归通过。Windows 打包曾被运行中的隔离 JAR 锁住；停止该实例后单独重新打包成功，未将打包错误当作通过。
+本地 API 118 项（失败/错误/跳过均 0）、Web 类型/lint/13 项测试/build、MODULE 9 / SCOPE 11 / SEC 12、库存和财务 HTTP 回归通过。Windows 打包曾被运行中的隔离 JAR 锁住；停止该实例后单独重新打包成功，未将打包错误当作通过。
 
 实际浏览器 ALL 只读账号只有 inventory:view / finance:view：库存及财务成功加载，不出现写入按钮或无权限选项错误；部门范围账号通过 Enter 登录，部门和受派账号均不显示组织级模块，直接访问 /inventory 与 /finance 转到带 denied 的工作台。三账号均在界面退出并在隔离库禁用，截图和凭据仅保留私有审计目录。
 

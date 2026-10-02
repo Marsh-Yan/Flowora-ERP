@@ -63,6 +63,17 @@ class OrganizationModuleAuthorizationTest {
         verify(accounting).manual((FloworaPrincipal)authentication.getPrincipal(),null);
         verify(stock).count((FloworaPrincipal)authentication.getPrincipal(),null);
     }
+    @Test void adjustmentApprovalRequiresPostingAndWorkflowApprovalTogether() {
+        for(var permissions:List.of(List.of("inventory:post"),List.of("workflow:approve"))) {
+            var a=login(DataScope.ALL,List.of("ADMIN"),permissions);
+            assertThatThrownBy(()->inventory.approveAdjustment("id",a,request)).isInstanceOf(AccessDeniedException.class);
+            assertThatThrownBy(()->inventory.rejectAdjustment("id",a,request)).isInstanceOf(AccessDeniedException.class);
+        }
+        verifyNoInteractions(stock);
+        var a=login(DataScope.ALL,List.of("CUSTOM"),List.of("inventory:post","workflow:approve"));
+        inventory.approveAdjustment("id",a,request);
+        verify(stock).approveAdjustment(eq((FloworaPrincipal)a.getPrincipal()),eq("id"),anyString());
+    }
     @Test void unsupportedScopesCannotReadOrPostSharedOrganizationData() {
         for(var scope:List.of(DataScope.SELF,DataScope.DEPARTMENT,DataScope.ASSIGNED)) {
             var a=login(scope,List.of("ADMIN"),List.of("finance:view","finance:post","inventory:view","inventory:post"));
