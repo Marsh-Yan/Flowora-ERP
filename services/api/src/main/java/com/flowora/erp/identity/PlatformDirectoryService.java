@@ -74,6 +74,10 @@ public class PlatformDirectoryService {
                 command.timezone().trim(), command.fiscalYearStartMonth(), command.amountScale(),
                 command.priceScale(), command.quantityScale(), command.taxRoundingMode(),
                 command.reservationTtlMinutes(), command.expiryWarningDays(), command.defaultApprovalPolicy());
+        jdbcTemplate.update("""
+                INSERT INTO flowora_finance_setting (organization_id, base_currency_code, fiscal_year_start_month)
+                VALUES (?, ?, ?)
+                """, id, normalizeCode(command.baseCurrencyCode()), command.fiscalYearStartMonth());
         String roleId = UUID.randomUUID().toString();
         String membershipId = UUID.randomUUID().toString();
         jdbcTemplate.update("""

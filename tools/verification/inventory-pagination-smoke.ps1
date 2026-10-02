@@ -9,6 +9,18 @@ $clients = [Collections.Generic.List[object]]::new()
 $users = [Collections.Generic.List[string]]::new()
 $failures = [Collections.Generic.List[string]]::new()
 function Check($ok, $message) { if (-not $ok) { throw $message } }
+function Sql($query) {
+    $mysql=if($env:FLOWORA_MYSQL_CLIENT){$env:FLOWORA_MYSQL_CLIENT}else{'mysql'}
+    $previousMysqlPassword=$env:MYSQL_PWD
+    try {
+        $env:MYSQL_PWD=$env:DB_PASSWORD
+        $result = & $mysql --no-defaults --host=127.0.0.1 --port=13306 --user=root --database=audit_flowora --batch --skip-column-names --execute=$query
+        if($LASTEXITCODE -ne 0){throw 'Isolated database read failed'}
+        return $result
+    } finally {
+        if($null -eq $previousMysqlPassword){Remove-Item Env:MYSQL_PWD -ErrorAction SilentlyContinue}else{$env:MYSQL_PWD=$previousMysqlPassword}
+    }
+}
 function Scenario($id, [scriptblock]$test) {
     try { & $test; Write-Output "PASS $id" }
     catch { $failures.Add($id); Write-Output "FAIL $id : $($_.Exception.Message)" }
@@ -53,17 +65,12 @@ try {
         $empty=Request $reader.client GET '/api/v2/compat/inventory/summary'
         Check ($empty.inventoryValue -eq 0 -and $empty.balanceCount -eq 0 -and $empty.ledgerCount -eq 0) 'Empty summary is not zero'
     }
-    # No public finance-setting provisioning endpoint currently exists. Seed only this owned fixture.
     Check ($child.id -match '^[0-9a-fA-F-]{36}$') 'Unexpected fixture organization ID'
-    $mysql=if($env:FLOWORA_MYSQL_CLIENT){$env:FLOWORA_MYSQL_CLIENT}else{'mysql'}
-    $previousMysqlPassword=$env:MYSQL_PWD
-    try {
-        $env:MYSQL_PWD=$env:DB_PASSWORD
-        & $mysql --no-defaults --host=127.0.0.1 --port=13306 --user=root --database=audit_flowora --execute="INSERT INTO flowora_finance_setting(organization_id,base_currency_code) SELECT id,base_currency_code FROM flowora_organization WHERE id='$($child.id)' AND name='R5F inventory $run';" | Out-Null
-        if($LASTEXITCODE -ne 0){throw 'Owned isolated finance fixture setup failed'}
-    } finally {
-        if($null -eq $previousMysqlPassword){Remove-Item Env:MYSQL_PWD -ErrorAction SilentlyContinue}else{$env:MYSQL_PWD=$previousMysqlPassword}
+    Scenario 'INV-PAGE-00 organization API provisions financial settings without a SQL fixture write' {
+        $settings=Sql "SELECT CONCAT(base_currency_code,':',fiscal_year_start_month,':',match_quantity_tolerance,':',match_price_tolerance_rate,':',match_tax_tolerance) FROM flowora_finance_setting WHERE organization_id='$($child.id)';"
+        Check ($settings -eq 'USD:1:0.0000:0.0000:0.0000') 'Financial initialization did not match the organization contract'
     }
+    $started=[datetimeoffset]::UtcNow.ToUnixTimeSeconds()
     foreach($account in @(@{code='1400';name='Isolated inventory';type='ASSET'},@{code='5000';name='Isolated variance';type='EXPENSE'})) {
         Request $admin POST '/api/v2/masters/accounts' ($account+@{postingAllowed=$true;active=$true})|Out-Null
     }
@@ -93,6 +100,22 @@ try {
         Check (@((@($first.content)+@($last.content)).id|Select-Object -Unique).Count -eq 51) 'Ledger pages duplicate or lose rows'
         Check ((Request $reader.client GET '/api/v2/compat/inventory/summary').ledgerCount -eq 51) 'Paging changed full summary'
     }
+    Scenario 'INV-PAGE-07 API timestamps agree with database epochs and the actual posting window' {
+        $finished=[datetimeoffset]::UtcNow.ToUnixTimeSeconds()
+        $stored=@(Sql "SELECT source_id,UNIX_TIMESTAMP(posted_at) FROM flowora_stock_movement WHERE organization_id='$($child.id)' AND status='POSTED';")
+        Check ($stored.Count -eq 51) 'Unexpected fixture movement count'
+        $epochs=@{}
+        foreach($row in $stored){$fields=$row -split "`t"; $epochs[$fields[0]]=[long]$fields[1]}
+        foreach($path in @('/api/v1/inventory/ledger','/api/v2/compat/inventory/ledger')) {
+            $rows=@((Request $reader.client GET "$path`?size=50").content)+@((Request $reader.client GET "$path`?page=1&size=50").content)
+            Check ($rows.Count -eq 51) 'Timestamp check lost ledger rows'
+            foreach($row in $rows) {
+                $epoch=([datetimeoffset]$row.createdAt).ToUnixTimeSeconds()
+                Check ($epochs.ContainsKey($row.documentId) -and $epoch -eq $epochs[$row.documentId]) 'API timestamp differs from database epoch'
+                Check ($epoch -ge $started-2 -and $epoch -le $finished+2) 'Posting timestamp differs from actual wall clock'
+            }
+        }
+    }
     Scenario 'INV-PAGE-05 summary requires inventory view and ALL scope' {
         $empty=User 'no-permission' (Role 'ALL' @('workflow:view'))
         foreach($path in @('/api/v1/inventory/summary','/api/v2/compat/inventory/summary')){Request $empty.client GET $path $null 403}
@@ -109,7 +132,7 @@ try {
         } finally { Request $admin POST '/api/v2/session/switch-organization' @{organizationId=$child.id}|Out-Null }
     }
     if($failures.Count){throw "Inventory pagination regression failed: $($failures.Count) scenarios"}
-    Write-Output 'Inventory pagination HTTP regression complete: 6 scenarios; isolated endpoint only.'
+    Write-Output 'Inventory pagination HTTP regression complete: 8 scenarios; isolated endpoint only.'
 } finally {
     foreach($id in $users){try{Request $admin POST "/api/v2/users/$id/disable" @{reason='R5F fixture cleanup'}|Out-Null}catch{Write-Warning 'Synthetic inventory fixture cleanup requires inspection'}}
     if($parent){try{Request $admin POST '/api/v2/session/switch-organization' @{organizationId=$parent}|Out-Null}catch{}}

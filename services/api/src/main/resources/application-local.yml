@@ -8,6 +8,12 @@ spring:
     url: ${DB_URL:jdbc:mysql://localhost:3306/flowora_erp?useUnicode=true&characterEncoding=utf8&serverTimezone=UTC}
     username: ${DB_USERNAME}
     password: ${DB_PASSWORD}
+    hikari:
+      connection-init-sql: SET time_zone = '+00:00'
+      data-source-properties:
+        connectionTimeZone: "+00:00"
+        forceConnectionTimeZoneToSession: true
+        preserveInstants: true
   jpa:
     open-in-view: false
     hibernate:
