@@ -82,4 +82,4 @@ R5 第七批将组织财务设置纳入创建事务，V19只补旧组织缺失�
 
 ## 文档状态
 
-`release-verification`、`demo-data`、`demo-accounts` 已新增当前启动/认证/验证说明；`master-data`、`procurement-inventory`、`sales-fulfillment`、`finance`、`projects`、`workbench`、`workflow` 保留旧阶段正文并显著标注历史范围，链接当前替代契约。README、升级手册、M5 迁移与发布记录同步明确 V18 和证据时效。标记历史文档不表示其中所有功能已重新验收。
+`release-verification`、`demo-data`、`demo-accounts` 已新增当前启动/认证/验证说明；`master-data`、`procurement-inventory`、`sales-fulfillment`、`finance`、`projects`、`workbench`、`workflow` 保留旧阶段正文并显著标注历史范围，链接当前替代契约。README、升级手册、M5 迁移与发布记录同步明确 V19 和证据时效。标记历史文档不表示其中所有功能已重新验收。

@@ -16,7 +16,7 @@ local/production 的 Hikari 连接设置 `connectionTimeZone=+00:00`、`forceCon
 
 ## 验证与范围
 
-- `OrganizationFinanceMySqlTest` 4项：组织币种/财年/默认容差，后续失败时完整事务回滚，外国父组织拒绝，V19重复补缺及已有配置保留。
+- `OrganizationFinanceMySqlTest` 4项：组织币种/财年/默认容差，后续失败时完整事务回滚，跨组织父节点拒绝，V19重复补缺及已有配置保留；自建用户随事务回滚，不依赖演示账号。
 - `InventoryTimeZoneMySqlTest` 8组合：local/production 配置 × UTC/Asia-Shanghai JVM × UTC/+08:00 历史写入会话；实际 canonical 视图读取等于历史 epoch，新 JDBC 时间写入也等于指定瞬间，测试只清理自有夹具。
 - `inventory-pagination-smoke.ps1` 8场景：不再写 SQL 财务夹具，真实组织 API 自动初始化；HTTP盘点51条、分页/汇总/权限/组织边界、两个读取别名的全部时间与独立SQL epoch及实际操作窗口一致。SQL仅用于只读对照。
 

@@ -25,6 +25,7 @@ class OrganizationFinanceMySqlTest {
     static DriverManagerDataSource source;
     static JdbcTemplate jdbc;
     static DataSourceTransactionManager manager;
+    final String actorId = UUID.randomUUID().toString();
 
     @BeforeAll static void connect() {
         source = new DriverManagerDataSource(System.getenv("FLOWORA_R2_MYSQL_URL"), "root",
@@ -43,7 +44,7 @@ class OrganizationFinanceMySqlTest {
     }
 
     FloworaPrincipal actor() {
-        return new FloworaPrincipal("user-demo-admin", "admin@demo.flowora", "Admin", "org-demo", "Demo",
+        return new FloworaPrincipal(actorId, "r5g-admin@audit.invalid", "Admin", "org-demo", "Demo",
                 "membership-admin", null, DataScope.ALL, List.of("ADMIN"), List.of("organization:configure"), false);
     }
 
@@ -54,6 +55,7 @@ class OrganizationFinanceMySqlTest {
 
     @Test void initializesFinanceInTheSameTransactionWithTheOrganizationsCurrencyAndFiscalYear() {
         new TransactionTemplate(manager).execute(status -> {
+            jdbc.update("INSERT INTO flowora_user_account(id,organization_id,username,display_name,password_hash,active) VALUES (?,'org-demo',?,'R5G synthetic admin','unused-test-hash',TRUE)", actorId, "r5g-" + actorId + "@audit.invalid");
             var child = service(jdbc).createOrganization(actor(), command("R5G finance " + UUID.randomUUID(), "org-demo"));
             var settings = jdbc.queryForMap("SELECT * FROM flowora_finance_setting WHERE organization_id=?", child.id());
             assertThat(child.baseCurrencyCode()).isEqualTo("EUR");
