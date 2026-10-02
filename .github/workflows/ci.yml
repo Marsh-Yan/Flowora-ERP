@@ -177,6 +177,17 @@ jobs:
           path: /tmp/r5-module-results.txt
           if-no-files-found: ignore
           retention-days: 14
+      - name: Verify compatibility workflow permission and assignment boundaries through HTTP
+        shell: pwsh
+        run: ./tools/verification/workflow-compat-smoke.ps1 | Tee-Object -FilePath /tmp/r5-workflow-compat-results.txt
+      - name: Retain sanitized compatibility workflow scenario results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: workflow-compat-scenarios-${{ github.sha }}
+          path: /tmp/r5-workflow-compat-results.txt
+          if-no-files-found: ignore
+          retention-days: 14
       - name: Show API errors after scope or module failure
         if: failure()
         run: tail -100 /tmp/r2-api.log || true

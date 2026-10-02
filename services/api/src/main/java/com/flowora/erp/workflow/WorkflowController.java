@@ -54,12 +54,13 @@ public class WorkflowController {
     }
 
     @PostMapping("/tasks")
-    @PreAuthorize("hasAnyRole('ADMIN', 'BUSINESS', 'FINANCE', 'WAREHOUSE', 'PROJECT')")
+    @PreAuthorize("@floworaAuthorization.has(authentication, 'workflow:submit')")
     public ApiResponse<TaskResponse> createTask(
             @Valid @RequestBody TaskRequest body,
             Authentication authentication,
             HttpServletRequest request
     ) {
+        requireResource(authentication, body.resourceType().name(), body.resourceId(), "read");
         return response(service.createTask(principal(authentication), body, RequestIdFilter.get(request)), request);
     }
 
@@ -90,6 +91,7 @@ public class WorkflowController {
     }
 
     @PostMapping("/notifications/{id}/read")
+    @PreAuthorize("@floworaAuthorization.has(authentication, 'workflow:view')")
     public ApiResponse<NotificationResponse> markNotificationRead(
             @PathVariable String id,
             Authentication authentication,
