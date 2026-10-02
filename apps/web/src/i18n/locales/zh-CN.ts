@@ -128,6 +128,7 @@ export default {
     authForbidden: '你没有执行此操作的权限。',
     authInvalidCredentials: '账号或密码不正确。',
     workflowStateConflict: '工作流状态已发生变化，请刷新后重试。',
+    workflowAssigneeInvalid: '无法指派给该用户，请选择本组织内有处理权限且能访问来源单据的有效成员。',
     workflowForbidden: '你未被分配执行此工作流任务。',
     stateConflict: '当前数据状态不允许执行该操作，请刷新后重试。',
     internal: '系统出现问题，请稍后重试。',

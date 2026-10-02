@@ -44,7 +44,8 @@ try {
     $org=$identity.organizationId
     $temporary='Temp!'+[guid]::NewGuid().ToString('N'); $password='Fresh!'+[guid]::NewGuid().ToString('N')
     $basePerms=@('workflow:view','procurement:view')
-    $reader=User 'reader' (Role 'ALL' $basePerms)
+    $readerRole=Role 'ALL' ($basePerms+@('workflow:approve'))
+    $reader=User 'reader' $readerRole
     $submitter=User 'submitter' (Role 'ALL' ($basePerms+@('workflow:submit')))
     $approverRole=Role 'ALL' ($basePerms+@('workflow:approve'))
     $approver=User 'approver' $approverRole
@@ -81,6 +82,7 @@ try {
     }
     Scenario 'WF-COMPAT-02 assigned reader cannot approve, reject or transfer' {
         $task=Task $reader.id
+        Request $admin PUT "/api/v2/roles/$($readerRole.id)" @{name='R5E reader revoked';dataScope='ALL';active=$true;permissions=$basePerms;reason='Isolated post-assignment revocation'}|Out-Null
         foreach($action in @('APPROVE','REJECT','TRANSFER')){Act $reader.client $task $action 403 $approver.id}
         Unchanged $reader $task 'OPEN'
     }

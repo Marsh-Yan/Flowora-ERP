@@ -201,6 +201,17 @@ jobs:
           path: /tmp/r5-inventory-pagination-results.txt
           if-no-files-found: ignore
           retention-days: 14
+      - name: Verify workflow assignment membership, capabilities and source scope through HTTP
+        shell: pwsh
+        run: ./tools/verification/workflow-transfer-smoke.ps1 | Tee-Object -FilePath /tmp/r5-workflow-transfer-results.txt
+      - name: Retain sanitized workflow assignee scenario results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: workflow-transfer-scenarios-${{ github.sha }}
+          path: /tmp/r5-workflow-transfer-results.txt
+          if-no-files-found: ignore
+          retention-days: 14
       - name: Show API errors after scope or module failure
         if: failure()
         run: tail -100 /tmp/r2-api.log || true

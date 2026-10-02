@@ -42,6 +42,12 @@ public class WorkflowService {
     private final ApprovalPolicy approvalPolicy;
     private final OrganizationRepository organizationRepository;
     private WorkflowResourceAccessPolicy resourceAccess;
+    private WorkflowAssigneePolicy assignees;
+
+    @Autowired(required = false)
+    void setAssignees(WorkflowAssigneePolicy assignees) {
+        this.assignees = assignees;
+    }
 
     @Autowired(required = false)
     void setResourceAccess(WorkflowResourceAccessPolicy resourceAccess) {
@@ -80,6 +86,9 @@ public class WorkflowService {
                 request.resourceType(), amount, approvalThreshold(actor.organizationId())
         );
         String assigneeUserId = clean(request.assigneeUserId());
+        if (!assigneeUserId.isBlank()) {
+            requireAssignee(actor.organizationId(), assigneeUserId, request.resourceType(), clean(request.resourceId()), requiresApproval);
+        }
         String assigneeRole = requiresApproval && assigneeUserId.isBlank() ? approvalPolicy.approverRole(request.resourceType()) : null;
         WorkflowTaskStatus status = requiresApproval ? WorkflowTaskStatus.OPEN : WorkflowTaskStatus.APPROVED;
         WorkflowTaskEntity task = taskRepository.save(new WorkflowTaskEntity(
@@ -130,6 +139,7 @@ public class WorkflowService {
                 if (target.isBlank()) {
                     throw new WorkflowStateConflictException("Transfer requires a target user");
                 }
+                requireAssignee(task.organizationId(), target, task.resourceType(), task.resourceId(), true);
                 task.transfer(target);
                 notificationRepository.save(new NotificationEntity(
                         actor.organizationId(), target, "WORKFLOW_TRANSFER", "Workflow task transferred", task.title()
@@ -235,6 +245,11 @@ public class WorkflowService {
         if (!actor.permissions().contains(permission)) {
             throw new WorkflowPermissionException("Required permission: " + permission);
         }
+    }
+
+    private void requireAssignee(String organizationId, String userId, WorkflowResourceType type, String resourceId, boolean pendingApproval) {
+        if (assignees == null) throw WorkflowAssigneePolicy.invalid();
+        assignees.require(organizationId, userId, type, resourceId, pendingApproval);
     }
 
     private void requireStatus(WorkflowTaskEntity task, WorkflowTaskStatus expected) {
