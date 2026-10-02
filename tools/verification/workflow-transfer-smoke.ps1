@@ -58,15 +58,7 @@ function Rejected($target){
 }
 $admin=Client; $parent=$null
 try{
-    # Prior suites rotate the admin session ID when switching organizations. Its old
-    # login reservation can remain until the 30-second TTL; never revoke real sessions.
-    for($attempt=0;$attempt -lt 10;$attempt++) {
-        $identity=Request $admin POST '/api/v2/session/login' @{username=$Username;password=$env:FLOWORA_R5_HTTP_PASSWORD} @(200,409)
-        if($identity.code -ne 'SESSION_LIMIT_REACHED') { Check (-not $identity.code) 'Unexpected administrator login error'; break }
-        Check ($attempt -lt 9) 'Administrator session limit did not clear within the bounded reservation wait'
-        Write-Output 'INFO administrator SESSION_LIMIT_REACHED; bounded reservation wait (no session revocation).'
-        Start-Sleep -Seconds 5
-    }
+    $identity=Request $admin POST '/api/v2/session/login' @{username=$Username;password=$env:FLOWORA_R5_HTTP_PASSWORD}
     $parent=$identity.organizationId;$currentOrg=$parent
     $temporary='Temp!'+[guid]::NewGuid().ToString('N');$password='Fresh!'+[guid]::NewGuid().ToString('N')
     $eligible=@('workflow:view','workflow:approve','procurement:view')
