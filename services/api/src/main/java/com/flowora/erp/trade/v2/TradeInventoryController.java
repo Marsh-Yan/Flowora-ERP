@@ -28,7 +28,7 @@ public class TradeInventoryController {
     }
 
     @GetMapping("/inventory/availability")
-    @PreAuthorize("@floworaAuthorization.has(authentication, 'inventory:view')")
+    @PreAuthorize("@floworaAuthorization.hasOrganizationPermission(authentication, 'inventory:view')")
     public ApiResponse<List<AvailabilityView>> availability(
             @RequestParam(defaultValue = "") String warehouseId,
             @RequestParam(defaultValue = "") String itemId,
@@ -39,7 +39,7 @@ public class TradeInventoryController {
     }
 
     @PostMapping("/inventory/receipts")
-    @PreAuthorize("@floworaAuthorization.has(authentication, 'inventory:post')")
+    @PreAuthorize("@floworaAuthorization.hasOrganizationPermission(authentication, 'inventory:post')")
     public ApiResponse<MovementView> receive(
             @RequestHeader("Idempotency-Key") String idempotencyKey,
             @Valid @RequestBody ReceiptRequest body,
@@ -50,7 +50,7 @@ public class TradeInventoryController {
     }
 
     @PostMapping("/inventory/reservations")
-    @PreAuthorize("@floworaAuthorization.has(authentication, 'inventory:reserve')")
+    @PreAuthorize("@floworaAuthorization.hasOrganizationPermission(authentication, 'inventory:reserve')")
     public ApiResponse<List<ReservationView>> reserve(
             @Valid @RequestBody ReservationRequest body,
             Authentication authentication,
@@ -60,7 +60,7 @@ public class TradeInventoryController {
     }
 
     @PostMapping("/inventory/shipments")
-    @PreAuthorize("@floworaAuthorization.has(authentication, 'inventory:post')")
+    @PreAuthorize("@floworaAuthorization.hasOrganizationPermission(authentication, 'inventory:post')")
     public ApiResponse<MovementView> ship(
             @RequestHeader("Idempotency-Key") String idempotencyKey,
             @Valid @RequestBody ShipmentRequest body,
@@ -71,7 +71,7 @@ public class TradeInventoryController {
     }
 
     @PostMapping("/inventory/transfers")
-    @PreAuthorize("@floworaAuthorization.has(authentication, 'inventory:post')")
+    @PreAuthorize("@floworaAuthorization.hasOrganizationPermission(authentication, 'inventory:post')")
     public ApiResponse<MovementView> transfer(
             @RequestHeader("Idempotency-Key") String idempotencyKey,
             @Valid @RequestBody TransferRequest body,
@@ -82,7 +82,7 @@ public class TradeInventoryController {
     }
 
     @PostMapping("/inventory/reservations/{reservationId}/release")
-    @PreAuthorize("@floworaAuthorization.has(authentication, 'inventory:reserve')")
+    @PreAuthorize("@floworaAuthorization.hasOrganizationPermission(authentication, 'inventory:reserve')")
     public ApiResponse<ReservationView> releaseReservation(
             @PathVariable String reservationId,
             Authentication authentication,
@@ -92,7 +92,7 @@ public class TradeInventoryController {
     }
 
     @PostMapping("/inventory/reservations/expire")
-    @PreAuthorize("@floworaAuthorization.has(authentication, 'inventory:reserve')")
+    @PreAuthorize("@floworaAuthorization.hasOrganizationPermission(authentication, 'inventory:reserve')")
     public ApiResponse<Map<String, Integer>> expireReservations(
             Authentication authentication,
             HttpServletRequest request
@@ -101,7 +101,7 @@ public class TradeInventoryController {
     }
 
     @PostMapping("/inventory/counts")
-    @PreAuthorize("@floworaAuthorization.has(authentication, 'inventory:post')")
+    @PreAuthorize("@floworaAuthorization.hasOrganizationPermission(authentication, 'inventory:post')")
     public ApiResponse<MovementView> count(
             @RequestHeader("Idempotency-Key") String idempotencyKey,
             @Valid @RequestBody CountRequest body,
@@ -112,7 +112,7 @@ public class TradeInventoryController {
     }
 
     @PostMapping("/inventory/freezes")
-    @PreAuthorize("@floworaAuthorization.has(authentication, 'inventory:freeze')")
+    @PreAuthorize("@floworaAuthorization.hasOrganizationPermission(authentication, 'inventory:freeze')")
     public ApiResponse<Map<String, String>> freeze(
             @Valid @RequestBody FreezeRequest body,
             Authentication authentication,
@@ -122,7 +122,7 @@ public class TradeInventoryController {
     }
 
     @PostMapping("/inventory/freezes/{freezeId}/release")
-    @PreAuthorize("@floworaAuthorization.has(authentication, 'inventory:freeze')")
+    @PreAuthorize("@floworaAuthorization.hasOrganizationPermission(authentication, 'inventory:freeze')")
     public ApiResponse<Map<String, String>> releaseFreeze(
             @PathVariable String freezeId,
             Authentication authentication,
@@ -132,7 +132,7 @@ public class TradeInventoryController {
     }
 
     @GetMapping("/inventory/trace")
-    @PreAuthorize("@floworaAuthorization.has(authentication, 'inventory:trace')")
+    @PreAuthorize("@floworaAuthorization.hasOrganizationPermission(authentication, 'inventory:trace')")
     public ApiResponse<TraceView> trace(
             @RequestParam String itemId,
             @RequestParam(defaultValue = "") String lotId,
@@ -144,7 +144,7 @@ public class TradeInventoryController {
     }
 
     @PostMapping("/sales/returns")
-    @PreAuthorize("@floworaAuthorization.has(authentication, 'inventory:return')")
+    @PreAuthorize("@floworaAuthorization.hasOrganizationPermission(authentication, 'inventory:return')")
     public ApiResponse<MovementView> salesReturn(
             @RequestHeader("Idempotency-Key") String idempotencyKey,
             @Valid @RequestBody ReturnRequest body,
@@ -155,7 +155,7 @@ public class TradeInventoryController {
     }
 
     @PostMapping("/procurement/returns")
-    @PreAuthorize("@floworaAuthorization.has(authentication, 'inventory:return')")
+    @PreAuthorize("@floworaAuthorization.hasOrganizationPermission(authentication, 'inventory:return')")
     public ApiResponse<MovementView> purchaseReturn(
             @RequestHeader("Idempotency-Key") String idempotencyKey,
             @Valid @RequestBody ReturnRequest body,
@@ -166,7 +166,7 @@ public class TradeInventoryController {
     }
 
     @GetMapping("/trade/financial-source-events")
-    @PreAuthorize("@floworaAuthorization.has(authentication, 'trade:financial-source')")
+    @PreAuthorize("@floworaAuthorization.hasOrganizationPermission(authentication, 'trade:financial-source')")
     public ApiResponse<List<FinancialSourceEventView>> financialEvents(
             @RequestParam(defaultValue = "PENDING") String status,
             Authentication authentication,

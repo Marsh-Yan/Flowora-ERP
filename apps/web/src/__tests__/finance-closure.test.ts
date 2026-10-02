@@ -1,6 +1,8 @@
 /* eslint-disable vue/one-component-per-file -- Lightweight UI stubs belong to this component test. */
 import { mount, flushPromises } from '@vue/test-utils'
 import { defineComponent } from 'vue'
+import { createPinia } from 'pinia'
+import { useAuthStore } from '@/stores/auth'
 import { createI18n } from 'vue-i18n'
 import { beforeEach, expect, it, vi } from 'vitest'
 import FinanceClosurePanel from '@/components/finance/FinanceClosurePanel.vue'
@@ -16,8 +18,11 @@ const slot = defineComponent({ template: '<div><slot /></div>' })
 const alert = defineComponent({ props: { title: { type: String, default: '' } }, template: '<div role="alert">{{ title }}</div>' })
 const picker = defineComponent({ props: { modelValue: { type: Array, default: () => [] } }, emits: ['update:modelValue', 'change'], template: '<input />' })
 function render() {
+  const pinia = createPinia()
+  const auth = useAuthStore(pinia)
+  auth.user = { id: 'tester', username: 'tester', displayName: 'Tester', organizationId: 'A', organizationName: 'A', departmentId: null, dataScope: 'ALL', permissions: ['finance:view'], roles: ['CUSTOM'], mustChangePassword: false }
   return mount(FinanceClosurePanel, { global: {
-    plugins: [createI18n({ legacy: false, locale: 'en-US', messages: { 'en-US': en } })],
+    plugins: [pinia, createI18n({ legacy: false, locale: 'en-US', messages: { 'en-US': en } })],
     directives: { loading: {} },
     stubs: { ElCard: slot, ElTabs: slot, ElTabPane: slot, ElTable: defineComponent({ props: { data: { type: Array, default: () => [] } }, template: '<div class="rows">{{ JSON.stringify(data) }}</div>' }), ElTableColumn: true, ElButton: slot, ElAlert: alert, ElDatePicker: picker, ElDialog: true, ElTag: true, ElOption: true, ElSelect: true, ElFormItem: true, ElInput: true, ElInputNumber: true, ElForm: true },
   } })

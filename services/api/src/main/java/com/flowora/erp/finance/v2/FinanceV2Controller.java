@@ -31,7 +31,7 @@ public class FinanceV2Controller {
     }
 
     @PostMapping("/invoices")
-    @PreAuthorize("@floworaAuthorization.has(authentication, 'finance:invoice')")
+    @PreAuthorize("@floworaAuthorization.hasOrganizationPermission(authentication, 'finance:invoice')")
     public ApiResponse<InvoiceView> createInvoice(@RequestHeader("Idempotency-Key") String key,
                                                    @Valid @RequestBody InvoiceCreate body,
                                                    Authentication authentication, HttpServletRequest request) {
@@ -39,7 +39,7 @@ public class FinanceV2Controller {
     }
 
     @GetMapping("/invoices")
-    @PreAuthorize("@floworaAuthorization.has(authentication, 'finance:view')")
+    @PreAuthorize("@floworaAuthorization.hasOrganizationPermission(authentication, 'finance:view')")
     public ApiResponse<List<InvoiceView>> invoices(@RequestParam(defaultValue = "") String documentType,
                                                     @RequestParam(defaultValue = "") String status,
                                                     Authentication authentication, HttpServletRequest request) {
@@ -47,14 +47,14 @@ public class FinanceV2Controller {
     }
 
     @GetMapping("/invoices/{id}")
-    @PreAuthorize("@floworaAuthorization.has(authentication, 'finance:view')")
+    @PreAuthorize("@floworaAuthorization.hasOrganizationPermission(authentication, 'finance:view')")
     public ApiResponse<InvoiceView> invoice(@PathVariable String id, Authentication authentication,
                                              HttpServletRequest request) {
         return response(documents.invoice(principal(authentication).organizationId(), id), request);
     }
 
     @PostMapping("/invoices/{id}/match-exception/approve")
-    @PreAuthorize("@floworaAuthorization.has(authentication, 'finance:match-exception')")
+    @PreAuthorize("@floworaAuthorization.hasOrganizationPermission(authentication, 'finance:match-exception')")
     public ApiResponse<InvoiceView> approveException(@PathVariable String id,
                                                       @Valid @RequestBody MatchExceptionApproval body,
                                                       Authentication authentication, HttpServletRequest request) {
@@ -62,14 +62,14 @@ public class FinanceV2Controller {
     }
 
     @PostMapping("/invoices/{id}/post")
-    @PreAuthorize("@floworaAuthorization.has(authentication, 'finance:post')")
+    @PreAuthorize("@floworaAuthorization.hasOrganizationPermission(authentication, 'finance:post')")
     public ApiResponse<InvoiceView> postInvoice(@PathVariable String id, @RequestParam long version,
                                                  Authentication authentication, HttpServletRequest request) {
         return response(documents.postInvoice(principal(authentication), id, version), request);
     }
 
     @PostMapping("/payments")
-    @PreAuthorize("@floworaAuthorization.has(authentication, 'finance:create')")
+    @PreAuthorize("@floworaAuthorization.hasOrganizationPermission(authentication, 'finance:create')")
     public ApiResponse<PaymentView> createPayment(@RequestHeader("Idempotency-Key") String key,
                                                    @Valid @RequestBody PaymentCreate body,
                                                    Authentication authentication, HttpServletRequest request) {
@@ -77,21 +77,21 @@ public class FinanceV2Controller {
     }
 
     @GetMapping("/payments")
-    @PreAuthorize("@floworaAuthorization.has(authentication, 'finance:view')")
+    @PreAuthorize("@floworaAuthorization.hasOrganizationPermission(authentication, 'finance:view')")
     public ApiResponse<List<PaymentView>> payments(@RequestParam(defaultValue = "") String status,
                                                     Authentication authentication, HttpServletRequest request) {
         return response(documents.payments(principal(authentication).organizationId(), status), request);
     }
 
     @PostMapping("/payments/{id}/post")
-    @PreAuthorize("@floworaAuthorization.has(authentication, 'finance:post')")
+    @PreAuthorize("@floworaAuthorization.hasOrganizationPermission(authentication, 'finance:post')")
     public ApiResponse<PaymentView> postPayment(@PathVariable String id, @RequestParam long version,
                                                  Authentication authentication, HttpServletRequest request) {
         return response(documents.postPayment(principal(authentication), id, version), request);
     }
 
     @PostMapping("/payments/{id}/allocations")
-    @PreAuthorize("@floworaAuthorization.has(authentication, 'finance:allocate')")
+    @PreAuthorize("@floworaAuthorization.hasOrganizationPermission(authentication, 'finance:allocate')")
     public ApiResponse<AllocationView> allocate(@PathVariable String id,
                                                  @Valid @RequestBody AllocationCreate body,
                                                  Authentication authentication, HttpServletRequest request) {
@@ -99,7 +99,7 @@ public class FinanceV2Controller {
     }
 
     @PostMapping("/allocations/{id}/reverse")
-    @PreAuthorize("@floworaAuthorization.has(authentication, 'finance:allocate')")
+    @PreAuthorize("@floworaAuthorization.hasOrganizationPermission(authentication, 'finance:allocate')")
     public ApiResponse<AllocationView> reverseAllocation(@PathVariable String id,
                                                           @RequestHeader("Idempotency-Key") String key,
                                                           @Valid @RequestBody AllocationReverse body,
@@ -108,14 +108,14 @@ public class FinanceV2Controller {
     }
 
     @GetMapping("/journals")
-    @PreAuthorize("@floworaAuthorization.has(authentication, 'finance:view')")
+    @PreAuthorize("@floworaAuthorization.hasOrganizationPermission(authentication, 'finance:view')")
     public ApiResponse<List<JournalView>> journals(@RequestParam LocalDate from, @RequestParam LocalDate to,
                                                     Authentication authentication, HttpServletRequest request) {
         return response(ledger.journals(principal(authentication).organizationId(), from, to), request);
     }
 
     @PostMapping("/journals/{id}/reverse")
-    @PreAuthorize("@floworaAuthorization.has(authentication, 'finance:post')")
+    @PreAuthorize("@floworaAuthorization.hasOrganizationPermission(authentication, 'finance:post')")
     public ApiResponse<JournalView> reverseJournal(@PathVariable String id,
                                                    @RequestParam LocalDate accountingDate,
                                                    @RequestHeader("Idempotency-Key") String key,
@@ -127,7 +127,7 @@ public class FinanceV2Controller {
     }
 
     @PostMapping("/periods/{id}/close")
-    @PreAuthorize("@floworaAuthorization.has(authentication, 'finance:post')")
+    @PreAuthorize("@floworaAuthorization.hasOrganizationPermission(authentication, 'finance:post')")
     public ApiResponse<PeriodCloseView> closePeriod(@PathVariable String id,
                                                      @RequestHeader("Idempotency-Key") String key,
                                                      @Valid @RequestBody PeriodAction body,
@@ -136,7 +136,7 @@ public class FinanceV2Controller {
     }
 
     @PostMapping("/periods/{id}/reopen")
-    @PreAuthorize("@floworaAuthorization.has(authentication, 'finance:period-reopen')")
+    @PreAuthorize("@floworaAuthorization.hasOrganizationPermission(authentication, 'finance:period-reopen')")
     public ApiResponse<PeriodCloseView> reopenPeriod(@PathVariable String id,
                                                       @RequestHeader("Idempotency-Key") String key,
                                                       @Valid @RequestBody PeriodAction body,
@@ -145,14 +145,14 @@ public class FinanceV2Controller {
     }
 
     @PostMapping("/bank/statements/import")
-    @PreAuthorize("@floworaAuthorization.has(authentication, 'finance:bank')")
+    @PreAuthorize("@floworaAuthorization.hasOrganizationPermission(authentication, 'finance:bank')")
     public ApiResponse<List<StatementLineView>> importStatements(@Valid @RequestBody StatementImport body,
                                                                   Authentication authentication, HttpServletRequest request) {
         return response(operations.importStatements(principal(authentication), body), request);
     }
 
     @GetMapping("/bank/statements")
-    @PreAuthorize("@floworaAuthorization.has(authentication, 'finance:view')")
+    @PreAuthorize("@floworaAuthorization.hasOrganizationPermission(authentication, 'finance:view')")
     public ApiResponse<List<StatementLineView>> statements(@RequestParam(defaultValue = "") String bankAccountId,
                                                             @RequestParam(defaultValue = "") String status,
                                                             Authentication authentication, HttpServletRequest request) {
@@ -160,7 +160,7 @@ public class FinanceV2Controller {
     }
 
     @PostMapping("/bank/reconciliations")
-    @PreAuthorize("@floworaAuthorization.has(authentication, 'finance:bank')")
+    @PreAuthorize("@floworaAuthorization.hasOrganizationPermission(authentication, 'finance:bank')")
     public ApiResponse<ReconciliationView> reconcile(@RequestHeader("Idempotency-Key") String key,
                                                       @Valid @RequestBody ReconciliationCreate body,
                                                       Authentication authentication, HttpServletRequest request) {
@@ -168,7 +168,7 @@ public class FinanceV2Controller {
     }
 
     @PostMapping("/bank/reconciliations/{id}/reverse")
-    @PreAuthorize("@floworaAuthorization.has(authentication, 'finance:bank')")
+    @PreAuthorize("@floworaAuthorization.hasOrganizationPermission(authentication, 'finance:bank')")
     public ApiResponse<ReconciliationView> reverseReconciliation(@PathVariable String id,
                                                                   @Valid @RequestBody PeriodAction body,
                                                                   Authentication authentication, HttpServletRequest request) {
@@ -176,28 +176,28 @@ public class FinanceV2Controller {
     }
 
     @GetMapping("/bank/reconciliations")
-    @PreAuthorize("@floworaAuthorization.has(authentication, 'finance:view')")
+    @PreAuthorize("@floworaAuthorization.hasOrganizationPermission(authentication, 'finance:view')")
     public ApiResponse<List<ReconciliationView>> reconciliations(@RequestParam(defaultValue = "") String bankAccountId,
                                                                   Authentication authentication, HttpServletRequest request) {
         return response(operations.reconciliations(principal(authentication).organizationId(), bankAccountId), request);
     }
 
     @PostMapping("/budgets")
-    @PreAuthorize("@floworaAuthorization.has(authentication, 'finance:budget')")
+    @PreAuthorize("@floworaAuthorization.hasOrganizationPermission(authentication, 'finance:budget')")
     public ApiResponse<String> createBudget(@Valid @RequestBody BudgetCreate body,
                                              Authentication authentication, HttpServletRequest request) {
         return response(operations.createBudget(principal(authentication), body), request);
     }
 
     @GetMapping("/reports/budget-execution")
-    @PreAuthorize("@floworaAuthorization.has(authentication, 'finance:view')")
+    @PreAuthorize("@floworaAuthorization.hasOrganizationPermission(authentication, 'finance:view')")
     public ApiResponse<List<BudgetExecutionView>> budgetExecution(@RequestParam int fiscalYear,
                                                                    Authentication authentication, HttpServletRequest request) {
         return response(operations.budgetExecution(principal(authentication).organizationId(), fiscalYear), request);
     }
 
     @PostMapping("/revaluations/{id}/reverse")
-    @PreAuthorize("@floworaAuthorization.has(authentication, 'finance:post')")
+    @PreAuthorize("@floworaAuthorization.hasOrganizationPermission(authentication, 'finance:post')")
     public ApiResponse<JournalView> reverseRevaluation(@PathVariable String id, @RequestParam LocalDate accountingDate,
             @RequestHeader("Idempotency-Key") String key, @Valid @RequestBody PeriodAction body,
             Authentication authentication, HttpServletRequest request) {
@@ -205,7 +205,7 @@ public class FinanceV2Controller {
     }
 
     @PostMapping("/revaluations")
-    @PreAuthorize("@floworaAuthorization.has(authentication, 'finance:budget')")
+    @PreAuthorize("@floworaAuthorization.hasOrganizationPermission(authentication, 'finance:budget')")
     public ApiResponse<RevaluationView> revalue(@RequestHeader("Idempotency-Key") String key,
                                                  @Valid @RequestBody RevaluationCreate body,
                                                  Authentication authentication, HttpServletRequest request) {
@@ -213,14 +213,14 @@ public class FinanceV2Controller {
     }
 
     @GetMapping("/reports/trial-balance")
-    @PreAuthorize("@floworaAuthorization.has(authentication, 'finance:view')")
+    @PreAuthorize("@floworaAuthorization.hasOrganizationPermission(authentication, 'finance:view')")
     public ApiResponse<List<TrialBalanceRow>> trialBalance(@RequestParam LocalDate from, @RequestParam LocalDate to,
                                                            Authentication authentication, HttpServletRequest request) {
         return response(ledger.trialBalance(principal(authentication).organizationId(), from, to), request);
     }
 
     @GetMapping("/dashboard")
-    @PreAuthorize("@floworaAuthorization.has(authentication, 'finance:view')")
+    @PreAuthorize("@floworaAuthorization.hasOrganizationPermission(authentication, 'finance:view')")
     public ApiResponse<FinanceDashboard> dashboard(@RequestParam LocalDate from, @RequestParam LocalDate to,
                                                     Authentication authentication, HttpServletRequest request) {
         return response(operations.dashboard(principal(authentication).organizationId(), from, to), request);

@@ -79,7 +79,9 @@ export const useAuthStore = defineStore('auth', () => {
 
 
   function hasPermission(permission?: string) {
-    return !permission || user.value?.permissions.includes(permission) === true
+    if (!permission) return true
+    const organizationModule = permission.startsWith('finance:') || permission.startsWith('inventory:')
+    return user.value?.permissions.includes(permission) === true && (!organizationModule || user.value.dataScope === 'ALL')
   }
 
   async function loadOrganizations() {

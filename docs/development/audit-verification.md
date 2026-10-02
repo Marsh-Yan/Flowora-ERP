@@ -36,7 +36,7 @@ R5 第一批补齐真实安全 HTTP 回归、覆盖矩阵与过期文档。F01�
 | F24 | outbox 定时事务边界 | `WorkflowOperationsMySqlTest`：两个 worker、崩溃回滚、重试及重放 / 数据库 |
 | F25 | 个人审批使用 v2 任务 | `WorkflowOperationsMySqlTest`：实际流程、当前 assignee、旧任务排除 / 数据库；R4 浏览器卡片 |
 | F26 | 工作流 If-Match CORS | SEC-11：真实预检和不允许来源 / HTTP |
-| F27 | 持续验证不足 | CI 五个 job、三个 HTTP 脚本及本矩阵；发布剩余项未完成 |
+| F27 | 持续验证不足 | CI 五个 job、五个 HTTP 脚本及本矩阵；发布剩余项未完成 |
 
 所有入口见 [release-verification.md](release-verification.md)，专项测试代码位于 [API 测试目录](../../services/api/src/test/java/com/flowora/erp)，Web 测试位于 [Web 源码](../../apps/web/src)。HTTP 脚本输出稳定 SEC-01–SEC-12 用例 ID，只输出用例和结果，不打印密码、恢复码、Cookie 或 MFA secret。
 
@@ -60,6 +60,8 @@ R5 第一批补齐真实安全 HTTP 回归、覆盖矩阵与过期文档。F01�
 R5 第二批已完成前端依赖补丁、后端补丁和实际 JAR/五个镜像扫描门禁；第一批表中的 25 条 npm 告警是历史结果，第二批全依赖及生产依赖均为 0。新增版本、扫描范围、Prometheus OpenPGP 二进制判断和持续限制见 [第二批整改记录](dependency-remediation-2026-10-01.md)。F27 保持未完成，下一批优先浏览器与角色矩阵。
 
 R5 第三批补齐部门/本人/受派项目与分析汇总范围对照，修复复现的 7 个失败场景；具体读取边界和 11 个 HTTP 场景见 [分析数据范围](analytics-scope.md)。这些结果不替代全业务 UI、所有模块的角色/写入四象限或事务异常覆盖。
+
+R5 第四批补齐组织级库存/财务权限：不支持行范围的组织数据要求 ALL，兼容直接过账改用实际细分权限，页面只读与可选加载行为同步。新增方法安全代理 4 项及 MODULE 9 场景，见 [组织级访问边界](organization-module-access.md)。完整模块/项目/跨组织矩阵仍需继续。
 
 | 顺序 | 待办 | 放行证据 |
 | --- | --- | --- |
