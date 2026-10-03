@@ -228,6 +228,18 @@ export default {
       GENERAL: 'General task',
     },
   },
+  tradeActions: {
+    actions: 'Actions',
+    confirmOrder: 'Confirm order',
+    cancelOrder: 'Cancel order',
+    confirmCancellation: 'Cancel this order',
+    keepOrder: 'Keep order',
+    cancelPrompt: 'Cancel order {number}? This releases any reserved stock and source quantity. Fulfilled orders cannot be cancelled.',
+    confirmed: 'Order confirmed.',
+    cancelled: 'Order cancelled.',
+    conflict: 'The order changed or can no longer perform this action. The list has been refreshed.',
+    failed: 'The order action failed. Refresh and try again.',
+  },
   sales: {
     eyebrow: 'Sales operations',
     title: 'Sales center',
@@ -329,6 +341,7 @@ export default {
     emptyRequests: 'No purchase requests yet.',
     emptyOrders: 'No purchase orders yet.',
     status: {
+      CONFIRMED: 'Confirmed',
       DRAFT: 'Draft',
       SUBMITTED: 'Submitted',
       APPROVED: 'Approved',

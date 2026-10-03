@@ -9,9 +9,11 @@ import { createPurchaseOrderV2, type TradeLineInput } from '@/api/trade'
 import { listMasterData, type MasterDataRecord } from '@/api/master-data'
 
 import { useAuthStore } from '@/stores/auth'
+import { useTradeOrderActions } from '@/composables/useTradeOrderActions'
 
 const { t } = useI18n()
 const auth = useAuthStore()
+const { busyOrderId, canManageOrders, changeOrderState } = useTradeOrderActions('procurement', load)
 const canReadShared = computed(() => auth.user?.dataScope === 'ALL' && auth.hasPermission('procurement:view'))
 const canReadMaster = computed(() => auth.hasPermission('master:view'))
 const canCreateOrder = computed(() => auth.hasPermission('procurement:create') && canReadMaster.value)
@@ -167,6 +169,7 @@ onMounted(load)
             <el-table-column :label="t('procurement.progress')" width="150"><template #default="{ row }">{{ row.receivedQuantity }} / {{ row.orderedQuantity }}</template></el-table-column>
             <el-table-column :label="t('procurement.statusLabel')" width="160"><template #default="{ row }"><el-tag :type="statusType(row.status)">{{ statusLabel(row.status) }}</el-tag></template></el-table-column>
             <el-table-column :label="t('procurement.warehouse')" min-width="150"><template #default="{ row }">{{ masterName(warehouses, row.warehouseId) }}</template></el-table-column>
+            <el-table-column :label="t('tradeActions.actions')" width="210" fixed="right"><template #default="{ row }"><el-button v-if="canManageOrders && row.status === 'DRAFT'" link type="primary" :disabled="!!busyOrderId" @click="changeOrderState('confirm', row.id, row.number)">{{ t('tradeActions.confirmOrder') }}</el-button><el-button v-if="canManageOrders && ['DRAFT', 'CONFIRMED', 'APPROVED'].includes(row.status) && (row.receivedQuantity ?? 0) === 0" link type="danger" :disabled="!!busyOrderId" @click="changeOrderState('cancel', row.id, row.number)">{{ t('tradeActions.cancelOrder') }}</el-button></template></el-table-column>
           </el-table>
           <el-empty v-if="!orders.length && !loading && !ordersFailed" :description="t('procurement.emptyOrders')" />
         </el-tab-pane>
