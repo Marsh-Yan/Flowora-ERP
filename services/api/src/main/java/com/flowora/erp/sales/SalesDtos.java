@@ -43,7 +43,8 @@ public final class SalesDtos {
             LocalDate validUntil,
             BigDecimal totalAmount,
             String note,
-            Instant approvedAt
+            Instant approvedAt,
+            boolean sourceEligible
     ) {
     }
 
