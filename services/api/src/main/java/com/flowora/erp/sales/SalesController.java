@@ -4,6 +4,7 @@ import com.flowora.erp.common.api.ApiResponse;
 import com.flowora.erp.common.api.PageResponse;
 import com.flowora.erp.common.api.RequestIdFilter;
 import com.flowora.erp.identity.FloworaPrincipal;
+import com.flowora.erp.identity.FloworaAuthorization;
 import com.flowora.erp.sales.SalesDtos.DeliveryCreate;
 import com.flowora.erp.sales.SalesDtos.DeliveryResponse;
 import com.flowora.erp.sales.SalesDtos.PaymentCreate;
@@ -33,30 +34,33 @@ import org.springframework.web.bind.annotation.RestController;
 public class SalesController {
     private final SalesService service;
 
-    public SalesController(SalesService service) {
+    private final FloworaAuthorization authorization;
+
+    public SalesController(SalesService service, FloworaAuthorization authorization) {
         this.service = service;
+        this.authorization = authorization;
     }
 
     @GetMapping("/quotes")
-    @PreAuthorize("@floworaAuthorization.has(authentication, 'sales:view')")
+    @PreAuthorize("@floworaAuthorization.hasOrganizationPermission(authentication, 'sales:view')")
     public ApiResponse<PageResponse<SalesQuoteResponse>> quotes(@RequestParam(defaultValue = "") String query, @PageableDefault(size = 20) Pageable pageable, Authentication authentication, HttpServletRequest request) {
         return response(service.quotes(principal(authentication).organizationId(), query, pageable), request);
     }
 
     @PostMapping("/quotes")
-    @PreAuthorize("hasAnyRole('ADMIN', 'BUSINESS')")
+    @PreAuthorize("@floworaAuthorization.hasOrganizationPermission(authentication, 'sales:create') && @floworaAuthorization.has(authentication, 'sales:submit') && @floworaAuthorization.has(authentication, 'sales:view') && @floworaAuthorization.has(authentication, 'workflow:view') && @floworaAuthorization.has(authentication, 'workflow:submit')")
     public ApiResponse<SalesQuoteResponse> createQuote(@Valid @RequestBody SalesQuoteCreate body, Authentication authentication, HttpServletRequest request) {
         return response(service.createQuote(principal(authentication), body, RequestIdFilter.get(request)), request);
     }
 
     @PostMapping("/quotes/{id}/approve")
-    @PreAuthorize("hasAnyRole('ADMIN', 'MANAGEMENT')")
+    @PreAuthorize("@floworaAuthorization.hasOrganizationPermission(authentication, 'sales:view') && @floworaAuthorization.has(authentication, 'workflow:approve')")
     public ApiResponse<SalesQuoteResponse> approveQuote(@PathVariable String id, Authentication authentication, HttpServletRequest request) {
         return response(service.approveQuote(principal(authentication), id, RequestIdFilter.get(request)), request);
     }
 
     @PostMapping("/quotes/{id}/reject")
-    @PreAuthorize("hasAnyRole('ADMIN', 'MANAGEMENT')")
+    @PreAuthorize("@floworaAuthorization.hasOrganizationPermission(authentication, 'sales:view') && @floworaAuthorization.has(authentication, 'workflow:approve')")
     public ApiResponse<SalesQuoteResponse> rejectQuote(@PathVariable String id, Authentication authentication, HttpServletRequest request) {
         return response(service.rejectQuote(principal(authentication), id, RequestIdFilter.get(request)), request);
     }
@@ -68,45 +72,44 @@ public class SalesController {
     }
 
     @PostMapping("/orders")
-    @PreAuthorize("hasAnyRole('ADMIN', 'BUSINESS')")
+    @PreAuthorize("@floworaAuthorization.hasOrganizationPermission(authentication, 'sales:create') && @floworaAuthorization.has(authentication, 'sales:submit')")
     public ApiResponse<SalesOrderResponse> createOrder(@Valid @RequestBody SalesOrderCreate body, Authentication authentication, HttpServletRequest request) {
         return response(service.createOrder(principal(authentication), body), request);
     }
 
     @GetMapping("/deliveries")
-    @PreAuthorize("@floworaAuthorization.has(authentication, 'sales:view')")
+    @PreAuthorize("@floworaAuthorization.hasOrganizationPermission(authentication, 'sales:view')")
     public ApiResponse<PageResponse<DeliveryResponse>> deliveries(@RequestParam(defaultValue = "") String query, @PageableDefault(size = 20) Pageable pageable, Authentication authentication, HttpServletRequest request) {
         return response(service.deliveries(principal(authentication).organizationId(), query, pageable), request);
     }
 
     @PostMapping("/deliveries")
-    @PreAuthorize("hasAnyRole('ADMIN', 'WAREHOUSE')")
+    @PreAuthorize("@floworaAuthorization.hasOrganizationPermission(authentication, 'inventory:post')")
     public ApiResponse<DeliveryResponse> deliver(@Valid @RequestBody DeliveryCreate body, Authentication authentication, HttpServletRequest request,
                                                   @RequestHeader(value = "Idempotency-Key", required = false) String idempotencyKey) {
         return response(service.deliver(principal(authentication), body, idempotencyKey), request);
     }
 
     @GetMapping("/receivables")
-    @PreAuthorize("@floworaAuthorization.has(authentication, 'sales:view')")
+    @PreAuthorize("@floworaAuthorization.hasOrganizationPermission(authentication, 'sales:view')")
     public ApiResponse<PageResponse<ReceivableResponse>> receivables(@RequestParam(defaultValue = "") String query, @PageableDefault(size = 20) Pageable pageable, Authentication authentication, HttpServletRequest request) {
         return response(service.receivables(principal(authentication).organizationId(), query, pageable), request);
     }
 
     @GetMapping("/receivables/{id}/payments")
-    @PreAuthorize("@floworaAuthorization.has(authentication, 'sales:view')")
+    @PreAuthorize("@floworaAuthorization.hasOrganizationPermission(authentication, 'sales:view')")
     public ApiResponse<PageResponse<PaymentResponse>> payments(@PathVariable String id, @PageableDefault(size = 20) Pageable pageable, Authentication authentication, HttpServletRequest request) {
         return response(service.payments(principal(authentication).organizationId(), id, pageable), request);
     }
 
     @PostMapping("/payments")
-    @PreAuthorize("hasAnyRole('ADMIN', 'FINANCE')")
+    @PreAuthorize("@floworaAuthorization.hasOrganizationPermission(authentication, 'finance:post')")
     public ApiResponse<PaymentResponse> pay(@Valid @RequestBody PaymentCreate body, Authentication authentication, HttpServletRequest request) {
         return response(service.pay(principal(authentication), body), request);
     }
 
     private FloworaPrincipal principal(Authentication authentication) {
-        if (authentication != null && authentication.getPrincipal() instanceof FloworaPrincipal current) return current;
-        throw new IllegalStateException("Authenticated FloworaPrincipal is required");
+        return authorization.principal(authentication);
     }
 
     private <T> ApiResponse<T> response(T data, HttpServletRequest request) {

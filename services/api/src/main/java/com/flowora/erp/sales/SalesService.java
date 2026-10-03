@@ -2,7 +2,7 @@ package com.flowora.erp.sales;
 
 import com.flowora.erp.common.api.PageResponse;
 import com.flowora.erp.common.api.ResourceNotFoundException;
-import com.flowora.erp.common.api.PlatformApiException;
+import com.flowora.erp.workflow.v2.WorkflowTemplateNotFoundException;
 import com.flowora.erp.common.api.WorkflowStateConflictException;
 import com.flowora.erp.common.idempotency.IdempotencyService;
 import com.flowora.erp.finance.AccountingService;
@@ -146,9 +146,8 @@ public class SalesService {
             ), requestId);
             quote.submitForWorkflow(instance.id());
             return true;
-        } catch (PlatformApiException exception) {
-            if ("WORKFLOW_TEMPLATE_NOT_FOUND".equals(exception.code())) return false;
-            throw exception;
+        } catch (WorkflowTemplateNotFoundException exception) {
+            return false;
         }
     }
     @Transactional
@@ -180,6 +179,10 @@ public class SalesService {
 
     @Transactional
     public SalesOrderResponse createOrder(FloworaPrincipal actor, SalesOrderCreate body) {
+        if (body.quoteId() != null && !body.quoteId().isBlank()
+                && (actor.dataScope() != com.flowora.erp.identity.DataScope.ALL || !actor.permissions().contains("sales:view"))) {
+            throw new org.springframework.security.access.AccessDeniedException("Sales quote source requires organization read scope");
+        }
         CustomerEntity customer = requireCustomer(actor.organizationId(), body.customerId());
         requireWarehouse(actor.organizationId(), body.warehouseId());
         requireItem(actor.organizationId(), body.itemId());

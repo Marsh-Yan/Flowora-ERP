@@ -36,10 +36,14 @@ This repository is intended for public GitHub hosting. Never commit real persona
 - Compatibility reads and global search enforce module permissions. Sales, purchasing, and project lists apply data scope in the database query and page count; corresponding details also check scope. `ASSIGNED` order reads return no rows until an assignment policy exists.
 - Async exports recheck the requester's permissions and scope at execution and download. Non-`ALL` exports currently support sales and purchasing; other resources are denied until a row-level scope policy is defined. Existing exports lacking a recorded scope cannot be downloaded.
 
+- Compatibility procurement and sales actions use actual create/submit/approve/post capabilities and current membership identity. Shared requests, quotes, deliveries and receivables require ALL; order lists and purchase cancellation retain supported row scopes. See [compatibility trade access](compatibility-trade-access.md).
+
 ## Executable verification and remaining gates
 
 The isolated CI job runs [security-smoke.ps1](../../tools/verification/security-smoke.ps1) against real MySQL/Redis sessions. SEC-01–SEC-12 cover forced password change, active sessions and limits, password history and revocation, both MFA login paths, pending replacement cancellation, single-use recovery, account disable, module permissions, organization membership, attachment bytes/type/scope, administrator reset, CORS and SELF exports with permission revocation. It uses fresh synthetic accounts and disables them on exit.
 
 The isolated CI job also runs [session-reservation-smoke.ps1](../../tools/verification/session-reservation-smoke.ps1): SESSION-01–08 cover immediate rotation/logout, real organization switches, v1 logout, actual three-session capacity, eight simultaneous logins, reauthentication, failed credentials and password-change revocation.
+
+The isolated CI job also runs [compat-trade-access-smoke.ps1](../../tools/verification/compat-trade-access-smoke.ps1): 21 scenarios cover current custom capabilities, cached role revocation, scope reduction, member disablement, quote assignment, shared data rejection, source access and cross-organization writes, with exact business-row comparisons.
 
 These checks do not replace a complete role/data-scope/concurrency matrix or release dependency/image scans. The [2026-10-01 dependency audit](dependency-audit-2026-10-01.md) currently fails; see [coverage and remaining gates](audit-verification.md). Production profile smoke is not an approval to publish or mutate a business database.

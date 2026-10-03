@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onMounted, reactive, ref } from 'vue'
+import { computed, onMounted, reactive, ref, type Ref } from 'vue'
 import { ElMessage } from 'element-plus'
 import { Check, CreditCard, Plus, Refresh, Van } from '@element-plus/icons-vue'
 import { useI18n } from 'vue-i18n'
@@ -17,8 +17,22 @@ import {
 } from '@/api/sales'
 import { listMasterData, type MasterDataRecord } from '@/api/master-data'
 
+import { useAuthStore } from '@/stores/auth'
+
 const { t } = useI18n()
-const activeTab = ref<'quotes' | 'orders' | 'receivables'>('quotes')
+const auth = useAuthStore()
+const canReadShared = computed(() => auth.user?.dataScope === 'ALL' && auth.hasPermission('sales:view'))
+const canReadMaster = computed(() => auth.hasPermission('master:view'))
+const canCreateOrder = computed(() => auth.hasPermission('sales:create') && canReadMaster.value)
+const canCreateShared = computed(() => canReadShared.value && canReadMaster.value &&
+  ['sales:create', 'sales:submit', 'workflow:view', 'workflow:submit'].every(auth.hasPermission))
+const canApprove = computed(() => canReadShared.value && auth.hasPermission('workflow:approve'))
+const canDeliver = computed(() => auth.hasPermission('inventory:post'))
+const canPay = computed(() => auth.hasPermission('finance:post'))
+const receivablesFailed = ref(false)
+const sharedFailed = ref(false)
+const ordersFailed = ref(false)
+const activeTab = ref<'quotes' | 'orders' | 'receivables'>(canReadShared.value ? 'quotes' : 'orders')
 import { createSalesOrderV2 } from '@/api/trade'
 const loading = ref(false)
 const dialogVisible = ref(false)
@@ -60,31 +74,31 @@ function masterName(rows: MasterDataRecord[], id: string) {
   return rows.find((row) => row.id === id)?.name ?? id
 }
 
+async function read<T>(rows: Ref<T[]>, enabled: boolean, fetch: () => Promise<{ content: T[] }>, failed?: Ref<boolean>) {
+  if (failed) failed.value = false
+  if (!enabled) { rows.value = []; return true }
+  try { rows.value = (await fetch()).content; return true }
+  catch { rows.value = []; if (failed) failed.value = true; return false }
+}
+
 async function load() {
   loading.value = true
+  if (!canReadShared.value) activeTab.value = 'orders'
   try {
-    const [quotePage, orderPage, receivablePage, customerPage, warehousePage, itemPage] = await Promise.all([
-      listSalesQuotes(),
-      listSalesOrders(),
-      listReceivables(),
-      listMasterData('customers', '', 0, 100),
-      listMasterData('warehouses', '', 0, 100),
-      listMasterData('items', '', 0, 100),
+    const results = await Promise.all([
+      read(quotes, canReadShared.value, listSalesQuotes, sharedFailed),
+      read(orders, auth.hasPermission('sales:view'), listSalesOrders, ordersFailed),
+      read(receivables, canReadShared.value, listReceivables, receivablesFailed),
+      read(customers, canReadMaster.value, () => listMasterData('customers', '', 0, 100)),
+      read(warehouses, canReadMaster.value, () => listMasterData('warehouses', '', 0, 100)),
+      read(items, canReadMaster.value, () => listMasterData('items', '', 0, 100)),
     ])
-    quotes.value = quotePage.content
-    orders.value = orderPage.content
-    receivables.value = receivablePage.content
-    customers.value = customerPage.content
-    warehouses.value = warehousePage.content
-    items.value = itemPage.content
-  } catch {
-    ElMessage.error(t('sales.loadFailed'))
-  } finally {
-    loading.value = false
-  }
+    if (results.includes(false)) ElMessage.error(t('sales.loadFailed'))
+  } finally { loading.value = false }
 }
 
 function openCreate(type: 'quote' | 'order') {
+  if (!(type === 'quote' ? canCreateShared.value : canCreateOrder.value)) return
   dialogType.value = type
   if (type === 'quote') quoteForm.validUntil = today()
   dialogVisible.value = true
@@ -107,6 +121,7 @@ function removeOrderLine(index: number) {
 }
 
 async function submit() {
+  if (!(dialogType.value === 'quote' ? canCreateShared.value : canCreateOrder.value)) return
   try {
     if (dialogType.value === 'quote') {
       await createSalesQuote({ ...quoteForm })
@@ -122,6 +137,7 @@ async function submit() {
 }
 
 async function approve(quote: SalesQuote) {
+  if (!canApprove.value) return
   try {
     await approveSalesQuote(quote.id)
     ElMessage.success(t('sales.approved'))
@@ -132,13 +148,14 @@ async function approve(quote: SalesQuote) {
 }
 
 function openDelivery(order: SalesOrder) {
+  if (!canDeliver.value) return
   selectedOrder.value = order
   deliveryForm.quantity = Math.min(1, order.remainingQuantity)
   deliveryVisible.value = true
 }
 
 async function submitDelivery() {
-  if (!selectedOrder.value) return
+  if (!canDeliver.value || !selectedOrder.value) return
   try {
     await createDelivery({ salesOrderId: selectedOrder.value.id, salesOrderLineId: selectedOrder.value.lineId, warehouseId: selectedOrder.value.warehouseId, quantity: deliveryForm.quantity })
     deliveryVisible.value = false
@@ -150,6 +167,7 @@ async function submitDelivery() {
 }
 
 function openPayment(receivable: Receivable) {
+  if (!canPay.value) return
   selectedReceivable.value = receivable
   paymentForm.amount = receivable.outstandingAmount
   paymentForm.paymentDate = today()
@@ -157,7 +175,7 @@ function openPayment(receivable: Receivable) {
 }
 
 async function submitPayment() {
-  if (!selectedReceivable.value) return
+  if (!canPay.value || !selectedReceivable.value) return
   try {
     await createPayment({ receivableId: selectedReceivable.value.id, ...paymentForm })
     paymentVisible.value = false
@@ -181,30 +199,32 @@ onMounted(load)
       </div>
       <div class="operations-actions">
         <el-button round plain :loading="loading" @click="load"><el-icon><Refresh /></el-icon>{{ t('sales.refresh') }}</el-button>
-        <el-button type="primary" round @click="openCreate(activeTab === 'quotes' ? 'quote' : 'order')"><el-icon><Plus /></el-icon>{{ t('sales.create') }}</el-button>
+        <el-button v-if="activeTab === 'quotes' ? canCreateShared : activeTab === 'orders' && canCreateOrder" type="primary" round @click="openCreate(activeTab === 'quotes' ? 'quote' : 'order')"><el-icon><Plus /></el-icon>{{ t('sales.create') }}</el-button>
       </div>
     </div>
 
     <div class="inventory-summary-grid">
-      <el-card shadow="never"><span class="eyebrow">{{ t('sales.openOrders') }}</span><strong>{{ openOrderCount }}</strong><small>{{ t('sales.openOrdersHint') }}</small></el-card>
-      <el-card shadow="never"><span class="eyebrow">{{ t('sales.receivableOutstanding') }}</span><strong>{{ outstandingTotal.toFixed(2) }}</strong><small>{{ t('sales.receivableHint') }}</small></el-card>
-      <el-card shadow="never"><span class="eyebrow">{{ t('sales.quoteCount') }}</span><strong>{{ quotes.length }}</strong><small>{{ t('sales.quoteHint') }}</small></el-card>
+      <el-card shadow="never"><span class="eyebrow">{{ t('sales.openOrders') }}</span><strong>{{ ordersFailed ? '—' : openOrderCount }}</strong><small>{{ t('sales.openOrdersHint') }}</small></el-card>
+      <el-card v-if="canReadShared" shadow="never"><span class="eyebrow">{{ t('sales.receivableOutstanding') }}</span><strong>{{ receivablesFailed ? '—' : outstandingTotal.toFixed(2) }}</strong><small>{{ t('sales.receivableHint') }}</small></el-card>
+      <el-card v-if="canReadShared" shadow="never"><span class="eyebrow">{{ t('sales.quoteCount') }}</span><strong>{{ sharedFailed ? '—' : quotes.length }}</strong><small>{{ t('sales.quoteHint') }}</small></el-card>
     </div>
 
     <el-card shadow="never" class="operations-card">
       <el-tabs v-model="activeTab">
-        <el-tab-pane :label="t('sales.quotes')" name="quotes">
+        <el-tab-pane v-if="canReadShared" :label="t('sales.quotes')" name="quotes">
+          <el-alert v-if="sharedFailed && !loading" :title="t('sales.loadFailed')" type="error" :closable="false"><el-button @click="load">{{ t('sales.refresh') }}</el-button></el-alert>
           <el-table v-loading="loading" :data="quotes" empty-text="">
             <el-table-column prop="number" :label="t('sales.number')" width="150" />
             <el-table-column :label="t('sales.customer')" min-width="170"><template #default="{ row }">{{ masterName(customers, row.customerId) }}</template></el-table-column>
             <el-table-column :label="t('sales.item')" min-width="170"><template #default="{ row }">{{ masterName(items, row.itemId) }}</template></el-table-column>
             <el-table-column prop="totalAmount" :label="t('sales.amount')" width="120" />
             <el-table-column :label="t('sales.statusLabel')" width="150"><template #default="{ row }"><el-tag :type="statusType(row.status)">{{ statusLabel(row.status) }}</el-tag></template></el-table-column>
-            <el-table-column :label="t('sales.actions')" width="130"><template #default="{ row }"><el-button v-if="row.status === 'SUBMITTED'" link type="primary" @click="approve(row)"><el-icon><Check /></el-icon>{{ t('sales.approve') }}</el-button></template></el-table-column>
+            <el-table-column :label="t('sales.actions')" width="130"><template #default="{ row }"><el-button v-if="canApprove && row.status === 'SUBMITTED'" link type="primary" @click="approve(row)"><el-icon><Check /></el-icon>{{ t('sales.approve') }}</el-button></template></el-table-column>
           </el-table>
-          <el-empty v-if="!quotes.length && !loading" :description="t('sales.emptyQuotes')" />
+          <el-empty v-if="!quotes.length && !loading && !sharedFailed" :description="t('sales.emptyQuotes')" />
         </el-tab-pane>
         <el-tab-pane :label="t('sales.orders')" name="orders">
+          <el-alert v-if="ordersFailed && !loading" :title="t('sales.loadFailed')" type="error" :closable="false"><el-button @click="load">{{ t('sales.refresh') }}</el-button></el-alert>
           <el-table v-loading="loading" :data="orders" empty-text="">
             <el-table-column prop="number" :label="t('sales.number')" width="150" />
             <el-table-column :label="t('sales.customer')" min-width="170"><template #default="{ row }">{{ masterName(customers, row.customerId) }}</template></el-table-column>
@@ -212,20 +232,21 @@ onMounted(load)
             <el-table-column :label="t('sales.progress')" width="150"><template #default="{ row }">{{ row.fulfilledQuantity }} / {{ row.orderedQuantity }}</template></el-table-column>
             <el-table-column prop="totalAmount" :label="t('sales.amount')" width="120" />
             <el-table-column :label="t('sales.statusLabel')" width="170"><template #default="{ row }"><el-tag :type="statusType(row.status)">{{ statusLabel(row.status) }}</el-tag></template></el-table-column>
-            <el-table-column :label="t('sales.actions')" width="130"><template #default="{ row }"><el-button v-if="row.remainingQuantity > 0" link type="primary" @click="openDelivery(row)"><el-icon><Van /></el-icon>{{ t('sales.deliver') }}</el-button></template></el-table-column>
+            <el-table-column :label="t('sales.actions')" width="130"><template #default="{ row }"><el-button v-if="canDeliver && ['CONFIRMED', 'PARTIALLY_FULFILLED'].includes(row.status) && row.remainingQuantity > 0" link type="primary" @click="openDelivery(row)"><el-icon><Van /></el-icon>{{ t('sales.deliver') }}</el-button></template></el-table-column>
           </el-table>
-          <el-empty v-if="!orders.length && !loading" :description="t('sales.emptyOrders')" />
+          <el-empty v-if="!orders.length && !loading && !ordersFailed" :description="t('sales.emptyOrders')" />
         </el-tab-pane>
-        <el-tab-pane :label="t('sales.receivables')" name="receivables">
+        <el-tab-pane v-if="canReadShared" :label="t('sales.receivables')" name="receivables">
+          <el-alert v-if="receivablesFailed && !loading" :title="t('sales.loadFailed')" type="error" :closable="false"><el-button @click="load">{{ t('sales.refresh') }}</el-button></el-alert>
           <el-table v-loading="loading" :data="receivables" empty-text="">
             <el-table-column prop="number" :label="t('sales.number')" width="150" />
             <el-table-column :label="t('sales.customer')" min-width="170"><template #default="{ row }">{{ masterName(customers, row.customerId) }}</template></el-table-column>
             <el-table-column prop="totalAmount" :label="t('sales.amount')" width="120" />
             <el-table-column prop="outstandingAmount" :label="t('sales.outstanding')" width="130" />
             <el-table-column :label="t('sales.statusLabel')" width="160"><template #default="{ row }"><el-tag :type="statusType(row.status)">{{ statusLabel(row.status) }}</el-tag></template></el-table-column>
-            <el-table-column :label="t('sales.actions')" width="150"><template #default="{ row }"><el-button v-if="row.outstandingAmount > 0" link type="primary" @click="openPayment(row)"><el-icon><CreditCard /></el-icon>{{ t('sales.receivePayment') }}</el-button></template></el-table-column>
+            <el-table-column :label="t('sales.actions')" width="150"><template #default="{ row }"><el-button v-if="canPay && row.outstandingAmount > 0" link type="primary" @click="openPayment(row)"><el-icon><CreditCard /></el-icon>{{ t('sales.receivePayment') }}</el-button></template></el-table-column>
           </el-table>
-          <el-empty v-if="!receivables.length && !loading" :description="t('sales.emptyReceivables')" />
+          <el-empty v-if="!receivables.length && !loading && !receivablesFailed" :description="t('sales.emptyReceivables')" />
         </el-tab-pane>
       </el-tabs>
     </el-card>
@@ -244,7 +265,7 @@ onMounted(load)
       </el-form>
       <el-form v-else label-position="top" @submit.prevent="submit">
         <div class="operations-form-grid">
-          <el-form-item :label="t('sales.sourceQuote')"><el-select v-model="orderForm.quoteId" clearable class="full-width" @change="applyQuoteToOrder"><el-option v-for="row in quotes.filter((item) => item.status === 'APPROVED')" :key="row.id" :label="row.number" :value="row.id" /></el-select></el-form-item>
+          <el-form-item v-if="canReadShared" :label="t('sales.sourceQuote')"><el-select v-model="orderForm.quoteId" clearable class="full-width" @change="applyQuoteToOrder"><el-option v-for="row in quotes.filter((item) => item.status === 'APPROVED')" :key="row.id" :label="row.number" :value="row.id" /></el-select></el-form-item>
           <el-form-item :label="t('sales.customer')"><el-select v-model="orderForm.customerId" class="full-width"><el-option v-for="row in customers" :key="row.id" :label="row.name" :value="row.id" /></el-select></el-form-item>
           <el-form-item :label="t('sales.warehouse')"><el-select v-model="orderForm.warehouseId" class="full-width"><el-option v-for="row in warehouses" :key="row.id" :label="row.name" :value="row.id" /></el-select></el-form-item>
           <el-form-item :label="t('sales.dueDate')"><el-date-picker v-model="orderForm.dueDate" type="date" value-format="YYYY-MM-DD" class="full-width" /></el-form-item>
@@ -259,12 +280,12 @@ onMounted(load)
         </div>
         <el-button plain @click="addOrderLine"><el-icon><Plus /></el-icon>{{ t('sales.addLine', 'Add line') }}</el-button>
       </el-form>
-      <template #footer><el-button @click="dialogVisible = false">{{ t('masterData.cancel') }}</el-button><el-button type="primary" @click="submit">{{ t('masterData.save') }}</el-button></template>
+      <template #footer><el-button @click="dialogVisible = false">{{ t('masterData.cancel') }}</el-button><el-button v-if="dialogType === 'quote' ? canCreateShared : canCreateOrder" type="primary" @click="submit">{{ t('masterData.save') }}</el-button></template>
     </el-dialog>
 
     <el-dialog v-model="deliveryVisible" :title="t('sales.deliveryDialog')" width="420px">
       <el-form label-position="top"><el-form-item :label="t('sales.quantity')"><el-input-number v-model="deliveryForm.quantity" :min="0.0001" :max="selectedOrder?.remainingQuantity" :precision="4" class="full-width" /></el-form-item></el-form>
-      <template #footer><el-button @click="deliveryVisible = false">{{ t('masterData.cancel') }}</el-button><el-button type="primary" @click="submitDelivery">{{ t('sales.deliver') }}</el-button></template>
+      <template #footer><el-button @click="deliveryVisible = false">{{ t('masterData.cancel') }}</el-button><el-button v-if="canDeliver" type="primary" @click="submitDelivery">{{ t('sales.deliver') }}</el-button></template>
     </el-dialog>
 
     <el-dialog v-model="paymentVisible" :title="t('sales.paymentDialog')" width="420px">
@@ -274,7 +295,7 @@ onMounted(load)
         <el-form-item :label="t('sales.paymentDate')"><el-date-picker v-model="paymentForm.paymentDate" type="date" value-format="YYYY-MM-DD" class="full-width" /></el-form-item>
         <el-form-item :label="t('sales.reference')"><el-input v-model="paymentForm.reference" /></el-form-item>
       </el-form>
-      <template #footer><el-button @click="paymentVisible = false">{{ t('masterData.cancel') }}</el-button><el-button type="primary" @click="submitPayment">{{ t('sales.receivePayment') }}</el-button></template>
+      <template #footer><el-button @click="paymentVisible = false">{{ t('masterData.cancel') }}</el-button><el-button v-if="canPay" type="primary" @click="submitPayment">{{ t('sales.receivePayment') }}</el-button></template>
     </el-dialog>
   </div>
 </template>

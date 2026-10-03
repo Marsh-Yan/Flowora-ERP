@@ -2,8 +2,11 @@ package com.flowora.erp.procurement;
 
 import com.flowora.erp.common.api.PageResponse;
 import com.flowora.erp.common.api.ResourceNotFoundException;
-import com.flowora.erp.common.api.PlatformApiException;
+import com.flowora.erp.workflow.v2.WorkflowTemplateNotFoundException;
 import com.flowora.erp.identity.FloworaPrincipal;
+import com.flowora.erp.identity.DataScope;
+import com.flowora.erp.trade.v2.OrderReadScope;
+import org.springframework.security.access.AccessDeniedException;
 import com.flowora.erp.masterdata.ItemEntity;
 import com.flowora.erp.masterdata.ItemRepository;
 import com.flowora.erp.masterdata.SupplierRepository;
@@ -35,6 +38,10 @@ public class ProcurementService {
     private final ItemRepository itemRepository;
     private WorkflowEngineService workflowEngineService;
     private com.flowora.erp.trade.v2.TradeDocumentService canonicalDocuments;
+    private OrderReadScope readScope;
+
+    @Autowired(required = false)
+    void setReadScope(OrderReadScope readScope) { this.readScope = readScope; }
 
     @Autowired(required = false)
     void setCanonicalDocuments(com.flowora.erp.trade.v2.TradeDocumentService canonicalDocuments) {
@@ -109,9 +116,8 @@ public class ProcurementService {
             request.submitForWorkflow(instance.id());
             requestRepository.save(request);
             return true;
-        } catch (PlatformApiException exception) {
-            if ("WORKFLOW_TEMPLATE_NOT_FOUND".equals(exception.code())) return false;
-            throw exception;
+        } catch (WorkflowTemplateNotFoundException exception) {
+            return false;
         }
     }
 
@@ -124,6 +130,10 @@ public class ProcurementService {
 
     @Transactional
     public PurchaseOrderResponse createOrder(FloworaPrincipal actor, PurchaseOrderCreate body) {
+        if (body.purchaseRequestId() != null && !body.purchaseRequestId().isBlank()
+                && (actor.dataScope() != DataScope.ALL || !actor.permissions().contains("procurement:view"))) {
+            throw new AccessDeniedException("Purchase request source requires organization read scope");
+        }
         requireSupplier(actor.organizationId(), body.supplierId());
         requireWarehouse(actor.organizationId(), body.warehouseId());
         requireInventoryItem(actor.organizationId(), body.itemId());
@@ -145,6 +155,9 @@ public class ProcurementService {
 
     @Transactional
     public void cancelOrder(FloworaPrincipal actor, String orderId) {
+        if (!actor.permissions().contains("procurement:view")) throw new AccessDeniedException("Purchase order read permission required");
+        if (readScope != null) readScope.requirePurchase(actor, orderId);
+        else if (actor.dataScope() != DataScope.ALL) throw new AccessDeniedException("Purchase order scope policy unavailable");
         if (canonicalDocuments != null) {
             long version = canonicalDocuments.purchaseOrder(actor.organizationId(),orderId).version();
             canonicalDocuments.cancelPurchaseOrder(actor.organizationId(),orderId,version);

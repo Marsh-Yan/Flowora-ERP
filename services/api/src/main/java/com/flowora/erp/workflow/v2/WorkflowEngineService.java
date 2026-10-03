@@ -61,7 +61,8 @@ public class WorkflowEngineService {
         this.outboxService = outboxService;
     }
 
-    @Transactional
+    // A missing template is detected before any engine write; all other failures still roll back.
+    @Transactional(noRollbackFor = WorkflowTemplateNotFoundException.class)
     public InstanceView start(FloworaPrincipal actor, StartRequest request, String requestId) {
         Map<String, Object> context = new HashMap<>(request.fields());
         context.put("amount", request.amount());

@@ -96,6 +96,16 @@ class SalesServiceTest {
         verify(inventoryService).issueForSales(actor, "warehouse-a", item.id(), new BigDecimal("4"), result.id());
     }
 
+    @Test
+    void quoteSourceRequiresReadPermissionBeforeAnyResourceLookup() {
+        var actor=new FloworaPrincipal("user","user","User","org","Org","membership",null,
+                com.flowora.erp.identity.DataScope.ALL,List.of("CUSTOM"),List.of("sales:create","sales:submit"),false);
+        var body=new SalesOrderCreate("quote","customer","warehouse","item",BigDecimal.ONE,BigDecimal.ONE,BigDecimal.ZERO,BigDecimal.ZERO,"USD",null,null);
+        org.assertj.core.api.Assertions.assertThatThrownBy(()->service.createOrder(actor,body))
+                .isInstanceOf(org.springframework.security.access.AccessDeniedException.class);
+        org.mockito.Mockito.verifyNoInteractions(customerRepository,warehouseRepository,itemRepository,quoteRepository,orderRepository,receivableRepository,accountingService);
+    }
+
     private FloworaPrincipal actor() {
         return new FloworaPrincipal("user-1", "operator@example.com", "Operator", "org-a", "Demo", List.of("BUSINESS"));
     }
