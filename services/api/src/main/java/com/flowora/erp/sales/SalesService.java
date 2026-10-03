@@ -59,6 +59,8 @@ public class SalesService {
     private final AccountingService accountingService;
     private WorkflowEngineService workflowEngineService;
     private final IdempotencyService idempotencyService;
+    private final com.flowora.erp.masterdata.OrganizationRepository organizationRepository;
+    private final QuoteValidityPolicy quoteValidity;
 
     public SalesService(
             SalesQuoteRepository quoteRepository,
@@ -75,7 +77,9 @@ public class SalesService {
             InventoryService inventoryService,
             WorkflowService workflowService,
             AccountingService accountingService,
-            IdempotencyService idempotencyService
+            IdempotencyService idempotencyService,
+            com.flowora.erp.masterdata.OrganizationRepository organizationRepository,
+            QuoteValidityPolicy quoteValidity
     ) {
         this.quoteRepository = quoteRepository;
         this.quoteLineRepository = quoteLineRepository;
@@ -92,6 +96,8 @@ public class SalesService {
         this.workflowService = workflowService;
         this.accountingService = accountingService;
         this.idempotencyService = idempotencyService;
+        this.organizationRepository = organizationRepository;
+        this.quoteValidity = quoteValidity;
     }
 
     @Autowired(required = false)
@@ -102,14 +108,15 @@ public class SalesService {
     @Transactional(readOnly = true)
     public PageResponse<SalesQuoteResponse> quotes(String organizationId, String query, Pageable pageable) {
         Page<SalesQuoteEntity> page = quoteRepository.search(organizationId, clean(query), pageable);
-        return PageResponse.from(page.map(this::quoteResponse));
+        LocalDate today = quoteToday(organizationId);
+        return PageResponse.from(page.map(quote -> quoteResponse(quote, today)));
     }
 
     @Transactional
     public SalesQuoteResponse createQuote(FloworaPrincipal actor, SalesQuoteCreate body, String requestId) {
         CustomerEntity customer = requireCustomer(actor.organizationId(), body.customerId());
         requireItem(actor.organizationId(), body.itemId());
-        if (body.validUntil().isBefore(LocalDate.now())) throw new IllegalArgumentException("Quote validity date cannot be in the past");
+        if (!quoteValidity.isCurrent(body.validUntil(), quoteToday(actor.organizationId()))) throw new IllegalArgumentException("Quote validity date cannot be in the past");
         BigDecimal total = SalesQuoteLineEntity.total(body.quantity(), body.unitPrice(), body.discountRate(), body.taxRate());
         SalesQuoteEntity quote = quoteRepository.save(new SalesQuoteEntity(
                 actor.organizationId(), nextNumber("QT"), customer.id(), SalesQuoteStatus.DRAFT, clean(body.currencyCode()).toUpperCase(), body.validUntil(), total, clean(body.note()), actor.userId()
@@ -191,6 +198,7 @@ public class SalesService {
             quote = quoteRepository.findByIdAndOrganizationId(body.quoteId(), actor.organizationId())
                     .orElseThrow(() -> new ResourceNotFoundException("salesQuote", body.quoteId()));
             if (quote.status() != SalesQuoteStatus.APPROVED) throw new IllegalStateException("Only an approved quote can become a sales order");
+            quoteValidity.requireCurrent(quote.validUntil(), quoteToday(actor.organizationId()));
             SalesQuoteLineEntity quoteLine = quoteLineRepository.findFirstByOrganizationIdAndQuoteId(actor.organizationId(), quote.id()).orElseThrow();
             if (!quote.customerId().equals(body.customerId()) || !quoteLine.itemId().equals(body.itemId())) throw new IllegalArgumentException("Sales order does not match its quote");
         }
@@ -274,9 +282,19 @@ public class SalesService {
         return paymentResponse(payment);
     }
 
+    private LocalDate quoteToday(String organizationId) {
+        var organization = organizationRepository.findById(organizationId)
+                .orElseThrow(() -> new ResourceNotFoundException("organization", organizationId));
+        return quoteValidity.today(organization.timezone());
+    }
+
     private SalesQuoteResponse quoteResponse(SalesQuoteEntity quote) {
+        return quoteResponse(quote, quoteToday(quote.organizationId()));
+    }
+
+    private SalesQuoteResponse quoteResponse(SalesQuoteEntity quote, LocalDate today) {
         SalesQuoteLineEntity line = quoteLineRepository.findFirstByOrganizationIdAndQuoteId(quote.organizationId(), quote.id()).orElseThrow();
-        return new SalesQuoteResponse(quote.id(), quote.number(), quote.status(), quote.workflowTaskId(), quote.customerId(), line.id(), line.itemId(), line.quantity(), line.unitPrice(), line.discountRate(), line.taxRate(), quote.currencyCode(), quote.validUntil(), quote.totalAmount(), quote.note(), quote.approvedAt());
+        return new SalesQuoteResponse(quote.id(), quote.number(), quote.status(), quote.workflowTaskId(), quote.customerId(), line.id(), line.itemId(), line.quantity(), line.unitPrice(), line.discountRate(), line.taxRate(), quote.currencyCode(), quote.validUntil(), quote.totalAmount(), quote.note(), quote.approvedAt(), quote.status() == SalesQuoteStatus.APPROVED && quoteValidity.isCurrent(quote.validUntil(), today));
     }
 
     private SalesOrderResponse orderResponse(SalesOrderEntity order) {

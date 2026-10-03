@@ -46,6 +46,10 @@ class SalesServiceTest {
     @Mock private InventoryService inventoryService;
     @Mock private com.flowora.erp.workflow.WorkflowService workflowService;
 
+    @Mock private com.flowora.erp.masterdata.OrganizationRepository organizationRepository;
+    @org.mockito.Spy private QuoteValidityPolicy quoteValidity = new QuoteValidityPolicy(java.time.Clock.fixed(
+            java.time.Instant.parse("2026-10-03T00:30:00Z"), java.time.ZoneOffset.UTC));
+
     @InjectMocks
     private SalesService service;
 
@@ -104,6 +108,44 @@ class SalesServiceTest {
         org.assertj.core.api.Assertions.assertThatThrownBy(()->service.createOrder(actor,body))
                 .isInstanceOf(org.springframework.security.access.AccessDeniedException.class);
         org.mockito.Mockito.verifyNoInteractions(customerRepository,warehouseRepository,itemRepository,quoteRepository,orderRepository,receivableRepository,accountingService);
+    }
+
+    void organizationTimezone(String timezone) {
+        when(organizationRepository.findById("org-a")).thenReturn(Optional.of(
+                new com.flowora.erp.masterdata.OrganizationEntity("org-a", "Demo", "USD", timezone, BigDecimal.ZERO, BigDecimal.ZERO)));
+    }
+
+    @Test
+    void quoteListingReportsEligibilityUsingOrganizationDate() {
+        var quote = new SalesQuoteEntity("org-a", "QT-1", "customer-a", SalesQuoteStatus.APPROVED,
+                "USD", LocalDate.of(2026,10,2), BigDecimal.TEN, null, "user");
+        var line = new SalesQuoteLineEntity("org-a", quote.id(), "item-a", BigDecimal.ONE, BigDecimal.TEN, BigDecimal.ZERO, BigDecimal.ZERO);
+        when(quoteRepository.search(eq("org-a"), eq(""), any())).thenReturn(new org.springframework.data.domain.PageImpl<>(List.of(quote)));
+        when(quoteLineRepository.findFirstByOrganizationIdAndQuoteId("org-a", quote.id())).thenReturn(Optional.of(line));
+        organizationTimezone("America/Los_Angeles");
+        assertThat(service.quotes("org-a", "", org.springframework.data.domain.PageRequest.of(0,20)).content().getFirst().sourceEligible()).isTrue();
+        organizationTimezone("Asia/Shanghai");
+        assertThat(service.quotes("org-a", "", org.springframework.data.domain.PageRequest.of(0,20)).content().getFirst().sourceEligible()).isFalse();
+        assertThat(quote.status()).isEqualTo(SalesQuoteStatus.APPROVED);
+    }
+
+    @Test
+    void compatibilityOrderRejectsExpiredQuoteBeforeWriting() {
+        var authorized = new FloworaPrincipal("user","user","User","org-a","Org","membership",null,
+                com.flowora.erp.identity.DataScope.ALL,List.of("CUSTOM"),List.of("sales:create","sales:submit","sales:view"),false);
+        when(customerRepository.findByIdAndOrganizationId("customer-a", "org-a")).thenReturn(Optional.of(
+                new CustomerEntity("org-a","C-1","Acme",null,null,null,null,"USD",30,true)));
+        when(itemRepository.findByIdAndOrganizationId("item-a", "org-a")).thenReturn(Optional.of(item()));
+        when(warehouseRepository.findByIdAndOrganizationId("warehouse-a", "org-a")).thenReturn(Optional.of(new WarehouseEntity("org-a","W-1","Main",null,true)));
+        var quote = new SalesQuoteEntity("org-a", "QT-1", "customer-a", SalesQuoteStatus.APPROVED,
+                "USD", LocalDate.of(2026,10,2), BigDecimal.TEN, null, "user");
+        when(quoteRepository.findByIdAndOrganizationId("quote", "org-a")).thenReturn(Optional.of(quote));
+        organizationTimezone("Asia/Shanghai");
+        var body = new SalesOrderCreate("quote","customer-a","warehouse-a","item-a",BigDecimal.ONE,BigDecimal.TEN,BigDecimal.ZERO,BigDecimal.ZERO,"USD",null,null);
+        org.assertj.core.api.Assertions.assertThatThrownBy(() -> service.createOrder(authorized,body))
+                .isInstanceOfSatisfying(com.flowora.erp.common.api.PlatformApiException.class,
+                        error -> assertThat(error.code()).isEqualTo("SOURCE_QUOTE_EXPIRED"));
+        org.mockito.Mockito.verifyNoInteractions(orderRepository,orderLineRepository,receivableRepository,accountingService);
     }
 
     private FloworaPrincipal actor() {

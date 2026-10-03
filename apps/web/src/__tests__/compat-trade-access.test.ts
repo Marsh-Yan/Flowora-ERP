@@ -111,11 +111,11 @@ const NativeOption = defineComponent({
   props: { value: { type: String, default: '' }, label: { type: String, default: '' } },
   setup(props) { return () => h('option', { value: props.value }, props.label) },
 })
-async function sourceEditor(entry: typeof sourceCases[number]) {
+async function sourceEditor(entry: typeof sourceCases[number], sourceEligible = true) {
   const source = { id: 'source-header', lineId: 'source-line', number: 'SRC-1', status: 'APPROVED', supplierId: 'supplier',
     customerId: 'customer', warehouseId: 'warehouse', itemId: 'item', quantity: 3, estimatedUnitCost: 10,
     unitPrice: 10, discountRate: 0, taxRate: 0, currencyCode: 'CNY', requesterUserId: 'user',
-    validUntil: '2026-10-31', totalAmount: 30, note: '' }
+    validUntil: '2026-10-31', sourceEligible, totalAmount: 30, note: '' }
   vi.mocked(procurement.listPurchaseRequests).mockResolvedValue(page([source as procurement.PurchaseRequest]))
   vi.mocked(sales.listSalesQuotes).mockResolvedValue(page([source as sales.SalesQuote]))
   const options = global([`${entry.module}:view`, `${entry.module}:create`, 'master:view'])
@@ -125,7 +125,7 @@ async function sourceEditor(entry: typeof sourceCases[number]) {
   const button = wrapper.findAll('button').find(b => b.text() === en[entry.module].create)!
   await button.trigger('click'); await flushPromises()
   const field = wrapper.findAll('.el-form-item').find(f => f.text().includes(entry.sourceLabel))!
-  await field.find('select').setValue('source-header'); await flushPromises()
+  if (sourceEligible) { await field.find('select').setValue('source-header'); await flushPromises() }
   return { wrapper, field, button }
 }
 async function saveEditor(wrapper: ReturnType<typeof mount>) {
@@ -177,5 +177,23 @@ it.each(sourceCases)('$module keeps the form open and explains remaining source 
   await saveEditor(wrapper)
   expect(message).toHaveBeenCalledWith(en.errors.sourceQuantityExceeded)
   expect(wrapper.findAll('button').some(b => b.text() === en.masterData.save)).toBe(true)
+  message.mockRestore(); wrapper.unmount()
+})
+
+it('sales omits an approved quote that the server marks expired', async () => {
+  const entry = sourceCases.find(entry => entry.module === 'sales')!
+  const { wrapper, field } = await sourceEditor(entry, false)
+  expect(field.findAll('option').some(option => option.text() === 'SRC-1')).toBe(false)
+  wrapper.unmount()
+})
+
+it('sales explains expiry that occurs after the source list was loaded', async () => {
+  const entry = sourceCases.find(entry => entry.module === 'sales')!
+  const { wrapper } = await sourceEditor(entry)
+  vi.mocked(entry.create).mockRejectedValueOnce({ isAxiosError: true, response: { data: { code: 'SOURCE_QUOTE_EXPIRED' } } })
+  const message = vi.spyOn(ElMessage, 'error')
+  await saveEditor(wrapper)
+  expect(message).toHaveBeenCalledWith(en.errors.sourceQuoteExpired)
+  expect(wrapper.findAll('button').some(button => button.text() === en.masterData.save)).toBe(true)
   message.mockRestore(); wrapper.unmount()
 })

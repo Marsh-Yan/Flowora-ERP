@@ -31,6 +31,7 @@ export interface SalesQuote {
   taxRate: number
   currencyCode: string
   validUntil: string
+  sourceEligible?: boolean
   totalAmount: number
   note?: string
   approvedAt?: string

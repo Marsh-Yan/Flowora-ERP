@@ -26,9 +26,18 @@ public class TradeDocumentService {
     private final JdbcTemplate jdbc;
     private final IdempotencyService idempotency;
 
+    private final com.flowora.erp.sales.QuoteValidityPolicy quoteValidity;
+
     public TradeDocumentService(JdbcTemplate jdbc, IdempotencyService idempotency) {
+        this(jdbc, idempotency, new com.flowora.erp.sales.QuoteValidityPolicy());
+    }
+
+    @org.springframework.beans.factory.annotation.Autowired
+    public TradeDocumentService(JdbcTemplate jdbc, IdempotencyService idempotency,
+                                com.flowora.erp.sales.QuoteValidityPolicy quoteValidity) {
         this.jdbc = jdbc;
         this.idempotency = idempotency;
+        this.quoteValidity = quoteValidity;
     }
 
     @Transactional(isolation = Isolation.READ_COMMITTED)
@@ -193,27 +202,31 @@ public class TradeDocumentService {
             // Match each DECIMAL(19,4) link before aggregating, not after.
             quantities.merge(reference, line.quantity().setScale(4, java.math.RoundingMode.HALF_UP), BigDecimal::add);
         }
+        java.time.LocalDate quoteToday = sales && !quantities.isEmpty()
+                ? quoteValidity.today(jdbc.queryForObject("SELECT timezone FROM flowora_organization WHERE id=?",
+                        String.class, actor.organizationId())) : null;
         // Lock each source in stable order. Draft allocation must be serialized
         // before reading existing allocations or inserting any order lines.
         for (var entry : quantities.entrySet()) {
             SourceReference reference = entry.getKey();
             String sql = sales ? """
-                    SELECT header.status,header.customer_id partner_id,header.currency_code,line.item_id,line.quantity
+                    SELECT header.status,header.customer_id partner_id,header.currency_code,header.valid_until,line.item_id,line.quantity
                     FROM flowora_sales_quote header JOIN flowora_sales_quote_line line
                       ON line.quote_id=header.id AND line.organization_id=header.organization_id
                     WHERE header.organization_id=? AND header.id=? AND line.id=? FOR UPDATE
                     """ : """
-                    SELECT header.status,header.supplier_id partner_id,NULL currency_code,line.item_id,line.quantity
+                    SELECT header.status,header.supplier_id partner_id,NULL currency_code,NULL valid_until,line.item_id,line.quantity
                     FROM flowora_purchase_request header JOIN flowora_purchase_request_line line
                       ON line.purchase_request_id=header.id AND line.organization_id=header.organization_id
                     WHERE header.organization_id=? AND header.id=? AND line.id=? FOR UPDATE
                     """;
             List<SourceLine> sources = jdbc.query(sql, (rs, row) -> new SourceLine(rs.getString("status"),
-                    rs.getString("partner_id"), rs.getString("currency_code"), rs.getString("item_id"), rs.getBigDecimal("quantity")),
+                    rs.getString("partner_id"), rs.getString("currency_code"), rs.getString("item_id"), rs.getBigDecimal("quantity"), localDate(rs.getDate("valid_until"))),
                     actor.organizationId(), reference.documentId(), reference.lineId());
             if (sources.isEmpty()) throw new PlatformApiException(HttpStatus.NOT_FOUND, "RESOURCE_NOT_FOUND", "errors.resourceNotFound");
             SourceLine source = sources.getFirst();
             if (!"APPROVED".equals(source.status())) stateConflict();
+            if (sales) quoteValidity.requireCurrent(source.validUntil(), quoteToday);
             if (!source.partnerId().equals(partnerId) || !source.itemId().equals(items.get(reference))
                     || (sales && !source.currencyCode().equalsIgnoreCase(currencyCode.trim()))) referenceConflict();
             String targetTable = sales ? "flowora_sales_order" : "flowora_purchase_order";
@@ -242,7 +255,7 @@ public class TradeDocumentService {
     private record SourceReference(String documentId, String lineId) {
     }
 
-    private record SourceLine(String status, String partnerId, String currencyCode, String itemId, BigDecimal quantity) {
+    private record SourceLine(String status, String partnerId, String currencyCode, String itemId, BigDecimal quantity, java.time.LocalDate validUntil) {
     }
 
     private static void referenceConflict() {

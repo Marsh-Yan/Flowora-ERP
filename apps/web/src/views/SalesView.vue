@@ -115,7 +115,7 @@ function applyQuoteToOrder(id: string) {
     for (const line of orderForm.lines) { delete line.sourceDocumentType; delete line.sourceDocumentId; delete line.sourceLineId }
     return
   }
-  if (!canReadShared.value || !quote?.lineId || quote.status !== 'APPROVED') {
+  if (!canReadShared.value || !quote?.lineId || quote.status !== 'APPROVED' || quote.sourceEligible !== true) {
     orderForm.quoteId = ''
     for (const line of orderForm.lines) { delete line.sourceDocumentType; delete line.sourceDocumentId; delete line.sourceLineId }
     ElMessage.error(t('sales.saveFailed'))
@@ -150,7 +150,7 @@ async function submit() {
     await load()
   } catch (error) {
     const code = axios.isAxiosError(error) ? error.response?.data?.code : undefined
-    ElMessage.error(t(code === 'SOURCE_QUANTITY_EXCEEDED' ? 'errors.sourceQuantityExceeded' : 'sales.saveFailed'))
+    ElMessage.error(t(code === 'SOURCE_QUANTITY_EXCEEDED' ? 'errors.sourceQuantityExceeded' : code === 'SOURCE_QUOTE_EXPIRED' ? 'errors.sourceQuoteExpired' : 'sales.saveFailed'))
   }
 }
 
@@ -283,7 +283,7 @@ onMounted(load)
       </el-form>
       <el-form v-else label-position="top" @submit.prevent="submit">
         <div class="operations-form-grid">
-          <el-form-item v-if="canReadShared" :label="t('sales.sourceQuote')"><el-select v-model="orderForm.quoteId" clearable class="full-width" @change="applyQuoteToOrder"><el-option v-for="row in quotes.filter((item) => item.status === 'APPROVED' && item.lineId)" :key="row.id" :label="row.number" :value="row.id" /></el-select></el-form-item>
+          <el-form-item v-if="canReadShared" :label="t('sales.sourceQuote')"><el-select v-model="orderForm.quoteId" clearable class="full-width" @change="applyQuoteToOrder"><el-option v-for="row in quotes.filter((item) => item.status === 'APPROVED' && item.lineId && item.sourceEligible === true)" :key="row.id" :label="row.number" :value="row.id" /></el-select></el-form-item>
           <el-form-item :label="t('sales.customer')"><el-select v-model="orderForm.customerId" class="full-width"><el-option v-for="row in customers" :key="row.id" :label="row.name" :value="row.id" /></el-select></el-form-item>
           <el-form-item :label="t('sales.warehouse')"><el-select v-model="orderForm.warehouseId" class="full-width"><el-option v-for="row in warehouses" :key="row.id" :label="row.name" :value="row.id" /></el-select></el-form-item>
           <el-form-item :label="t('sales.dueDate')"><el-date-picker v-model="orderForm.dueDate" type="date" value-format="YYYY-MM-DD" class="full-width" /></el-form-item>

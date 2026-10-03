@@ -343,6 +343,68 @@ class TradeInventoryMySqlTest {
         assertThat(snapshot()).isEqualTo(before);
     }
 
+    @Test
+    void expiredQuoteCannotCreateOrderAndRollsBack() {
+        LineRequest source = source(true, "APPROVED");
+        jdbc.update("UPDATE flowora_sales_quote SET valid_until='2000-01-01' WHERE id=?", source.sourceDocumentId());
+        var before = snapshot();
+        assertThatThrownBy(() -> sourcedOrder(actor, true, List.of(source), key()))
+                .isInstanceOfSatisfying(PlatformApiException.class,
+                        error -> assertThat(error.code()).isEqualTo("SOURCE_QUOTE_EXPIRED"));
+        assertThat(snapshot()).isEqualTo(before);
+    }
+
+    void quoteClock(String instant) {
+        documents = transactionalDocuments(new TradeDocumentService(jdbc, new IdempotencyService(jdbc),
+                new com.flowora.erp.sales.QuoteValidityPolicy(java.time.Clock.fixed(
+                        java.time.Instant.parse(instant), java.time.ZoneOffset.UTC))));
+    }
+
+    @Test
+    void quoteLastDayAllowsCreationAndExpiryPreservesReplayAndConfirmation() {
+        jdbc.update("UPDATE flowora_organization SET timezone='Asia/Shanghai' WHERE id=?", org);
+        LineRequest source = source(true, "APPROVED");
+        jdbc.update("UPDATE flowora_sales_quote SET valid_until='2026-10-03' WHERE id=?", source.sourceDocumentId());
+        quoteClock("2026-10-03T15:59:59Z");
+        String requestKey = key();
+        DocumentView order = sourcedOrder(actor, true, List.of(sourceQuantity(source, "0.4")), requestKey);
+        quoteClock("2026-10-03T16:00:00Z");
+        var before = snapshot();
+        assertThatThrownBy(() -> sourcedOrder(actor, true, List.of(sourceQuantity(source, "0.4")), key()))
+                .isInstanceOfSatisfying(PlatformApiException.class,
+                        error -> assertThat(error.code()).isEqualTo("SOURCE_QUOTE_EXPIRED"));
+        assertThat(snapshot()).isEqualTo(before);
+        assertThat(sourcedOrder(actor, true, List.of(sourceQuantity(source, "0.4")), requestKey).id()).isEqualTo(order.id());
+        assertThat(documents.confirmSalesOrder(org, order.id(), order.version())).extracting(DocumentView::status).isEqualTo("CONFIRMED");
+    }
+
+    @Test
+    void quoteValidityUsesOrganizationCalendarAtTheSameInstant() {
+        LineRequest source = source(true, "APPROVED");
+        jdbc.update("UPDATE flowora_sales_quote SET valid_until='2026-10-02' WHERE id=?", source.sourceDocumentId());
+        quoteClock("2026-10-03T00:30:00Z");
+        jdbc.update("UPDATE flowora_organization SET timezone='America/Los_Angeles' WHERE id=?", org);
+        assertThat(sourcedOrder(actor, true, List.of(sourceQuantity(source, "0.4")), key()).status()).isEqualTo("DRAFT");
+        jdbc.update("UPDATE flowora_organization SET timezone='Asia/Shanghai' WHERE id=?", org);
+        var before = snapshot();
+        assertThatThrownBy(() -> sourcedOrder(actor, true, List.of(sourceQuantity(source, "0.4")), key()))
+                .isInstanceOfSatisfying(PlatformApiException.class,
+                        error -> assertThat(error.code()).isEqualTo("SOURCE_QUOTE_EXPIRED"));
+        assertThat(snapshot()).isEqualTo(before);
+    }
+
+    @Test
+    void invalidOrganizationTimezoneCannotSilentlySelectAnotherCalendar() {
+        LineRequest source = source(true, "APPROVED");
+        jdbc.update("UPDATE flowora_organization SET timezone='Invalid/Timezone' WHERE id=?", org);
+        var before = snapshot();
+        assertThatThrownBy(() -> sourcedOrder(actor, true, List.of(source), key()))
+                .isInstanceOfSatisfying(PlatformApiException.class,
+                        error -> assertThat(error.code()).isEqualTo("ORGANIZATION_TIMEZONE_INVALID"));
+        assertThat(snapshot()).isEqualTo(before);
+        assertThat(sourcedOrder(actor, true, List.of(line("1")), key()).status()).isEqualTo("DRAFT");
+    }
+
     LineRequest source(boolean sales, String status) {
         String id = key(), lineId = key();
         if (sales) {
