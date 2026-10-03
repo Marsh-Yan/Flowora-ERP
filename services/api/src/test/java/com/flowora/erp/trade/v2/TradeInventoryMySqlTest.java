@@ -7,6 +7,8 @@ import com.flowora.erp.identity.FloworaPrincipal;
 import com.flowora.erp.inventory.CanonicalInventoryReader;
 import org.flywaydb.core.Flyway;
 import org.junit.jupiter.api.*;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 import org.junit.jupiter.api.condition.EnabledIfEnvironmentVariable;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.jdbc.core.JdbcTemplate;
@@ -121,6 +123,79 @@ class TradeInventoryMySqlTest {
                 "flowora_customer", "flowora_supplier", "flowora_item", "flowora_warehouse"))
             jdbc.update("DELETE FROM " + table + " WHERE organization_id=?", org);
         jdbc.update("DELETE FROM flowora_organization WHERE id=?", org);
+    }
+
+    @ParameterizedTest
+    @ValueSource(booleans = {true, false})
+    void orderCreateReplayBelongsToCreatorAndKeepsCurrentState(boolean sales) {
+        String requestKey = key();
+        DocumentView original = createOrder(actor, sales, requestKey);
+        run(() -> sales ? documents.confirmSalesOrder(org, original.id(), 0)
+                : documents.confirmPurchaseOrder(org, original.id(), 0));
+        var before = snapshot();
+        DocumentView replay = createOrder(actor, sales, "  " + requestKey + "  ");
+        assertThat(replay.id()).isEqualTo(original.id());
+        assertThat(replay.lines()).isEqualTo(original.lines());
+        assertThat(replay.status()).isEqualTo("CONFIRMED");
+        assertThat(replay.version()).isEqualTo(1);
+        assertThat(snapshot()).isEqualTo(before);
+    }
+
+    @ParameterizedTest
+    @ValueSource(booleans = {true, false})
+    void anotherCreatorCannotReplayEvenWithAllScopeAndSamePayload(boolean sales) {
+        String requestKey = key();
+        createOrder(actor, sales, requestKey);
+        var before = snapshot();
+        var other = new FloworaPrincipal("system:r5l-other", "r5l-other", "Other creator", org,
+                "R2 isolated test", List.of("ADMIN"));
+        assertThatThrownBy(() -> createOrder(other, sales, requestKey))
+                .isInstanceOfSatisfying(PlatformApiException.class,
+                        failure -> assertThat(failure.code()).isEqualTo("IDEMPOTENCY_CONFLICT"));
+        assertThat(snapshot()).isEqualTo(before);
+        assertThat(createOrder(other, sales, key()).id()).isNotBlank();
+    }
+
+    @ParameterizedTest
+    @ValueSource(booleans = {true, false})
+    void historicalBlankOwnerOrderCannotBeClaimedByReplay(boolean sales) {
+        String requestKey = key();
+        DocumentView original = createOrder(actor, sales, requestKey);
+        String table = sales ? "flowora_sales_order" : "flowora_purchase_order";
+        String column = sales ? "sales_user_id" : "buyer_user_id";
+        jdbc.update("UPDATE " + table + " SET " + column + "='' WHERE id=? AND organization_id=?", original.id(), org);
+        var before = snapshot();
+        assertThatThrownBy(() -> createOrder(actor, sales, requestKey))
+                .isInstanceOfSatisfying(PlatformApiException.class,
+                        failure -> assertThat(failure.code()).isEqualTo("IDEMPOTENCY_CONFLICT"));
+        assertThat(snapshot()).isEqualTo(before);
+    }
+
+    @ParameterizedTest
+    @ValueSource(booleans = {true, false})
+    void concurrentCreatorsCannotShareOneCreateResult(boolean sales) throws Exception {
+        String requestKey = key();
+        var other = new FloworaPrincipal("system:r5l-other", "r5l-other", "Other creator", org,
+                "R2 isolated test", List.of("ADMIN"));
+        race(() -> createOrder(actor, sales, requestKey), () -> createOrder(other, sales, requestKey));
+        String table = sales ? "flowora_sales_order" : "flowora_purchase_order";
+        String column = sales ? "sales_user_id" : "buyer_user_id";
+        assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM " + table + " WHERE organization_id=? AND request_id=?",
+                Integer.class, org, requestKey)).isEqualTo(1);
+        String creator = jdbc.queryForObject("SELECT " + column + " FROM " + table + " WHERE organization_id=? AND request_id=?",
+                String.class, org, requestKey);
+        var winner = actor.userId().equals(creator) ? actor : other;
+        var loser = actor.userId().equals(creator) ? other : actor;
+        var before = snapshot();
+        assertThat(createOrder(winner, sales, requestKey).id()).isNotBlank();
+        assertThatThrownBy(() -> createOrder(loser, sales, requestKey)).isInstanceOf(PlatformApiException.class);
+        assertThat(snapshot()).isEqualTo(before);
+    }
+
+    DocumentView createOrder(FloworaPrincipal creator, boolean sales, String requestKey) {
+        return run(() -> sales
+                ? documents.createSalesOrder(creator, new SalesOrderRequest(customer, warehouse, "CNY", null, null, List.of(line("1"))), requestKey)
+                : documents.createPurchaseOrder(creator, new PurchaseOrderRequest(supplier, warehouse, "CNY", null, null, List.of(line("1"))), requestKey));
     }
 
     @Test
