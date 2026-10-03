@@ -12,6 +12,7 @@ import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Service;
 import org.springframework.security.access.AccessDeniedException;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.annotation.Isolation;
 
 import java.math.BigDecimal;
 import java.sql.Date;
@@ -30,7 +31,7 @@ public class TradeDocumentService {
         this.idempotency = idempotency;
     }
 
-    @Transactional
+    @Transactional(isolation = Isolation.READ_COMMITTED)
     public DocumentView createSalesOrder(FloworaPrincipal actor, SalesOrderRequest request, String requestKey) {
         DocumentView replay = findByRequest(actor, true, requestKey);
         if (replay != null) return replay;
@@ -50,7 +51,7 @@ public class TradeDocumentService {
         return salesOrder(actor.organizationId(), id);
     }
 
-    @Transactional
+    @Transactional(isolation = Isolation.READ_COMMITTED)
     public DocumentView createPurchaseOrder(FloworaPrincipal actor, PurchaseOrderRequest request, String requestKey) {
         DocumentView replay = findByRequest(actor, false, requestKey);
         if (replay != null) return replay;
@@ -216,8 +217,8 @@ public class TradeDocumentService {
             if (!source.partnerId().equals(partnerId) || !source.itemId().equals(items.get(reference))
                     || (sales && !source.currencyCode().equalsIgnoreCase(currencyCode.trim()))) referenceConflict();
             String targetTable = sales ? "flowora_sales_order" : "flowora_purchase_order";
-            // A locking current read avoids a REPEATABLE READ snapshot created
-            // by an earlier resource lookup. Cancelled orders release capacity;
+            // Creation uses READ COMMITTED: current reads avoid old allocations,
+            // without range gaps blocking unrelated inserts. Cancelled orders release capacity;
             // unresolved historical links conservatively continue to occupy it.
             List<BigDecimal> allocated = jdbc.query("""
                     SELECT link.linked_quantity

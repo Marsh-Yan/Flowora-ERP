@@ -109,8 +109,16 @@ class TradeInventoryMySqlTest {
         jdbc.update("INSERT INTO flowora_supplier(id,organization_id,code,name,currency_code) VALUES (?,?,?,'R2 supplier','CNY')", supplier, org, supplier);
         actor = new FloworaPrincipal("system:r2-test", "r2-test", "R2 test", org, "R2 isolated test", List.of("ADMIN"));
         var idempotency = new IdempotencyService(jdbc);
-        documents = new TradeDocumentService(jdbc, idempotency);
+        documents = transactionalDocuments(new TradeDocumentService(jdbc, idempotency));
         inventory = new TradeInventoryService(jdbc, idempotency, new ObjectMapper());
+    }
+
+    static TradeDocumentService transactionalDocuments(TradeDocumentService service) {
+        var proxy = new org.springframework.aop.framework.ProxyFactory(service);
+        proxy.setProxyTargetClass(true);
+        proxy.addAdvice(new org.springframework.transaction.interceptor.TransactionInterceptor(
+                tx.getTransactionManager(), new org.springframework.transaction.annotation.AnnotationTransactionAttributeSource()));
+        return (TradeDocumentService) proxy.getProxy();
     }
 
     @AfterEach
@@ -210,6 +218,32 @@ class TradeInventoryMySqlTest {
             var second = pool.submit(() -> { start.await(); return sourcedOrder(actor, sales,
                     List.of(sourceQuantity(secondSource, "0.5"), sourceQuantity(firstSource, "0.5")), key()); });
             start.countDown();
+            assertThat(first.get(20, TimeUnit.SECONDS).id()).isNotEqualTo(second.get(20, TimeUnit.SECONDS).id());
+        }
+        assertThat(jdbc.queryForObject("SELECT SUM(linked_quantity) FROM flowora_trade_source_line_link WHERE organization_id=?", BigDecimal.class, org))
+                .isEqualByComparingTo("2");
+    }
+
+    @ParameterizedTest
+    @ValueSource(booleans = {true, false})
+    void disjointSourceOrdersCanAllocateConcurrently(boolean sales) throws Exception {
+        LineRequest firstSource = source(sales, "APPROVED"), secondSource = source(sales, "APPROVED");
+        var readTogether = new CyclicBarrier(2);
+        var coordinated = new JdbcTemplate(jdbc.getDataSource()) {
+            @Override
+            public <T> List<T> query(String sql, org.springframework.jdbc.core.RowMapper<T> mapper, Object... args) {
+                List<T> rows = super.query(sql, mapper, args);
+                if (sql.contains("SELECT link.linked_quantity")) {
+                    try { readTogether.await(10, TimeUnit.SECONDS); }
+                    catch (Exception failure) { throw new IllegalStateException(failure); }
+                }
+                return rows;
+            }
+        };
+        documents = transactionalDocuments(new TradeDocumentService(coordinated, new IdempotencyService(jdbc)));
+        try (var pool = Executors.newFixedThreadPool(2)) {
+            var first = pool.submit(() -> sourcedOrder(actor, sales, List.of(firstSource), key()));
+            var second = pool.submit(() -> sourcedOrder(actor, sales, List.of(secondSource), key()));
             assertThat(first.get(20, TimeUnit.SECONDS).id()).isNotEqualTo(second.get(20, TimeUnit.SECONDS).id());
         }
         assertThat(jdbc.queryForObject("SELECT SUM(linked_quantity) FROM flowora_trade_source_line_link WHERE organization_id=?", BigDecimal.class, org))
@@ -324,9 +358,9 @@ class TradeInventoryMySqlTest {
         return new LineRequest(itemId, amount("1"), amount("10"), BigDecimal.ZERO, BigDecimal.ZERO, type, documentId, lineId);
     }
     DocumentView sourcedOrder(FloworaPrincipal creator, boolean sales, List<LineRequest> lines, String requestKey) {
-        return run(() -> sales
+        return sales
                 ? documents.createSalesOrder(creator, new SalesOrderRequest(customer, warehouse, "CNY", null, null, lines), requestKey)
-                : documents.createPurchaseOrder(creator, new PurchaseOrderRequest(supplier, warehouse, "CNY", null, null, lines), requestKey));
+                : documents.createPurchaseOrder(creator, new PurchaseOrderRequest(supplier, warehouse, "CNY", null, null, lines), requestKey);
     }
 
     @ParameterizedTest
