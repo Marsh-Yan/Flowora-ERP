@@ -139,3 +139,80 @@ it('distinguishes a successfully loaded empty inventory from unavailable summary
   expect(wrapper.find('#pane-balances .el-empty').exists()).toBe(true)
   wrapper.unmount()
 })
+
+function receiptOrder(id = 'po', remaining = 4): procurement.PurchaseOrder {
+  return { id, number: id, status: 'CONFIRMED', supplierId: 'supplier', warehouseId: `warehouse-${id}`, buyerUserId: 'buyer', lineId: `line-${id}`, itemId: 'item', orderedQuantity: 4, receivedQuantity: 4 - remaining, remainingQuantity: remaining, unitPrice: id === 'po' ? 8 : 9, taxRate: 0, orderDate: '2026-10-03' }
+}
+const receiptPermissions = ['inventory:view', 'inventory:post', 'master:view', 'procurement:view']
+const buttonNamed = (wrapper: ReturnType<typeof mount>, text: string) => wrapper.findAll('button').find(button => button.text() === text)!
+async function receiptEditor(orders = [receiptOrder()]) {
+  vi.mocked(stock.receivePurchaseOrder).mockReset().mockResolvedValue(undefined)
+  vi.mocked(procurement.listPurchaseOrders).mockResolvedValue({ content: orders, page: 0, size: 50, totalElements: orders.length, totalPages: 1 })
+  const wrapper = mount(InventoryView, { global: { ...context(receiptPermissions).global, stubs: { teleport: true, ElSelect: true, ElOption: true } } }); await flushPromises()
+  await buttonNamed(wrapper, en.inventory.receive).trigger('click'); await flushPromises()
+  return wrapper
+}
+it('receipt opening selects a coherent default order without an extra change event', async () => {
+  const wrapper = await receiptEditor()
+  await buttonNamed(wrapper, en.masterData.save).trigger('click'); await flushPromises()
+  expect(stock.receivePurchaseOrder).toHaveBeenCalledWith({ purchaseOrderId: 'po', purchaseOrderLineId: 'line-po', warehouseId: 'warehouse-po', quantity: 4, unitCost: 8 })
+  wrapper.unmount()
+})
+it('receipt selection changes order, line, warehouse, remaining quantity and cost together', async () => {
+  const wrapper = await receiptEditor([receiptOrder(), receiptOrder('second', 2)])
+  const picker = wrapper.findComponent({ name: 'ElSelect' }); picker.vm.$emit('update:modelValue', 'second'); picker.vm.$emit('change', 'second'); await flushPromises()
+  await buttonNamed(wrapper, en.masterData.save).trigger('click'); await flushPromises()
+  expect(stock.receivePurchaseOrder).toHaveBeenCalledWith({ purchaseOrderId: 'second', purchaseOrderLineId: 'line-second', warehouseId: 'warehouse-second', quantity: 2, unitCost: 9 })
+  wrapper.unmount()
+})
+it('receipt loading and empty eligible orders cannot open a writable receipt', async () => {
+  const wrapper = await receiptEditor([])
+  expect(buttonNamed(wrapper, en.inventory.receive).attributes('disabled')).toBeDefined()
+  expect(wrapper.findAll('button').some(button => button.text() === en.masterData.save)).toBe(false)
+  wrapper.unmount()
+})
+it('receipt excludes orders without a real line identifier', async () => {
+  const order = receiptOrder(); delete order.lineId
+  const wrapper = await receiptEditor([order])
+  expect(buttonNamed(wrapper, en.inventory.receive).attributes('disabled')).toBeDefined()
+  wrapper.unmount()
+})
+it('receipt does not retain a previously fulfilled order after refresh and reopening', async () => {
+  const wrapper = await receiptEditor()
+  await buttonNamed(wrapper, en.masterData.save).trigger('click'); await flushPromises()
+  vi.mocked(procurement.listPurchaseOrders).mockResolvedValue({ content: [], page: 0, size: 50, totalElements: 0, totalPages: 0 })
+  await buttonNamed(wrapper, en.inventory.refresh).trigger('click'); await flushPromises()
+  expect(buttonNamed(wrapper, en.inventory.receive).attributes('disabled')).toBeDefined()
+  expect(stock.receivePurchaseOrder).toHaveBeenCalledTimes(1)
+  wrapper.unmount()
+})
+it('receipt guards repeated save clicks until posting completes', async () => {
+  const wrapper = await receiptEditor()
+  let done!: () => void
+  vi.mocked(stock.receivePurchaseOrder).mockReturnValue(new Promise(resolve => { done = () => resolve(undefined) }))
+  const save = buttonNamed(wrapper, en.masterData.save)
+  await save.trigger('click'); await save.trigger('click')
+  expect(stock.receivePurchaseOrder).toHaveBeenCalledTimes(1)
+  expect(buttonNamed(wrapper, en.masterData.save).attributes('disabled')).toBeDefined()
+  done(); await flushPromises(); wrapper.unmount()
+})
+it('receipt failed posting retains its selection and permits a deliberate retry', async () => {
+  const wrapper = await receiptEditor()
+  vi.mocked(stock.receivePurchaseOrder).mockRejectedValueOnce(new Error('posting failed'))
+  const save = buttonNamed(wrapper, en.masterData.save); await save.trigger('click'); await flushPromises()
+  expect(save.attributes('disabled')).toBeUndefined()
+  await buttonNamed(wrapper, en.masterData.save).trigger('click'); await flushPromises()
+  expect(stock.receivePurchaseOrder).toHaveBeenCalledTimes(2)
+  expect(vi.mocked(stock.receivePurchaseOrder).mock.calls[1]![0].purchaseOrderId).toBe('po')
+  wrapper.unmount()
+})
+
+it('receipt reopening uses the refreshed remaining quantity instead of the previous form', async () => {
+  const wrapper = await receiptEditor()
+  vi.mocked(procurement.listPurchaseOrders).mockResolvedValue({ content: [receiptOrder('po', 1)], page: 0, size: 50, totalElements: 1, totalPages: 1 })
+  await buttonNamed(wrapper, en.masterData.save).trigger('click'); await flushPromises()
+  await buttonNamed(wrapper, en.inventory.receive).trigger('click'); await flushPromises()
+  await buttonNamed(wrapper, en.masterData.save).trigger('click'); await flushPromises()
+  expect(vi.mocked(stock.receivePurchaseOrder).mock.calls[1]![0].quantity).toBe(1)
+  wrapper.unmount()
+})

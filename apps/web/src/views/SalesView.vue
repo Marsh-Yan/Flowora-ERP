@@ -56,7 +56,7 @@ const deliveryForm = reactive({ quantity: 1 })
 const paymentForm = reactive({ amount: 0, method: 'BANK' as 'BANK' | 'CASH' | 'OTHER', paymentDate: '', reference: '' })
 
 const outstandingTotal = computed(() => receivables.value.reduce((sum, item) => sum + item.outstandingAmount, 0))
-const openOrderCount = computed(() => orders.value.filter((item) => item.remainingQuantity > 0).length)
+const openOrderCount = computed(() => orders.value.filter((item) => item.status !== 'CANCELLED' && item.remainingQuantity > 0).length)
 
 function today() {
   return new Date().toISOString().slice(0, 10)

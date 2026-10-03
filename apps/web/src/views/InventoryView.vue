@@ -18,6 +18,7 @@ const { t, locale } = useI18n()
 const activeTab = ref<'balances' | 'advanced' | 'ledger' | 'trace'>('balances')
 const loading = ref(false)
 const dialogVisible = ref(false)
+const posting = ref(false)
 const dialogType = ref<'receipt' | 'adjustment' | 'transfer'>('receipt')
 const pageSize = 50
 const balancePage = usePagedRows<StockBalance>((page) => listStockBalances('', page, pageSize))
@@ -35,6 +36,8 @@ const orders = ref<PurchaseOrder[]>([])
 const warehouses = ref<MasterDataRecord[]>([])
 const items = ref<MasterDataRecord[]>([])
 const receiptForm = reactive({ purchaseOrderId: '', purchaseOrderLineId: '', warehouseId: '', quantity: 1, unitCost: 0 })
+const selectedReceiptOrder = computed(() => orders.value.find(order => order.id === receiptForm.purchaseOrderId))
+const receiptReady = computed(() => canReceive.value && !!selectedReceiptOrder.value?.lineId && !!receiptForm.warehouseId && Number.isFinite(receiptForm.quantity) && receiptForm.quantity > 0 && receiptForm.quantity <= selectedReceiptOrder.value.remainingQuantity && Number.isFinite(receiptForm.unitCost) && receiptForm.unitCost >= 0)
 const adjustmentForm = reactive({ warehouseId: '', itemId: '', quantityDelta: 0, unitCost: 0, reason: '' })
 const transferForm = reactive({ sourceWarehouseId: '', targetWarehouseId: '', itemId: '', quantity: 1, unitCost: 0 })
 
@@ -103,7 +106,7 @@ async function load() {
     })())
     if (canReceive.value) optional.push((async () => {
       const orderRows = await listPurchaseOrders()
-      if (current === loadRequest) orders.value = orderRows.content.filter(order => order.remainingQuantity > 0 && ['CONFIRMED', 'APPROVED', 'PARTIALLY_RECEIVED'].includes(order.status))
+      if (current === loadRequest) orders.value = orderRows.content.filter(order => !!order.lineId && order.remainingQuantity > 0 && ['CONFIRMED', 'APPROVED', 'PARTIALLY_RECEIVED'].includes(order.status))
     })())
     const results = await Promise.allSettled(optional)
     if (current === loadRequest && results.some(result => result.status === 'rejected')) ElMessage.error(t('inventory.loadFailed'))
@@ -115,21 +118,26 @@ async function load() {
 onBeforeUnmount(() => { loadRequest++; summaryRequest++; balancePage.invalidate(); ledgerPage.invalidate() })
 
 function openDialog(type: 'receipt' | 'adjustment' | 'transfer') {
+  if (posting.value || loading.value || !canPost.value) return
+  if (type === 'receipt') {
+    selectOrder(orders.value[0]?.id ?? '')
+    if (!receiptReady.value) return
+  }
   dialogType.value = type
   dialogVisible.value = true
-  if (type === 'receipt' && orders.value.length) selectOrder(orders.value[0].id)
 }
 
 function selectOrder(id: string) {
   const order = orders.value.find((item) => item.id === id)
-  if (!order) return
-  receiptForm.purchaseOrderLineId = order.lineId ?? ''
-  receiptForm.warehouseId = order.warehouseId
-  receiptForm.quantity = order.remainingQuantity
-  receiptForm.unitCost = order.unitPrice
+  Object.assign(receiptForm, {
+    purchaseOrderId: order?.id ?? '', purchaseOrderLineId: order?.lineId ?? '', warehouseId: order?.warehouseId ?? '',
+    quantity: order?.remainingQuantity ?? 0, unitCost: order?.unitPrice ?? 0,
+  })
 }
 
 async function submit() {
+  if (posting.value || !canPost.value || (dialogType.value === 'receipt' && !receiptReady.value)) return
+  posting.value = true
   try {
     if (dialogType.value === 'receipt') await receivePurchaseOrder({ ...receiptForm })
     if (dialogType.value === 'adjustment') await createStockAdjustment({ ...adjustmentForm })
@@ -139,7 +147,7 @@ async function submit() {
     await load()
   } catch {
     ElMessage.error(t('inventory.saveFailed'))
-  }
+  } finally { posting.value = false }
 }
 
 
@@ -167,9 +175,9 @@ onMounted(load)
       </div>
       <div class="operations-actions">
         <el-button round plain :loading="loading" @click="load"><el-icon><Refresh /></el-icon>{{ t('inventory.refresh') }}</el-button>
-        <el-button v-if="canPost" round plain @click="openDialog('transfer')"><el-icon><ArrowRight /></el-icon>{{ t('inventory.transfer') }}</el-button>
-        <el-button v-if="canPost" round plain @click="openDialog('adjustment')"><el-icon><Plus /></el-icon>{{ t('inventory.adjustment') }}</el-button>
-        <el-button v-if="canReceive" type="primary" round @click="openDialog('receipt')"><el-icon><Plus /></el-icon>{{ t('inventory.receive') }}</el-button>
+        <el-button v-if="canPost" round plain :disabled="loading || posting" @click="openDialog('transfer')"><el-icon><ArrowRight /></el-icon>{{ t('inventory.transfer') }}</el-button>
+        <el-button v-if="canPost" round plain :disabled="loading || posting" @click="openDialog('adjustment')"><el-icon><Plus /></el-icon>{{ t('inventory.adjustment') }}</el-button>
+        <el-button v-if="canReceive" type="primary" round :disabled="loading || posting || !orders.length" @click="openDialog('receipt')"><el-icon><Plus /></el-icon>{{ t('inventory.receive') }}</el-button>
       </div>
     </div>
 
@@ -234,14 +242,14 @@ onMounted(load)
       </el-tabs>
     </el-card>
 
-    <el-dialog v-model="dialogVisible" :title="t(`inventory.dialog.${dialogType}`)" width="560px">
+    <el-dialog v-model="dialogVisible" :title="t(`inventory.dialog.${dialogType}`)" width="min(560px, calc(100vw - 32px))" destroy-on-close :close-on-click-modal="!posting" :close-on-press-escape="!posting" :show-close="!posting">
       <el-form v-if="dialogType === 'receipt'" label-position="top">
-        <el-form-item :label="t('inventory.purchaseOrder')"><el-select v-model="receiptForm.purchaseOrderId" class="full-width" @change="selectOrder"><el-option v-for="row in orders" :key="row.id" :label="row.number" :value="row.id" /></el-select></el-form-item>
-        <div class="operations-form-grid"><el-form-item :label="t('inventory.quantity')"><el-input-number v-model="receiptForm.quantity" :min="0.0001" :precision="4" class="full-width" /></el-form-item><el-form-item :label="t('inventory.unitCost')"><el-input-number v-model="receiptForm.unitCost" :min="0" :precision="4" class="full-width" /></el-form-item></div>
+        <el-form-item :label="t('inventory.purchaseOrder')"><el-select v-model="receiptForm.purchaseOrderId" :disabled="posting" class="full-width" @change="selectOrder"><el-option v-for="row in orders" :key="row.id" :label="row.number" :value="row.id" /></el-select></el-form-item>
+        <div class="operations-form-grid"><el-form-item :label="t('inventory.quantity')"><el-input-number v-model="receiptForm.quantity" :disabled="posting" :max="selectedReceiptOrder?.remainingQuantity" :min="0.0001" :precision="4" class="full-width" /></el-form-item><el-form-item :label="t('inventory.unitCost')"><el-input-number v-model="receiptForm.unitCost" :disabled="posting" :min="0" :precision="4" class="full-width" /></el-form-item></div>
       </el-form>
       <el-form v-else-if="dialogType === 'adjustment'" label-position="top"><div class="operations-form-grid"><el-form-item :label="t('inventory.warehouse')"><el-select v-model="adjustmentForm.warehouseId" class="full-width"><el-option v-for="row in warehouses" :key="row.id" :label="row.name" :value="row.id" /></el-select></el-form-item><el-form-item :label="t('inventory.item')"><el-select v-model="adjustmentForm.itemId" class="full-width"><el-option v-for="row in items" :key="row.id" :label="row.name" :value="row.id" /></el-select></el-form-item><el-form-item :label="t('inventory.quantityDelta')"><el-input-number v-model="adjustmentForm.quantityDelta" :precision="4" class="full-width" /></el-form-item><el-form-item :label="t('inventory.unitCost')"><el-input-number v-model="adjustmentForm.unitCost" :min="0" :precision="4" class="full-width" /></el-form-item></div><el-form-item :label="t('inventory.reason')"><el-input v-model="adjustmentForm.reason" type="textarea" :rows="3" /></el-form-item></el-form>
       <el-form v-else label-position="top"><div class="operations-form-grid"><el-form-item :label="t('inventory.sourceWarehouse')"><el-select v-model="transferForm.sourceWarehouseId" class="full-width"><el-option v-for="row in warehouses" :key="row.id" :label="row.name" :value="row.id" /></el-select></el-form-item><el-form-item :label="t('inventory.targetWarehouse')"><el-select v-model="transferForm.targetWarehouseId" class="full-width"><el-option v-for="row in warehouses" :key="row.id" :label="row.name" :value="row.id" /></el-select></el-form-item><el-form-item :label="t('inventory.item')"><el-select v-model="transferForm.itemId" class="full-width"><el-option v-for="row in items" :key="row.id" :label="row.name" :value="row.id" /></el-select></el-form-item><el-form-item :label="t('inventory.quantity')"><el-input-number v-model="transferForm.quantity" :min="0.0001" :precision="4" class="full-width" /></el-form-item><el-form-item :label="t('inventory.unitCost')"><el-input-number v-model="transferForm.unitCost" :min="0" :precision="4" class="full-width" /></el-form-item></div></el-form>
-      <template #footer><el-button @click="dialogVisible = false">{{ t('masterData.cancel') }}</el-button><el-button type="primary" @click="submit">{{ t('masterData.save') }}</el-button></template>
+      <template #footer><el-button :disabled="posting" @click="dialogVisible = false">{{ t('masterData.cancel') }}</el-button><el-button type="primary" :loading="posting" :disabled="posting || (dialogType === 'receipt' && !receiptReady)" @click="submit">{{ t('masterData.save') }}</el-button></template>
     </el-dialog>
   </div>
 </template>

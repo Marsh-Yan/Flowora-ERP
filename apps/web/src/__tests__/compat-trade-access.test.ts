@@ -292,3 +292,15 @@ it.each(sourceCases)('$module hides confirm/cancel for fulfilled or cancelled or
   expect(labels(wrapper)).not.toContain(en.tradeActions.cancelOrder)
   wrapper.unmount()
 })
+
+it('sales outstanding fulfillment summary excludes cancelled orders with remaining quantity', async () => {
+  vi.mocked(sales.listSalesOrders).mockResolvedValue(page([
+    { id: 'cancelled', status: 'CANCELLED', remainingQuantity: 2 } as sales.SalesOrder,
+    { id: 'draft', status: 'DRAFT', remainingQuantity: 1 } as sales.SalesOrder,
+    { id: 'confirmed', status: 'CONFIRMED', remainingQuantity: 3 } as sales.SalesOrder,
+    { id: 'fulfilled', status: 'FULFILLED', remainingQuantity: 0 } as sales.SalesOrder,
+  ]))
+  const wrapper = mount(SalesView, { global: global(['sales:view'], 'SELF') }); await flushPromises()
+  expect(wrapper.find('.inventory-summary-grid strong').text()).toBe('2')
+  wrapper.unmount()
+})
