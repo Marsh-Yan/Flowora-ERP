@@ -3,12 +3,14 @@ package com.flowora.erp.trade.v2;
 import com.flowora.erp.common.api.PlatformApiException;
 import com.flowora.erp.common.idempotency.IdempotencyService;
 import com.flowora.erp.identity.FloworaPrincipal;
+import com.flowora.erp.identity.DataScope;
 import com.flowora.erp.trade.v2.TradeAmountPolicy.Amounts;
 import com.flowora.erp.trade.v2.TradeDocumentDtos.*;
 import org.springframework.context.annotation.Profile;
 import org.springframework.http.HttpStatus;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Service;
+import org.springframework.security.access.AccessDeniedException;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.math.BigDecimal;
@@ -34,6 +36,7 @@ public class TradeDocumentService {
         if (replay != null) return replay;
         claim(actor.organizationId(), "M3_SALES_ORDER_CREATE", requestKey);
         requireResources(actor.organizationId(), "flowora_customer", request.customerId(), request.warehouseId(), request.lines());
+        requireSources(actor, true, request.customerId(), request.currencyCode(), request.lines());
         String id = UUID.randomUUID().toString();
         jdbc.update("""
                 INSERT INTO flowora_sales_order
@@ -53,6 +56,7 @@ public class TradeDocumentService {
         if (replay != null) return replay;
         claim(actor.organizationId(), "M3_PURCHASE_ORDER_CREATE", requestKey);
         requireResources(actor.organizationId(), "flowora_supplier", request.supplierId(), request.warehouseId(), request.lines());
+        requireSources(actor, false, request.supplierId(), null, request.lines());
         String id = UUID.randomUUID().toString();
         jdbc.update("""
                 INSERT INTO flowora_purchase_order
@@ -166,6 +170,50 @@ public class TradeDocumentService {
         return total;
     }
 
+    private void requireSources(FloworaPrincipal actor, boolean sales, String partnerId,
+                                String currencyCode, List<LineRequest> lines) {
+        String expectedType = sales ? "SALES_QUOTE" : "PURCHASE_REQUEST";
+        String permission = sales ? "sales:view" : "procurement:view";
+        for (LineRequest line : lines) {
+            if (blank(line.sourceDocumentType()) && blank(line.sourceDocumentId()) && blank(line.sourceLineId())) continue;
+            if (blank(line.sourceDocumentType()) || blank(line.sourceDocumentId()) || blank(line.sourceLineId())
+                    || !expectedType.equals(line.sourceDocumentType().trim().toUpperCase(Locale.ROOT))) {
+                referenceConflict();
+            }
+            // Shared requests/quotes have no scoped read policy. A create-only
+            // caller may still create a draft without referencing these records.
+            if (actor.dataScope() != DataScope.ALL || !actor.permissions().contains(permission)) {
+                throw new AccessDeniedException("Trade source requires organization read scope");
+            }
+            String sql = sales ? """
+                    SELECT header.status,header.customer_id partner_id,header.currency_code,line.item_id
+                    FROM flowora_sales_quote header JOIN flowora_sales_quote_line line
+                      ON line.quote_id=header.id AND line.organization_id=header.organization_id
+                    WHERE header.organization_id=? AND header.id=? AND line.id=? FOR SHARE
+                    """ : """
+                    SELECT header.status,header.supplier_id partner_id,NULL currency_code,line.item_id
+                    FROM flowora_purchase_request header JOIN flowora_purchase_request_line line
+                      ON line.purchase_request_id=header.id AND line.organization_id=header.organization_id
+                    WHERE header.organization_id=? AND header.id=? AND line.id=? FOR SHARE
+                    """;
+            List<SourceLine> sources = jdbc.query(sql, (rs, row) -> new SourceLine(rs.getString("status"),
+                    rs.getString("partner_id"), rs.getString("currency_code"), rs.getString("item_id")),
+                    actor.organizationId(), line.sourceDocumentId().trim(), line.sourceLineId().trim());
+            if (sources.isEmpty()) throw new PlatformApiException(HttpStatus.NOT_FOUND, "RESOURCE_NOT_FOUND", "errors.resourceNotFound");
+            SourceLine source = sources.getFirst();
+            if (!"APPROVED".equals(source.status())) stateConflict();
+            if (!source.partnerId().equals(partnerId) || !source.itemId().equals(line.itemId())
+                    || (sales && !source.currencyCode().equalsIgnoreCase(currencyCode.trim()))) referenceConflict();
+        }
+    }
+
+    private record SourceLine(String status, String partnerId, String currencyCode, String itemId) {
+    }
+
+    private static void referenceConflict() {
+        throw new PlatformApiException(HttpStatus.BAD_REQUEST, "REFERENCE_CONFLICT", "errors.referenceConflict");
+    }
+
     private void linkSource(String organizationId, LineRequest line, String targetType, String targetId, String targetLineId) {
         if (blank(line.sourceLineId())) return;
         if (blank(line.sourceDocumentType()) || blank(line.sourceDocumentId())) {
@@ -175,7 +223,7 @@ public class TradeDocumentService {
                 INSERT INTO flowora_trade_source_line_link
                     (id,organization_id,source_document_type,source_document_id,source_line_id,target_document_type,target_document_id,target_line_id,linked_quantity)
                 VALUES (?,?,?,?,?,?,?,?,?)
-                """, UUID.randomUUID().toString(), organizationId, line.sourceDocumentType().trim(), line.sourceDocumentId().trim(),
+                """, UUID.randomUUID().toString(), organizationId, line.sourceDocumentType().trim().toUpperCase(Locale.ROOT), line.sourceDocumentId().trim(),
                 line.sourceLineId().trim(), targetType, targetId, targetLineId, line.quantity());
     }
 

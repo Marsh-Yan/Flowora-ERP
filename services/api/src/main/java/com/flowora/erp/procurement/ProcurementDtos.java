@@ -29,6 +29,7 @@ public final class ProcurementDtos {
             String supplierId,
             String warehouseId,
             String requesterUserId,
+            String lineId,
             String itemId,
             BigDecimal quantity,
             BigDecimal estimatedUnitCost,

@@ -191,7 +191,7 @@ public class ProcurementService {
     }
 
     private PurchaseRequestResponse requestResponse(PurchaseRequestEntity request, PurchaseRequestLineEntity line) {
-        return new PurchaseRequestResponse(request.id(), request.number(), request.status(), request.supplierId(), request.warehouseId(), request.requesterUserId(), line == null ? null : line.itemId(), line == null ? BigDecimal.ZERO : line.quantity(), line == null ? BigDecimal.ZERO : line.estimatedUnitCost(), request.note());
+        return new PurchaseRequestResponse(request.id(), request.number(), request.status(), request.supplierId(), request.warehouseId(), request.requesterUserId(), line == null ? null : line.id(), line == null ? null : line.itemId(), line == null ? BigDecimal.ZERO : line.quantity(), line == null ? BigDecimal.ZERO : line.estimatedUnitCost(), request.note());
     }
 
     private PurchaseOrderResponse orderResponse(PurchaseOrderEntity order, PurchaseOrderLineEntity line) {

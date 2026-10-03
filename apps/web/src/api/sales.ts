@@ -19,6 +19,7 @@ export type ReceivableStatus = 'OPEN' | 'PARTIALLY_SETTLED' | 'SETTLED' | 'CANCE
 
 export interface SalesQuote {
   id: string
+  lineId?: string
   number: string
   status: QuoteStatus
   workflowTaskId?: string

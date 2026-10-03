@@ -33,6 +33,7 @@ public final class SalesDtos {
             SalesQuoteStatus status,
             String workflowTaskId,
             String customerId,
+            String lineId,
             String itemId,
             BigDecimal quantity,
             BigDecimal unitPrice,

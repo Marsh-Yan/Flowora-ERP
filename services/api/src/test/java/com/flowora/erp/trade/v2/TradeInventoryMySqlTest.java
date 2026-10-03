@@ -4,6 +4,8 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.flowora.erp.common.api.PlatformApiException;
 import com.flowora.erp.common.idempotency.IdempotencyService;
 import com.flowora.erp.identity.FloworaPrincipal;
+import com.flowora.erp.identity.DataScope;
+import org.springframework.security.access.AccessDeniedException;
 import com.flowora.erp.inventory.CanonicalInventoryReader;
 import org.flywaydb.core.Flyway;
 import org.junit.jupiter.api.*;
@@ -119,10 +121,118 @@ class TradeInventoryMySqlTest {
                 "flowora_purchase_return_line", "flowora_purchase_return", "flowora_stock_transfer_line", "flowora_stock_transfer",
                 "flowora_stock_count_line", "flowora_stock_count", "flowora_sales_delivery_line", "flowora_sales_delivery",
                 "flowora_purchase_receipt_line", "flowora_purchase_receipt", "flowora_sales_order_line", "flowora_sales_order",
-                "flowora_purchase_order_line", "flowora_purchase_order", "flowora_inventory_balance_v2",
+                "flowora_purchase_order_line", "flowora_purchase_order", "flowora_trade_source_line_link", "flowora_sales_quote_line", "flowora_sales_quote", "flowora_purchase_request_line", "flowora_purchase_request", "flowora_inventory_balance_v2",
                 "flowora_customer", "flowora_supplier", "flowora_item", "flowora_warehouse"))
             jdbc.update("DELETE FROM " + table + " WHERE organization_id=?", org);
         jdbc.update("DELETE FROM flowora_organization WHERE id=?", org);
+    }
+
+    @ParameterizedTest
+    @ValueSource(booleans = {true, false})
+    void nativeSourcesUseRealApprovedLinesAndReplayDoesNotDuplicateLinks(boolean sales) {
+        LineRequest source = source(sales, "APPROVED");
+        String requestKey = key();
+        DocumentView order = sourcedOrder(actor, sales, List.of(source, line("2")), requestKey);
+        var links = jdbc.queryForList("SELECT * FROM flowora_trade_source_line_link WHERE organization_id=?", org);
+        assertThat(links).hasSize(1);
+        assertThat(links.getFirst().get("source_line_id")).isEqualTo(source.sourceLineId());
+        assertThat(links.getFirst().get("source_document_id")).isEqualTo(source.sourceDocumentId());
+        assertThat(links.getFirst().get("target_document_id")).isEqualTo(order.id());
+        assertThat(links.getFirst().get("linked_quantity")).isEqualTo(amount("1.0000"));
+        var before = snapshot();
+        assertThat(sourcedOrder(actor, sales, List.of(source, line("2")), requestKey).id()).isEqualTo(order.id());
+        assertThat(snapshot()).isEqualTo(before);
+    }
+
+    @ParameterizedTest
+    @ValueSource(booleans = {true, false})
+    void nativeSourceShapeAndRealLineIdentityRejectWithoutRowsOrKeys(boolean sales) {
+        LineRequest valid = source(sales, "APPROVED");
+        LineRequest other = source(sales, "APPROVED");
+        for (LineRequest invalid : List.of(
+                referenced(valid.itemId(), "UNSUPPORTED", valid.sourceDocumentId(), valid.sourceLineId()),
+                referenced(valid.itemId(), valid.sourceDocumentType(), valid.sourceDocumentId(), null),
+                referenced(valid.itemId(), null, null, valid.sourceLineId()),
+                referenced(valid.itemId(), valid.sourceDocumentType(), valid.sourceDocumentId(), valid.sourceDocumentId()),
+                referenced(valid.itemId(), valid.sourceDocumentType(), valid.sourceDocumentId(), other.sourceLineId()),
+                referenced(valid.itemId(), valid.sourceDocumentType(), key(), valid.sourceLineId()))) {
+            var before = snapshot();
+            assertThatThrownBy(() -> sourcedOrder(actor, sales, List.of(line("2"), invalid), key())).isInstanceOf(PlatformApiException.class);
+            assertThat(snapshot()).isEqualTo(before);
+        }
+    }
+
+    @ParameterizedTest
+    @ValueSource(booleans = {true, false})
+    void nativeSourcesRequireSharedReadButUnlinkedCreateOnlyDraftsRemainAvailable(boolean sales) {
+        LineRequest valid = source(sales, "APPROVED");
+        String permission = sales ? "sales:view" : "procurement:view";
+        for (DataScope scope : DataScope.values()) {
+            var scoped = new FloworaPrincipal(actor.userId(), actor.username(), actor.displayName(), org, actor.organizationName(),
+                    actor.membershipId(), null, scope, List.of("CUSTOM"), List.of(permission), false);
+            if (scope == DataScope.ALL) continue;
+            var before = snapshot();
+            assertThatThrownBy(() -> sourcedOrder(scoped, sales, List.of(valid), key())).isInstanceOf(AccessDeniedException.class);
+            assertThat(snapshot()).isEqualTo(before);
+            assertThat(sourcedOrder(scoped, sales, List.of(line("1")), key()).status()).isEqualTo("DRAFT");
+        }
+        var blind = new FloworaPrincipal(actor.userId(), actor.username(), actor.displayName(), org, actor.organizationName(),
+                actor.membershipId(), null, DataScope.ALL, List.of("CUSTOM"), List.of(), false);
+        var before = snapshot();
+        assertThatThrownBy(() -> sourcedOrder(blind, sales, List.of(valid), key())).isInstanceOf(AccessDeniedException.class);
+        assertThat(snapshot()).isEqualTo(before);
+    }
+
+    @ParameterizedTest
+    @ValueSource(booleans = {true, false})
+    void nativeSourcesRequireApprovedStatusMatchingPartnerAndItem(boolean sales) {
+        LineRequest valid = source(sales, "APPROVED");
+        String header = sales ? "flowora_sales_quote" : "flowora_purchase_request";
+        for (String status : List.of("DRAFT", "SUBMITTED", "REJECTED", "CANCELLED")) {
+            jdbc.update("UPDATE " + header + " SET status=? WHERE organization_id=? AND id=?", status, org, valid.sourceDocumentId());
+            var before = snapshot();
+            assertThatThrownBy(() -> sourcedOrder(actor, sales, List.of(valid), key())).isInstanceOfSatisfying(PlatformApiException.class,
+                    failure -> assertThat(failure.code()).isEqualTo("DOCUMENT_STATE_CONFLICT"));
+            assertThat(snapshot()).isEqualTo(before);
+        }
+        jdbc.update("UPDATE " + header + " SET status='APPROVED'," + (sales ? "customer_id" : "supplier_id") + "='other' WHERE id=?", valid.sourceDocumentId());
+        assertThatThrownBy(() -> sourcedOrder(actor, sales, List.of(valid), key())).isInstanceOfSatisfying(PlatformApiException.class,
+                failure -> assertThat(failure.code()).isEqualTo("REFERENCE_CONFLICT"));
+        jdbc.update("UPDATE " + header + " SET " + (sales ? "customer_id" : "supplier_id") + "=? WHERE id=?", sales ? customer : supplier, valid.sourceDocumentId());
+        jdbc.update("UPDATE " + (sales ? "flowora_sales_quote_line" : "flowora_purchase_request_line") + " SET item_id='other' WHERE id=?", valid.sourceLineId());
+        var before = snapshot();
+        assertThatThrownBy(() -> sourcedOrder(actor, sales, List.of(valid), key())).isInstanceOf(PlatformApiException.class);
+        assertThat(snapshot()).isEqualTo(before);
+    }
+
+    @Test
+    void quoteSourceCurrencyCannotBeRelabelled() {
+        LineRequest valid = source(true, "APPROVED");
+        jdbc.update("UPDATE flowora_sales_quote SET currency_code='USD' WHERE id=?", valid.sourceDocumentId());
+        var before = snapshot();
+        assertThatThrownBy(() -> sourcedOrder(actor, true, List.of(valid), key())).isInstanceOfSatisfying(PlatformApiException.class,
+                failure -> assertThat(failure.code()).isEqualTo("REFERENCE_CONFLICT"));
+        assertThat(snapshot()).isEqualTo(before);
+    }
+
+    LineRequest source(boolean sales, String status) {
+        String id = key(), lineId = key();
+        if (sales) {
+            jdbc.update("INSERT INTO flowora_sales_quote(id,organization_id,number,customer_id,status,currency_code,valid_until,total_amount,requester_user_id) VALUES (?,?,?,?,?,'CNY',CURRENT_DATE,10,?)", id, org, id.replace("-", ""), customer, status, actor.userId());
+            jdbc.update("INSERT INTO flowora_sales_quote_line(id,organization_id,quote_id,item_id,quantity,unit_price) VALUES (?,?,?,?,1,10)", lineId, org, id, item);
+        } else {
+            jdbc.update("INSERT INTO flowora_purchase_request(id,organization_id,number,supplier_id,warehouse_id,requester_user_id,status) VALUES (?,?,?,?,?,?,?)", id, org, id.replace("-", ""), supplier, warehouse, actor.userId(), status);
+            jdbc.update("INSERT INTO flowora_purchase_request_line(id,organization_id,purchase_request_id,item_id,quantity,estimated_unit_cost) VALUES (?,?,?,?,1,10)", lineId, org, id, item);
+        }
+        return referenced(item, sales ? "SALES_QUOTE" : "PURCHASE_REQUEST", id, lineId);
+    }
+    LineRequest referenced(String itemId, String type, String documentId, String lineId) {
+        return new LineRequest(itemId, amount("1"), amount("10"), BigDecimal.ZERO, BigDecimal.ZERO, type, documentId, lineId);
+    }
+    DocumentView sourcedOrder(FloworaPrincipal creator, boolean sales, List<LineRequest> lines, String requestKey) {
+        return run(() -> sales
+                ? documents.createSalesOrder(creator, new SalesOrderRequest(customer, warehouse, "CNY", null, null, lines), requestKey)
+                : documents.createPurchaseOrder(creator, new PurchaseOrderRequest(supplier, warehouse, "CNY", null, null, lines), requestKey));
     }
 
     @ParameterizedTest
@@ -391,7 +501,7 @@ class TradeInventoryMySqlTest {
     Map<String,Object> snapshot() {
         var state = new LinkedHashMap<String,Object>();
         for (String table : List.of("flowora_inventory_balance_v2", "flowora_purchase_order", "flowora_purchase_order_line", "flowora_sales_order", "flowora_sales_order_line",
-                "flowora_stock_movement", "flowora_stock_movement_line", "flowora_stock_reservation", "flowora_purchase_receipt", "flowora_purchase_receipt_line", "flowora_financial_source_event", "flowora_idempotency_record"))
+                "flowora_stock_movement", "flowora_stock_movement_line", "flowora_stock_reservation", "flowora_purchase_receipt", "flowora_purchase_receipt_line", "flowora_financial_source_event", "flowora_idempotency_record", "flowora_trade_source_line_link"))
             state.put(table,jdbc.queryForList("SELECT * FROM " + table + " WHERE organization_id=? ORDER BY id",org));
         return state;
     }
