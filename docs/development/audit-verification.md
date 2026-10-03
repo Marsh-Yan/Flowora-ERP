@@ -95,3 +95,5 @@ R5 第十二批针对隔离实证的原生订单创建重放泄露绑定原创�
 `release-verification`、`demo-data`、`demo-accounts` 已新增当前启动/认证/验证说明；`master-data`、`procurement-inventory`、`sales-fulfillment`、`finance`、`projects`、`workbench`、`workflow` 保留旧阶段正文并显著标注历史范围，链接当前替代契约。README、升级手册、M5 迁移与发布记录同步明确 V19 和证据时效。标记历史文档不表示其中所有功能已重新验收。
 
 R5 第十七批补齐普通浏览器实证缺失的采购/销售订单确认与取消入口：Web52（新增14）及 lint/type/build 通过，桌面与390px窄屏普通订单确认/取消，SQL核对两单CANCELLED/version2且无库存/凭证写入。详见 [原生订单动作](native-order-actions.md#r5-q订单页面确认与取消2026-10-03)。此批不代表入库/发货/收付款或全角色闭环完成；前述正文指纹、来源行真实性/累计数量和报价有效期已由PR38–41对应阶段收口。F27继续部分完成。
+
+R5 第十八批完成普通页面采购入库与销售部分/完整发货走查，修复入库默认选择、重开剩余数量及窄屏弹窗，同时排除取消订单的待履约统计。Web61及lint/type/build通过；SQL核对采购6、出库3、库存3/价值24、凭证借贷各72、应付48。详见 [履约浏览器验证](fulfillment-browser-verification.md)。正式发票、收入与收付款尚未验收，M4财务指标加载提示原因待查；F27保持部分完成。
