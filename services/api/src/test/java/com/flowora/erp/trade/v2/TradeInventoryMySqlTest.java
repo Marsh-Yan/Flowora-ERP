@@ -129,6 +129,100 @@ class TradeInventoryMySqlTest {
 
     @ParameterizedTest
     @ValueSource(booleans = {true, false})
+    void sourceQuantitySupportsSplitOrdersAndCancellationRelease(boolean sales) {
+        LineRequest source = source(sales, "APPROVED");
+        DocumentView first = sourcedOrder(actor, sales, List.of(sourceQuantity(source, "0.4")), key());
+        DocumentView second = sourcedOrder(actor, sales, List.of(sourceQuantity(source, "0.6")), key());
+        run(() -> sales ? documents.confirmSalesOrder(org, second.id(), 0)
+                : documents.confirmPurchaseOrder(org, second.id(), 0));
+        var before = snapshot();
+        assertThatThrownBy(() -> sourcedOrder(actor, sales, List.of(sourceQuantity(source, "0.0001")), key()))
+                .isInstanceOfSatisfying(PlatformApiException.class,
+                        failure -> assertThat(failure.code()).isEqualTo("SOURCE_QUANTITY_EXCEEDED"));
+        assertThat(snapshot()).isEqualTo(before);
+        run(() -> sales ? documents.cancelSalesOrder(org, first.id(), 0)
+                : documents.cancelPurchaseOrder(org, first.id(), 0));
+        assertThat(sourcedOrder(actor, sales, List.of(sourceQuantity(source, "0.4")), key()).status()).isEqualTo("DRAFT");
+        run(() -> sales ? documents.cancelSalesOrder(org, second.id(), 1)
+                : documents.cancelPurchaseOrder(org, second.id(), 1));
+        assertThat(sourcedOrder(actor, sales, List.of(sourceQuantity(source, "0.6")), key()).status()).isEqualTo("DRAFT");
+        assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM flowora_trade_source_line_link WHERE organization_id=?", Integer.class, org)).isEqualTo(4);
+    }
+
+    @ParameterizedTest
+    @ValueSource(booleans = {true, false})
+    void sourceAllocationUsesPersistedPerLineQuantityPrecision(boolean sales) {
+        LineRequest source = source(sales, "APPROVED");
+        var before = snapshot();
+        assertThatThrownBy(() -> sourcedOrder(actor, sales,
+                List.of(sourceQuantity(source, "0.33335"), sourceQuantity(source, "0.33335"), sourceQuantity(source, "0.33329")), key()))
+                .isInstanceOfSatisfying(PlatformApiException.class,
+                        failure -> assertThat(failure.code()).isEqualTo("SOURCE_QUANTITY_EXCEEDED"));
+        assertThat(snapshot()).isEqualTo(before);
+        sourcedOrder(actor, sales, List.of(sourceQuantity(source, "0.33334"), sourceQuantity(source, "0.33334"), sourceQuantity(source, "0.33334")), key());
+        assertThat(jdbc.queryForObject("SELECT SUM(linked_quantity) FROM flowora_trade_source_line_link WHERE organization_id=?", BigDecimal.class, org))
+                .isEqualByComparingTo("0.9999");
+        assertThat(sourcedOrder(actor, sales, List.of(sourceQuantity(source, "0.0001")), key()).status()).isEqualTo("DRAFT");
+    }
+
+    @ParameterizedTest
+    @ValueSource(booleans = {true, false})
+    void repeatedSourceLinesAreCheckedAsOneQuantity(boolean sales) {
+        LineRequest source = source(sales, "APPROVED");
+        var before = snapshot();
+        assertThatThrownBy(() -> sourcedOrder(actor, sales,
+                List.of(sourceQuantity(source, "0.6"), sourceQuantity(source, "0.5")), key()))
+                .isInstanceOfSatisfying(PlatformApiException.class,
+                        failure -> assertThat(failure.code()).isEqualTo("SOURCE_QUANTITY_EXCEEDED"));
+        assertThat(snapshot()).isEqualTo(before);
+        DocumentView order = sourcedOrder(actor, sales,
+                List.of(sourceQuantity(source, "0.4"), sourceQuantity(source, "0.6")), key());
+        assertThat(order.lines()).hasSize(2);
+    }
+
+    @ParameterizedTest
+    @ValueSource(booleans = {true, false})
+    void concurrentSplitOrdersObserveCurrentAllocation(boolean sales) throws Exception {
+        LineRequest source = source(sales, "APPROVED");
+        var start = new CountDownLatch(1);
+        try (var pool = Executors.newFixedThreadPool(2)) {
+            Callable<String> create = () -> {
+                start.await();
+                try { sourcedOrder(actor, sales, List.of(sourceQuantity(source, "0.6")), key()); return "CREATED"; }
+                catch (PlatformApiException failure) { return failure.code(); }
+            };
+            var first = pool.submit(create); var second = pool.submit(create); start.countDown();
+            assertThat(List.of(first.get(20, TimeUnit.SECONDS), second.get(20, TimeUnit.SECONDS)))
+                    .containsExactlyInAnyOrder("CREATED", "SOURCE_QUANTITY_EXCEEDED");
+        }
+        assertThat(jdbc.queryForObject("SELECT SUM(linked_quantity) FROM flowora_trade_source_line_link WHERE organization_id=?", BigDecimal.class, org))
+                .isEqualByComparingTo("0.6");
+    }
+
+    @ParameterizedTest
+    @ValueSource(booleans = {true, false})
+    void independentSourcesCanBeCreatedTogetherInOppositeOrder(boolean sales) throws Exception {
+        LineRequest firstSource = source(sales, "APPROVED"), secondSource = source(sales, "APPROVED");
+        var start = new CountDownLatch(1);
+        try (var pool = Executors.newFixedThreadPool(2)) {
+            var first = pool.submit(() -> { start.await(); return sourcedOrder(actor, sales,
+                    List.of(sourceQuantity(firstSource, "0.5"), sourceQuantity(secondSource, "0.5")), key()); });
+            var second = pool.submit(() -> { start.await(); return sourcedOrder(actor, sales,
+                    List.of(sourceQuantity(secondSource, "0.5"), sourceQuantity(firstSource, "0.5")), key()); });
+            start.countDown();
+            assertThat(first.get(20, TimeUnit.SECONDS).id()).isNotEqualTo(second.get(20, TimeUnit.SECONDS).id());
+        }
+        assertThat(jdbc.queryForObject("SELECT SUM(linked_quantity) FROM flowora_trade_source_line_link WHERE organization_id=?", BigDecimal.class, org))
+                .isEqualByComparingTo("2");
+    }
+
+    LineRequest sourceQuantity(LineRequest source, String quantity) {
+        return new LineRequest(source.itemId(), amount(quantity), source.unitPrice(), source.discountRate(), source.taxRate(),
+                source.sourceDocumentType(), source.sourceDocumentId(), source.sourceLineId());
+    }
+
+    @ParameterizedTest
+    @ValueSource(booleans = {true, false})
     void nativeSourcesUseRealApprovedLinesAndReplayDoesNotDuplicateLinks(boolean sales) {
         LineRequest source = source(sales, "APPROVED");
         String requestKey = key();

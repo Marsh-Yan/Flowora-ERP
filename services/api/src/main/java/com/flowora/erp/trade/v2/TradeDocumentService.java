@@ -174,40 +174,74 @@ public class TradeDocumentService {
                                 String currencyCode, List<LineRequest> lines) {
         String expectedType = sales ? "SALES_QUOTE" : "PURCHASE_REQUEST";
         String permission = sales ? "sales:view" : "procurement:view";
+        var quantities = new java.util.TreeMap<SourceReference, BigDecimal>(
+                java.util.Comparator.comparing(SourceReference::documentId).thenComparing(SourceReference::lineId));
+        var items = new java.util.HashMap<SourceReference, String>();
         for (LineRequest line : lines) {
             if (blank(line.sourceDocumentType()) && blank(line.sourceDocumentId()) && blank(line.sourceLineId())) continue;
             if (blank(line.sourceDocumentType()) || blank(line.sourceDocumentId()) || blank(line.sourceLineId())
                     || !expectedType.equals(line.sourceDocumentType().trim().toUpperCase(Locale.ROOT))) {
                 referenceConflict();
             }
-            // Shared requests/quotes have no scoped read policy. A create-only
-            // caller may still create a draft without referencing these records.
             if (actor.dataScope() != DataScope.ALL || !actor.permissions().contains(permission)) {
                 throw new AccessDeniedException("Trade source requires organization read scope");
             }
+            var reference = new SourceReference(line.sourceDocumentId().trim(), line.sourceLineId().trim());
+            String previousItem = items.putIfAbsent(reference, line.itemId());
+            if (previousItem != null && !previousItem.equals(line.itemId())) referenceConflict();
+            // Match each DECIMAL(19,4) link before aggregating, not after.
+            quantities.merge(reference, line.quantity().setScale(4, java.math.RoundingMode.HALF_UP), BigDecimal::add);
+        }
+        // Lock each source in stable order. Draft allocation must be serialized
+        // before reading existing allocations or inserting any order lines.
+        for (var entry : quantities.entrySet()) {
+            SourceReference reference = entry.getKey();
             String sql = sales ? """
-                    SELECT header.status,header.customer_id partner_id,header.currency_code,line.item_id
+                    SELECT header.status,header.customer_id partner_id,header.currency_code,line.item_id,line.quantity
                     FROM flowora_sales_quote header JOIN flowora_sales_quote_line line
                       ON line.quote_id=header.id AND line.organization_id=header.organization_id
-                    WHERE header.organization_id=? AND header.id=? AND line.id=? FOR SHARE
+                    WHERE header.organization_id=? AND header.id=? AND line.id=? FOR UPDATE
                     """ : """
-                    SELECT header.status,header.supplier_id partner_id,NULL currency_code,line.item_id
+                    SELECT header.status,header.supplier_id partner_id,NULL currency_code,line.item_id,line.quantity
                     FROM flowora_purchase_request header JOIN flowora_purchase_request_line line
                       ON line.purchase_request_id=header.id AND line.organization_id=header.organization_id
-                    WHERE header.organization_id=? AND header.id=? AND line.id=? FOR SHARE
+                    WHERE header.organization_id=? AND header.id=? AND line.id=? FOR UPDATE
                     """;
             List<SourceLine> sources = jdbc.query(sql, (rs, row) -> new SourceLine(rs.getString("status"),
-                    rs.getString("partner_id"), rs.getString("currency_code"), rs.getString("item_id")),
-                    actor.organizationId(), line.sourceDocumentId().trim(), line.sourceLineId().trim());
+                    rs.getString("partner_id"), rs.getString("currency_code"), rs.getString("item_id"), rs.getBigDecimal("quantity")),
+                    actor.organizationId(), reference.documentId(), reference.lineId());
             if (sources.isEmpty()) throw new PlatformApiException(HttpStatus.NOT_FOUND, "RESOURCE_NOT_FOUND", "errors.resourceNotFound");
             SourceLine source = sources.getFirst();
             if (!"APPROVED".equals(source.status())) stateConflict();
-            if (!source.partnerId().equals(partnerId) || !source.itemId().equals(line.itemId())
+            if (!source.partnerId().equals(partnerId) || !source.itemId().equals(items.get(reference))
                     || (sales && !source.currencyCode().equalsIgnoreCase(currencyCode.trim()))) referenceConflict();
+            String targetTable = sales ? "flowora_sales_order" : "flowora_purchase_order";
+            // A locking current read avoids a REPEATABLE READ snapshot created
+            // by an earlier resource lookup. Cancelled orders release capacity;
+            // unresolved historical links conservatively continue to occupy it.
+            List<BigDecimal> allocated = jdbc.query("""
+                    SELECT link.linked_quantity
+                    FROM flowora_trade_source_line_link link LEFT JOIN %s target
+                      ON target.organization_id=link.organization_id AND target.id=link.target_document_id
+                        AND link.target_document_type=?
+                    WHERE link.organization_id=? AND link.source_document_type=?
+                      AND link.source_document_id=? AND link.source_line_id=?
+                      AND (target.id IS NULL OR target.status<>'CANCELLED')
+                    FOR SHARE
+                    """.formatted(targetTable), (rs, row) -> rs.getBigDecimal(1),
+                    sales ? "SALES_ORDER" : "PURCHASE_ORDER", actor.organizationId(), expectedType,
+                    reference.documentId(), reference.lineId());
+            BigDecimal used = allocated.stream().reduce(BigDecimal.ZERO, BigDecimal::add);
+            if (used.add(entry.getValue()).compareTo(source.quantity()) > 0) {
+                throw new PlatformApiException(HttpStatus.CONFLICT, "SOURCE_QUANTITY_EXCEEDED", "errors.sourceQuantityExceeded");
+            }
         }
     }
 
-    private record SourceLine(String status, String partnerId, String currencyCode, String itemId) {
+    private record SourceReference(String documentId, String lineId) {
+    }
+
+    private record SourceLine(String status, String partnerId, String currencyCode, String itemId, BigDecimal quantity) {
     }
 
     private static void referenceConflict() {

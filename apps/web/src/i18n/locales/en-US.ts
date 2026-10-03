@@ -121,6 +121,7 @@ export default {
     demoHint: 'Demo account',
   },
   errors: {
+    sourceQuantityExceeded: 'The order quantity exceeds the remaining source quantity. Reduce the quantity or choose another source.',
     resourceNotFound: 'The requested data was not found.',
     masterDataConflict: 'That code already exists. Choose another code and try again.',
     validation: 'Check the form fields and try again.',

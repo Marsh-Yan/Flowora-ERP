@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed, onMounted, reactive, ref, type Ref } from 'vue'
 import { ElMessage } from 'element-plus'
+import axios from 'axios'
 import { Check, CreditCard, Plus, Refresh, Van } from '@element-plus/icons-vue'
 import { useI18n } from 'vue-i18n'
 import {
@@ -147,8 +148,9 @@ async function submit() {
     dialogVisible.value = false
     ElMessage.success(t('sales.created'))
     await load()
-  } catch {
-    ElMessage.error(t('sales.saveFailed'))
+  } catch (error) {
+    const code = axios.isAxiosError(error) ? error.response?.data?.code : undefined
+    ElMessage.error(t(code === 'SOURCE_QUANTITY_EXCEEDED' ? 'errors.sourceQuantityExceeded' : 'sales.saveFailed'))
   }
 }
 
