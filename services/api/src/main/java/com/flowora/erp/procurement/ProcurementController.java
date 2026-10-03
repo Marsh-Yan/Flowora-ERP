@@ -4,6 +4,7 @@ import com.flowora.erp.common.api.ApiResponse;
 import com.flowora.erp.common.api.PageResponse;
 import com.flowora.erp.common.api.RequestIdFilter;
 import com.flowora.erp.identity.FloworaPrincipal;
+import com.flowora.erp.identity.FloworaAuthorization;
 import com.flowora.erp.procurement.ProcurementDtos.PurchaseOrderCreate;
 import com.flowora.erp.procurement.ProcurementDtos.PurchaseOrderResponse;
 import com.flowora.erp.procurement.ProcurementDtos.PurchaseRequestCreate;
@@ -28,12 +29,15 @@ import org.springframework.web.bind.annotation.RestController;
 public class ProcurementController {
     private final ProcurementService service;
 
-    public ProcurementController(ProcurementService service) {
+    private final FloworaAuthorization authorization;
+
+    public ProcurementController(ProcurementService service, FloworaAuthorization authorization) {
         this.service = service;
+        this.authorization = authorization;
     }
 
     @GetMapping("/requests")
-    @PreAuthorize("@floworaAuthorization.has(authentication, 'procurement:view')")
+    @PreAuthorize("@floworaAuthorization.hasOrganizationPermission(authentication, 'procurement:view')")
     public ApiResponse<PageResponse<PurchaseRequestResponse>> requests(
             @RequestParam(defaultValue = "") String query,
             @PageableDefault(size = 20) Pageable pageable,
@@ -44,7 +48,7 @@ public class ProcurementController {
     }
 
     @PostMapping("/requests")
-    @PreAuthorize("hasAnyRole('ADMIN', 'BUSINESS')")
+    @PreAuthorize("@floworaAuthorization.hasOrganizationPermission(authentication, 'procurement:create') && @floworaAuthorization.has(authentication, 'procurement:view') && @floworaAuthorization.has(authentication, 'procurement:submit') && @floworaAuthorization.has(authentication, 'workflow:view') && @floworaAuthorization.has(authentication, 'workflow:submit')")
     public ApiResponse<PurchaseRequestResponse> createRequest(
             @Valid @RequestBody PurchaseRequestCreate body,
             Authentication authentication,
@@ -65,7 +69,7 @@ public class ProcurementController {
     }
 
     @PostMapping("/orders")
-    @PreAuthorize("hasAnyRole('ADMIN', 'BUSINESS')")
+    @PreAuthorize("@floworaAuthorization.has(authentication, 'procurement:create') && @floworaAuthorization.has(authentication, 'procurement:submit')")
     public ApiResponse<PurchaseOrderResponse> createOrder(
             @Valid @RequestBody PurchaseOrderCreate body,
             Authentication authentication,
@@ -75,15 +79,14 @@ public class ProcurementController {
     }
 
     @DeleteMapping("/orders/{id}")
-    @PreAuthorize("hasAnyRole('ADMIN', 'BUSINESS')")
+    @PreAuthorize("@floworaAuthorization.has(authentication, 'procurement:submit')")
     public ApiResponse<Void> cancelOrder(@PathVariable String id, Authentication authentication, HttpServletRequest request) {
         service.cancelOrder(principal(authentication), id);
         return response(null, request);
     }
 
     private FloworaPrincipal principal(Authentication authentication) {
-        if (authentication != null && authentication.getPrincipal() instanceof FloworaPrincipal current) return current;
-        throw new IllegalStateException("Authenticated FloworaPrincipal is required");
+        return authorization.principal(authentication);
     }
 
     private <T> ApiResponse<T> response(T data, HttpServletRequest request) {

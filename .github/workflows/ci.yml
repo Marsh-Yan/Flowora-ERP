@@ -124,7 +124,7 @@ jobs:
       - name: Test finance source boundaries, base balance, FX reversal, valuation and bank direction
         run: ./mvnw -B -pl services/api -Dtest=FinanceMySqlTest test
       - name: Test scheduled outbox concurrency, rollback recovery, dead metrics and approval cards
-        run: ./mvnw -B -pl services/api -Dtest=WorkflowOperationsMySqlTest test
+        run: ./mvnw -B -pl services/api -Dtest=WorkflowOperationsMySqlTest,WorkflowFallbackMySqlTest test
       - name: Test project scope counts and cross-organization permission refresh
         run: ./mvnw -B -pl services/api -Dtest=AnalyticsScopeMySqlTest test
       - name: Test atomic organization finance initialization and JVM/session time zone matrix
@@ -221,6 +221,17 @@ jobs:
         with:
           name: session-reservation-scenarios-${{ github.sha }}
           path: /tmp/r5-session-reservation-results.txt
+          if-no-files-found: ignore
+          retention-days: 14
+      - name: Verify compatibility procurement and sales live authorization through HTTP
+        shell: pwsh
+        run: ./tools/verification/compat-trade-access-smoke.ps1 | Tee-Object -FilePath /tmp/r5-compat-trade-results.txt
+      - name: Retain sanitized compatibility trade scenario results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: compat-trade-scenarios-${{ github.sha }}
+          path: /tmp/r5-compat-trade-results.txt
           if-no-files-found: ignore
           retention-days: 14
       - name: Show API errors after scope or module failure

@@ -166,7 +166,7 @@ public class WorkflowTemplateService {
         audit(actor, "WORKFLOW_TEMPLATE_RETIRED", "WORKFLOW_TEMPLATE", templateId, reason, requestId);
     }
 
-    @Transactional(readOnly = true)
+    @Transactional(readOnly = true, noRollbackFor = WorkflowTemplateNotFoundException.class)
     public MatchedVersion match(String organizationId, String resourceType, Map<String, Object> context) {
         List<MatchedVersion> candidates = jdbcTemplate.query("""
                 SELECT template.id AS template_id, template.priority, version.id AS version_id,
@@ -184,8 +184,7 @@ public class WorkflowTemplateService {
         List<MatchedVersion> matched = candidates.stream()
                 .filter(candidate -> evaluator.matches(candidate.condition(), context)).toList();
         if (matched.isEmpty()) {
-            throw new PlatformApiException(HttpStatus.CONFLICT, "WORKFLOW_TEMPLATE_NOT_FOUND",
-                    "errors.workflowTemplateNotFound", Map.of("resourceType", resourceType));
+            throw new WorkflowTemplateNotFoundException(resourceType);
         }
         int priority = matched.getFirst().priority();
         List<MatchedVersion> top = matched.stream().filter(candidate -> candidate.priority() == priority).toList();
