@@ -47,3 +47,7 @@ The isolated CI job also runs [session-reservation-smoke.ps1](../../tools/verifi
 The isolated CI job also runs [compat-trade-access-smoke.ps1](../../tools/verification/compat-trade-access-smoke.ps1): 21 scenarios cover current custom capabilities, cached role revocation, scope reduction, member disablement, quote assignment, shared data rejection, source access and cross-organization writes, with exact business-row comparisons.
 
 These checks do not replace a complete role/data-scope/concurrency matrix or release dependency/image scans. The [2026-10-01 dependency audit](dependency-audit-2026-10-01.md) currently fails; see [coverage and remaining gates](audit-verification.md). Production profile smoke is not an approval to publish or mutate a business database.
+
+### 原生订单确认与取消（R5-K）
+
+原生销售/采购订单 confirm 和 cancel 同时要求对应 view+submit，并在进入事务动作前校验详情读取同一订单范围，使用当前有效成员权限、部门和范围。SELF 与同部门合法操作保留，ASSIGNED 无策略拒绝；create-only 原生草稿仍允许。18 个隔离 HTTP 场景及未覆盖边界见 [原生订单动作](native-order-actions.md)。本批不代表来源行或全部原生写入矩阵完成。
