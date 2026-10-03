@@ -45,17 +45,21 @@ public class TradeDocumentController {
     }
 
     @PostMapping("/sales/orders/{id}/confirm")
-    @PreAuthorize("@floworaAuthorization.has(authentication, 'sales:submit')")
+    @PreAuthorize("@floworaAuthorization.has(authentication, 'sales:view') && @floworaAuthorization.has(authentication, 'sales:submit')")
     public ApiResponse<DocumentView> confirmSalesOrder(@PathVariable String id, @RequestParam long version,
                                                         Authentication authentication, HttpServletRequest request) {
-        return response(service.confirmSalesOrder(principal(authentication).organizationId(), id, version), request);
+        FloworaPrincipal actor = principal(authentication);
+        readScope.requireSales(actor, id);
+        return response(service.confirmSalesOrder(actor.organizationId(), id, version), request);
     }
 
     @PostMapping("/sales/orders/{id}/cancel")
-    @PreAuthorize("@floworaAuthorization.has(authentication, 'sales:submit')")
+    @PreAuthorize("@floworaAuthorization.has(authentication, 'sales:view') && @floworaAuthorization.has(authentication, 'sales:submit')")
     public ApiResponse<DocumentView> cancelSalesOrder(@PathVariable String id, @RequestParam long version,
                                                        Authentication authentication, HttpServletRequest request) {
-        return response(service.cancelSalesOrder(principal(authentication).organizationId(), id, version), request);
+        FloworaPrincipal actor = principal(authentication);
+        readScope.requireSales(actor, id);
+        return response(service.cancelSalesOrder(actor.organizationId(), id, version), request);
     }
 
     @PostMapping("/procurement/orders")
@@ -75,17 +79,21 @@ public class TradeDocumentController {
     }
 
     @PostMapping("/procurement/orders/{id}/confirm")
-    @PreAuthorize("@floworaAuthorization.has(authentication, 'procurement:submit')")
+    @PreAuthorize("@floworaAuthorization.has(authentication, 'procurement:view') && @floworaAuthorization.has(authentication, 'procurement:submit')")
     public ApiResponse<DocumentView> confirmPurchaseOrder(@PathVariable String id, @RequestParam long version,
                                                            Authentication authentication, HttpServletRequest request) {
-        return response(service.confirmPurchaseOrder(principal(authentication).organizationId(), id, version), request);
+        FloworaPrincipal actor = principal(authentication);
+        readScope.requirePurchase(actor, id);
+        return response(service.confirmPurchaseOrder(actor.organizationId(), id, version), request);
     }
 
     @PostMapping("/procurement/orders/{id}/cancel")
-    @PreAuthorize("@floworaAuthorization.has(authentication, 'procurement:submit')")
+    @PreAuthorize("@floworaAuthorization.has(authentication, 'procurement:view') && @floworaAuthorization.has(authentication, 'procurement:submit')")
     public ApiResponse<DocumentView> cancelPurchaseOrder(@PathVariable String id, @RequestParam long version,
                                                           Authentication authentication, HttpServletRequest request) {
-        return response(service.cancelPurchaseOrder(principal(authentication).organizationId(), id, version), request);
+        FloworaPrincipal actor = principal(authentication);
+        readScope.requirePurchase(actor, id);
+        return response(service.cancelPurchaseOrder(actor.organizationId(), id, version), request);
     }
 
     private FloworaPrincipal principal(Authentication authentication) {
