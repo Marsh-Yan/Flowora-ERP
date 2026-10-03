@@ -3,7 +3,7 @@ import { createPinia } from 'pinia'
 import { defineComponent, h } from 'vue'
 import * as trade from '@/api/trade'
 import { createI18n } from 'vue-i18n'
-import ElementPlus from 'element-plus'
+import ElementPlus, { ElMessage } from 'element-plus'
 import { beforeEach, expect, it, vi } from 'vitest'
 import ProcurementView from '@/views/ProcurementView.vue'
 import SalesView from '@/views/SalesView.vue'
@@ -167,4 +167,15 @@ it.each(sourceCases)('$module reopening refreshes the editor source selection', 
   if (entry.module === 'sales') expect(line).not.toHaveProperty('sourceLineId')
   else expect(line).toMatchObject({ sourceLineId: 'source-line', sourceDocumentId: 'source-header' })
   wrapper.unmount()
+})
+
+
+it.each(sourceCases)('$module keeps the form open and explains remaining source quantity', async entry => {
+  const { wrapper } = await sourceEditor(entry)
+  vi.mocked(entry.create).mockRejectedValueOnce({ isAxiosError: true, response: { data: { code: 'SOURCE_QUANTITY_EXCEEDED' } } })
+  const message = vi.spyOn(ElMessage, 'error')
+  await saveEditor(wrapper)
+  expect(message).toHaveBeenCalledWith(en.errors.sourceQuantityExceeded)
+  expect(wrapper.findAll('button').some(b => b.text() === en.masterData.save)).toBe(true)
+  message.mockRestore(); wrapper.unmount()
 })

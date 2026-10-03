@@ -120,6 +120,7 @@ export default {
     demoHint: '演示账号',
   },
   errors: {
+    sourceQuantityExceeded: '订单数量超过来源剩余可分配数量，请减少数量或更换来源。',
     resourceNotFound: '请求的数据不存在。',
     masterDataConflict: '编码已存在，请更换后重试。',
     validation: '请检查表单字段。',

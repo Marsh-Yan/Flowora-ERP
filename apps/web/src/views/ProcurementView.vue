@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed, onMounted, reactive, ref, type Ref } from 'vue'
 import { ElMessage } from 'element-plus'
+import axios from 'axios'
 import { Plus, Refresh } from '@element-plus/icons-vue'
 import { useI18n } from 'vue-i18n'
 import { createPurchaseRequest, listPurchaseOrders, listPurchaseRequests, type PurchaseOrder, type PurchaseRequest } from '@/api/procurement'
@@ -120,8 +121,9 @@ async function submit() {
     dialogVisible.value = false
     ElMessage.success(t('procurement.created'))
     await load()
-  } catch {
-    ElMessage.error(t('procurement.saveFailed'))
+  } catch (error) {
+    const code = axios.isAxiosError(error) ? error.response?.data?.code : undefined
+    ElMessage.error(t(code === 'SOURCE_QUANTITY_EXCEEDED' ? 'errors.sourceQuantityExceeded' : 'procurement.saveFailed'))
   }
 }
 
