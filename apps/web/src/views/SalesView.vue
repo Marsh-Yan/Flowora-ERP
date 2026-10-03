@@ -150,7 +150,7 @@ async function submit() {
     await load()
   } catch (error) {
     const code = axios.isAxiosError(error) ? error.response?.data?.code : undefined
-    ElMessage.error(t(code === 'SOURCE_QUANTITY_EXCEEDED' ? 'errors.sourceQuantityExceeded' : code === 'SOURCE_QUOTE_EXPIRED' ? 'errors.sourceQuoteExpired' : 'sales.saveFailed'))
+    ElMessage.error(t(code === 'SOURCE_QUANTITY_EXCEEDED' ? 'errors.sourceQuantityExceeded' : code === 'SOURCE_QUOTE_EXPIRED' ? 'errors.sourceQuoteExpired' : code === 'IDEMPOTENCY_REQUEST_MISMATCH' ? 'errors.idempotencyRequestMismatch' : 'sales.saveFailed'))
   }
 }
 
