@@ -227,6 +227,18 @@ export default {
       GENERAL: '通用任务',
     },
   },
+  tradeActions: {
+    actions: '操作',
+    confirmOrder: '确认订单',
+    cancelOrder: '取消订单',
+    confirmCancellation: '确认取消订单',
+    keepOrder: '保留订单',
+    cancelPrompt: '确定取消订单 {number} 吗？取消将释放已预留库存和来源数量，已履约订单不能取消。',
+    confirmed: '订单已确认。',
+    cancelled: '订单已取消。',
+    conflict: '订单已发生变化或当前状态不允许此操作，列表已刷新。',
+    failed: '订单操作失败，请刷新后重试。',
+  },
   sales: {
     eyebrow: '销售运营',
     title: '销售中心',
@@ -328,6 +340,7 @@ export default {
     emptyRequests: '暂无采购申请。',
     emptyOrders: '暂无采购订单。',
     status: {
+      CONFIRMED: '已确认',
       DRAFT: '草稿',
       SUBMITTED: '已提交',
       APPROVED: '已批准',

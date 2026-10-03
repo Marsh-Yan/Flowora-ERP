@@ -3,7 +3,7 @@ import { createPinia } from 'pinia'
 import { defineComponent, h } from 'vue'
 import * as trade from '@/api/trade'
 import { createI18n } from 'vue-i18n'
-import ElementPlus, { ElMessage } from 'element-plus'
+import ElementPlus, { ElMessage, ElMessageBox } from 'element-plus'
 import { beforeEach, expect, it, vi } from 'vitest'
 import ProcurementView from '@/views/ProcurementView.vue'
 import SalesView from '@/views/SalesView.vue'
@@ -15,7 +15,7 @@ import * as master from '@/api/master-data'
 
 vi.mock('@/api/procurement', () => ({ listPurchaseOrders: vi.fn(), listPurchaseRequests: vi.fn(), createPurchaseRequest: vi.fn() }))
 vi.mock('@/api/sales', () => ({ listSalesOrders: vi.fn(), listSalesQuotes: vi.fn(), listReceivables: vi.fn(), createSalesQuote: vi.fn(), approveSalesQuote: vi.fn(), createDelivery: vi.fn(), createPayment: vi.fn() }))
-vi.mock('@/api/trade', () => ({ createPurchaseOrderV2: vi.fn(), createSalesOrderV2: vi.fn() }))
+vi.mock('@/api/trade', () => ({ createPurchaseOrderV2: vi.fn(), createSalesOrderV2: vi.fn(), getTradeOrderV2: vi.fn(), changeTradeOrderStateV2: vi.fn() }))
 vi.mock('@/api/master-data', () => ({ listMasterData: vi.fn() }))
 const page = <T>(content: T[]) => ({ content, page: 0, size: 50, totalElements: content.length, totalPages: 1 })
 beforeEach(() => {
@@ -206,4 +206,89 @@ it.each(sourceCases)('$module explains reuse of a request number with changed co
   expect(message).toHaveBeenCalledWith(en.errors.idempotencyRequestMismatch)
   expect(wrapper.findAll('button').some(button => button.text() === en.masterData.save)).toBe(true)
   message.mockRestore(); wrapper.unmount()
+})
+
+async function orderActionsEditor(entry: typeof sourceCases[number], permissions = [`${entry.module}:view`, `${entry.module}:submit`]) {
+  const order = { buyerUserId: 'buyer', lineId: 'line', unitPrice: 10, discountRate: 0, taxRate: 0, currencyCode: 'CNY', orderDate: '2026-10-03', totalAmount: 30, receivableAmount: 0, paidAmount: 0, outstandingAmount: 0, id: 'order', number: 'ORDER-1', status: 'DRAFT', supplierId: 'supplier', customerId: 'customer',
+    itemId: 'item', warehouseId: 'warehouse', orderedQuantity: 3, receivedQuantity: 0, fulfilledQuantity: 0, remainingQuantity: 3 }
+  vi.mocked(procurement.listPurchaseOrders).mockResolvedValue(page([order as procurement.PurchaseOrder]))
+  vi.mocked(sales.listSalesOrders).mockResolvedValue(page([order as sales.SalesOrder]))
+  const wrapper = mount(entry.view, { global: global(permissions, 'SELF') })
+  await flushPromises()
+  await wrapper.find('[id$="-orders"]').trigger('click'); await flushPromises()
+  return wrapper
+}
+function actionButton(wrapper: ReturnType<typeof mount>, text: string) {
+  return wrapper.findAll('button').find(button => button.text() === text)!
+}
+
+it.each(sourceCases)('$module confirms using the current scoped document version and refreshes', async entry => {
+  const wrapper = await orderActionsEditor(entry)
+  vi.mocked(trade.getTradeOrderV2).mockResolvedValue({ id: 'order', version: 7 } as trade.TradeDocument)
+  await actionButton(wrapper, en.tradeActions.confirmOrder).trigger('click'); await flushPromises()
+  expect(trade.getTradeOrderV2).toHaveBeenCalledWith(entry.module, 'order')
+  expect(trade.changeTradeOrderStateV2).toHaveBeenCalledWith(entry.module, 'order', 'confirm', 7)
+  expect(entry.module === 'sales' ? sales.listSalesOrders : procurement.listPurchaseOrders).toHaveBeenCalledTimes(2)
+  wrapper.unmount()
+})
+it.each(sourceCases)('$module cancels only after the user confirms the named order', async entry => {
+  const wrapper = await orderActionsEditor(entry)
+  const prompt = vi.spyOn(ElMessageBox, 'confirm').mockResolvedValue('confirm' as Awaited<ReturnType<typeof ElMessageBox.confirm>>)
+  vi.mocked(trade.getTradeOrderV2).mockResolvedValue({ id: 'order', version: 8 } as trade.TradeDocument)
+  await actionButton(wrapper, en.tradeActions.cancelOrder).trigger('click'); await flushPromises()
+  expect(prompt.mock.calls[0]![0]).toContain('ORDER-1')
+  expect(trade.changeTradeOrderStateV2).toHaveBeenCalledWith(entry.module, 'order', 'cancel', 8)
+  prompt.mockRestore(); wrapper.unmount()
+})
+it.each(sourceCases)('$module dismissing cancellation performs no request', async entry => {
+  const wrapper = await orderActionsEditor(entry)
+  const prompt = vi.spyOn(ElMessageBox, 'confirm').mockRejectedValue('cancel')
+  await actionButton(wrapper, en.tradeActions.cancelOrder).trigger('click'); await flushPromises()
+  expect(trade.getTradeOrderV2).not.toHaveBeenCalled(); expect(trade.changeTradeOrderStateV2).not.toHaveBeenCalled()
+  expect(actionButton(wrapper, en.tradeActions.confirmOrder).attributes('disabled')).toBeUndefined()
+  prompt.mockRestore(); wrapper.unmount()
+})
+it.each(sourceCases)('$module requires both read and submit capabilities for order actions', async entry => {
+  for (const permissions of [[`${entry.module}:view`], [`${entry.module}:submit`]]) {
+    const wrapper = await orderActionsEditor(entry, permissions)
+    expect(labels(wrapper)).not.toContain(en.tradeActions.confirmOrder)
+    expect(labels(wrapper)).not.toContain(en.tradeActions.cancelOrder)
+    wrapper.unmount()
+  }
+})
+it.each(sourceCases)('$module guards repeated clicks while the version read is pending', async entry => {
+  const wrapper = await orderActionsEditor(entry)
+  let resolve!: (value: trade.TradeDocument) => void
+  vi.mocked(trade.getTradeOrderV2).mockReturnValue(new Promise(done => { resolve = done }))
+  const button = actionButton(wrapper, en.tradeActions.confirmOrder)
+  await button.trigger('click'); await button.trigger('click')
+  expect(trade.getTradeOrderV2).toHaveBeenCalledTimes(1)
+  expect(button.attributes('disabled')).toBeDefined()
+  resolve({ id: 'order', version: 4 } as trade.TradeDocument); await flushPromises()
+  expect(trade.changeTradeOrderStateV2).toHaveBeenCalledTimes(1)
+  wrapper.unmount()
+})
+it.each(sourceCases)('$module refreshes and explains a concurrent state conflict', async entry => {
+  const wrapper = await orderActionsEditor(entry)
+  vi.mocked(trade.getTradeOrderV2).mockResolvedValue({ id: 'order', version: 4 } as trade.TradeDocument)
+  vi.mocked(trade.changeTradeOrderStateV2).mockRejectedValueOnce({ isAxiosError: true, response: { status: 409 } })
+  const message = vi.spyOn(ElMessage, 'error')
+  await actionButton(wrapper, en.tradeActions.confirmOrder).trigger('click'); await flushPromises()
+  expect(message).toHaveBeenCalledWith(en.tradeActions.conflict)
+  expect(entry.module === 'sales' ? sales.listSalesOrders : procurement.listPurchaseOrders).toHaveBeenCalledTimes(2)
+  message.mockRestore(); wrapper.unmount()
+})
+it.each(sourceCases)('$module hides confirm/cancel for fulfilled or cancelled orders', async entry => {
+  const wrapper = await orderActionsEditor(entry)
+  const base = { buyerUserId: 'buyer', lineId: 'line', supplierId: 'supplier', customerId: 'customer', itemId: 'item', warehouseId: 'warehouse', orderedQuantity: 3, unitPrice: 10, discountRate: 0, taxRate: 0, currencyCode: 'CNY', orderDate: '2026-10-03', totalAmount: 30, receivableAmount: 0, paidAmount: 0, outstandingAmount: 0 }
+  const orders = [
+    { ...base, id: 'one', number: 'ONE', status: 'CONFIRMED', fulfilledQuantity: 1, receivedQuantity: 1, remainingQuantity: 2 },
+    { ...base, id: 'two', number: 'TWO', status: 'CANCELLED', fulfilledQuantity: 0, receivedQuantity: 0, remainingQuantity: 0 },
+  ]
+  vi.mocked(procurement.listPurchaseOrders).mockResolvedValue(page(orders as procurement.PurchaseOrder[]))
+  vi.mocked(sales.listSalesOrders).mockResolvedValue(page(orders as sales.SalesOrder[]))
+  await actionButton(wrapper, en[entry.module].refresh).trigger('click'); await flushPromises()
+  expect(labels(wrapper)).not.toContain(en.tradeActions.confirmOrder)
+  expect(labels(wrapper)).not.toContain(en.tradeActions.cancelOrder)
+  wrapper.unmount()
 })

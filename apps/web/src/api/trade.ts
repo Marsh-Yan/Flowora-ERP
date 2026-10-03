@@ -137,3 +137,13 @@ export async function listFinancialSourceEvents(status = 'PENDING_FINANCE') {
   const response = await apiClient.get<ApiEnvelope<FinancialSourceEvent[]>>('/v2/trade/financial-source-events', { params: { status } })
   return response.data.data
 }
+
+export async function getTradeOrderV2(module: 'sales' | 'procurement', id: string) {
+  const response = await apiClient.get<ApiEnvelope<TradeDocument>>(`/v2/${module}/orders/${encodeURIComponent(id)}`)
+  return response.data.data
+}
+
+export async function changeTradeOrderStateV2(module: 'sales' | 'procurement', id: string, action: 'confirm' | 'cancel', version: number) {
+  const response = await apiClient.post<ApiEnvelope<TradeDocument>>(`/v2/${module}/orders/${encodeURIComponent(id)}/${action}`, null, { params: { version } })
+  return response.data.data
+}

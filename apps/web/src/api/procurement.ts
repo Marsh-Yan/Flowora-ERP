@@ -13,7 +13,7 @@ interface ApiEnvelope<T> {
   requestId: string
 }
 
-export type ProcurementStatus = 'DRAFT' | 'SUBMITTED' | 'APPROVED' | 'PARTIALLY_RECEIVED' | 'RECEIVED' | 'REJECTED' | 'CANCELLED'
+export type ProcurementStatus = 'DRAFT' | 'SUBMITTED' | 'APPROVED' | 'CONFIRMED' | 'PARTIALLY_RECEIVED' | 'RECEIVED' | 'REJECTED' | 'CANCELLED'
 
 export interface PurchaseRequest {
   id: string

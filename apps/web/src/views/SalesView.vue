@@ -19,9 +19,11 @@ import {
 import { listMasterData, type MasterDataRecord } from '@/api/master-data'
 
 import { useAuthStore } from '@/stores/auth'
+import { useTradeOrderActions } from '@/composables/useTradeOrderActions'
 
 const { t } = useI18n()
 const auth = useAuthStore()
+const { busyOrderId, canManageOrders, changeOrderState } = useTradeOrderActions('sales', load)
 const canReadShared = computed(() => auth.user?.dataScope === 'ALL' && auth.hasPermission('sales:view'))
 const canReadMaster = computed(() => auth.hasPermission('master:view'))
 const canCreateOrder = computed(() => auth.hasPermission('sales:create') && canReadMaster.value)
@@ -250,7 +252,7 @@ onMounted(load)
             <el-table-column :label="t('sales.progress')" width="150"><template #default="{ row }">{{ row.fulfilledQuantity }} / {{ row.orderedQuantity }}</template></el-table-column>
             <el-table-column prop="totalAmount" :label="t('sales.amount')" width="120" />
             <el-table-column :label="t('sales.statusLabel')" width="170"><template #default="{ row }"><el-tag :type="statusType(row.status)">{{ statusLabel(row.status) }}</el-tag></template></el-table-column>
-            <el-table-column :label="t('sales.actions')" width="130"><template #default="{ row }"><el-button v-if="canDeliver && ['CONFIRMED', 'PARTIALLY_FULFILLED'].includes(row.status) && row.remainingQuantity > 0" link type="primary" @click="openDelivery(row)"><el-icon><Van /></el-icon>{{ t('sales.deliver') }}</el-button></template></el-table-column>
+            <el-table-column :label="t('sales.actions')" width="210" fixed="right"><template #default="{ row }"><el-button v-if="canManageOrders && row.status === 'DRAFT'" link type="primary" :disabled="!!busyOrderId" @click="changeOrderState('confirm', row.id, row.number)">{{ t('tradeActions.confirmOrder') }}</el-button><el-button v-if="canManageOrders && ['DRAFT', 'CONFIRMED', 'RESERVED'].includes(row.status) && (row.fulfilledQuantity ?? 0) === 0" link type="danger" :disabled="!!busyOrderId" @click="changeOrderState('cancel', row.id, row.number)">{{ t('tradeActions.cancelOrder') }}</el-button><el-button v-if="canDeliver && ['CONFIRMED', 'PARTIALLY_FULFILLED'].includes(row.status) && row.remainingQuantity > 0" link type="primary" @click="openDelivery(row)"><el-icon><Van /></el-icon>{{ t('sales.deliver') }}</el-button></template></el-table-column>
           </el-table>
           <el-empty v-if="!orders.length && !loading && !ordersFailed" :description="t('sales.emptyOrders')" />
         </el-tab-pane>
