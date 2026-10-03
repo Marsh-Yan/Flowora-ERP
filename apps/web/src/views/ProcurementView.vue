@@ -4,7 +4,7 @@ import { ElMessage } from 'element-plus'
 import { Plus, Refresh } from '@element-plus/icons-vue'
 import { useI18n } from 'vue-i18n'
 import { createPurchaseRequest, listPurchaseOrders, listPurchaseRequests, type PurchaseOrder, type PurchaseRequest } from '@/api/procurement'
-import { createPurchaseOrderV2 } from '@/api/trade'
+import { createPurchaseOrderV2, type TradeLineInput } from '@/api/trade'
 import { listMasterData, type MasterDataRecord } from '@/api/master-data'
 
 import { useAuthStore } from '@/stores/auth'
@@ -28,7 +28,7 @@ const suppliers = ref<MasterDataRecord[]>([])
 const warehouses = ref<MasterDataRecord[]>([])
 const items = ref<MasterDataRecord[]>([])
 const requestForm = reactive({ supplierId: '', warehouseId: '', itemId: '', quantity: 1, estimatedUnitCost: 0, note: '' })
-const orderForm = reactive({ purchaseRequestId: '', supplierId: '', warehouseId: '', currencyCode: 'CNY', expectedDate: '', note: '', lines: [{ itemId: '', quantity: 1, unitPrice: 0, discountRate: 0, taxRate: 0 }] })
+const orderForm = reactive({ purchaseRequestId: '', supplierId: '', warehouseId: '', currencyCode: 'CNY', expectedDate: '', note: '', lines: [{ itemId: '', quantity: 1, unitPrice: 0, discountRate: 0, taxRate: 0 } as TradeLineInput] })
 
 function statusType(status: PurchaseRequest['status']) {
   if (status === 'APPROVED') return 'success'
@@ -73,23 +73,29 @@ function openCreate(type: 'request' | 'order') {
   if (!(type === 'request' ? canCreateShared.value : canCreateOrder.value)) return
   dialogType.value = type
   dialogVisible.value = true
-  if (type === 'order' && canReadShared.value && requests.value.length) {
-    const request = requests.value.find((item) => item.status === 'APPROVED')
-    if (request) {
-      orderForm.purchaseRequestId = request.id
-      orderForm.supplierId = request.supplierId
-      orderForm.warehouseId = request.warehouseId
-      orderForm.lines.splice(0, orderForm.lines.length, { itemId: request.itemId, quantity: request.quantity, unitPrice: request.estimatedUnitCost, discountRate: 0, taxRate: 0 })
-    }
+  if (type === 'order') {
+    orderForm.purchaseRequestId = ''
+    orderForm.lines.splice(0, orderForm.lines.length, { itemId: '', quantity: 1, unitPrice: 0, discountRate: 0, taxRate: 0 })
+    const request = canReadShared.value ? requests.value.find((item) => item.status === 'APPROVED' && item.lineId) : undefined
+    if (request) { orderForm.purchaseRequestId = request.id; applyRequestToOrder(request.id) }
   }
 }
 
 function applyRequestToOrder(id: string) {
   const request = requests.value.find((item) => item.id === id)
-  if (!request) return
+  if (!id) {
+    for (const line of orderForm.lines) { delete line.sourceDocumentType; delete line.sourceDocumentId; delete line.sourceLineId }
+    return
+  }
+  if (!canReadShared.value || !request?.lineId || request.status !== 'APPROVED') {
+    orderForm.purchaseRequestId = ''
+    for (const line of orderForm.lines) { delete line.sourceDocumentType; delete line.sourceDocumentId; delete line.sourceLineId }
+    ElMessage.error(t('procurement.saveFailed'))
+    return
+  }
   orderForm.supplierId = request.supplierId
   orderForm.warehouseId = request.warehouseId
-  orderForm.lines.splice(0, orderForm.lines.length, { itemId: request.itemId, quantity: request.quantity, unitPrice: request.estimatedUnitCost, discountRate: 0, taxRate: 0 })
+  orderForm.lines.splice(0, orderForm.lines.length, { itemId: request.itemId, quantity: request.quantity, unitPrice: request.estimatedUnitCost, discountRate: 0, taxRate: 0, sourceDocumentType: 'PURCHASE_REQUEST', sourceDocumentId: request.id, sourceLineId: request.lineId })
 }
 
 
@@ -98,7 +104,10 @@ function addOrderLine() {
 }
 
 function removeOrderLine(index: number) {
-  if (orderForm.lines.length > 1) orderForm.lines.splice(index, 1)
+  if (orderForm.lines.length > 1) {
+    orderForm.lines.splice(index, 1)
+    if (!orderForm.lines.some(line => line.sourceDocumentId === orderForm.purchaseRequestId)) orderForm.purchaseRequestId = ''
+  }
 }
 async function submit() {
   if (!(dialogType.value === 'request' ? canCreateShared.value : canCreateOrder.value)) return
@@ -106,7 +115,7 @@ async function submit() {
     if (dialogType.value === 'request') {
       await createPurchaseRequest({ ...requestForm })
     } else {
-      await createPurchaseOrderV2({ supplierId: orderForm.supplierId, warehouseId: orderForm.warehouseId, currencyCode: orderForm.currencyCode, expectedDate: orderForm.expectedDate || undefined, note: orderForm.note || undefined, lines: orderForm.lines.map((line, index) => ({ ...line, sourceDocumentType: index === 0 && orderForm.purchaseRequestId ? 'PURCHASE_REQUEST' : undefined, sourceDocumentId: index === 0 ? orderForm.purchaseRequestId || undefined : undefined, sourceLineId: index === 0 ? orderForm.purchaseRequestId || undefined : undefined })) })
+      await createPurchaseOrderV2({ supplierId: orderForm.supplierId, warehouseId: orderForm.warehouseId, currencyCode: orderForm.currencyCode, expectedDate: orderForm.expectedDate || undefined, note: orderForm.note || undefined, lines: orderForm.lines.map(line => ({ ...line })) })
     }
     dialogVisible.value = false
     ElMessage.success(t('procurement.created'))
@@ -175,7 +184,7 @@ onMounted(load)
       </el-form>
       <el-form v-else label-position="top" @submit.prevent="submit">
         <div class="operations-form-grid">
-          <el-form-item v-if="canReadShared" :label="t('procurement.sourceRequest')"><el-select v-model="orderForm.purchaseRequestId" clearable class="full-width" @change="applyRequestToOrder"><el-option v-for="row in requests.filter((item) => item.status === 'APPROVED')" :key="row.id" :label="row.number" :value="row.id" /></el-select></el-form-item>
+          <el-form-item v-if="canReadShared" :label="t('procurement.sourceRequest')"><el-select v-model="orderForm.purchaseRequestId" clearable class="full-width" @change="applyRequestToOrder"><el-option v-for="row in requests.filter((item) => item.status === 'APPROVED' && item.lineId)" :key="row.id" :label="row.number" :value="row.id" /></el-select></el-form-item>
           <el-form-item :label="t('procurement.supplier')"><el-select v-model="orderForm.supplierId" class="full-width"><el-option v-for="row in suppliers" :key="row.id" :label="row.name" :value="row.id" /></el-select></el-form-item>
           <el-form-item :label="t('procurement.warehouse')"><el-select v-model="orderForm.warehouseId" class="full-width"><el-option v-for="row in warehouses" :key="row.id" :label="row.name" :value="row.id" /></el-select></el-form-item>
           <el-form-item :label="t('procurement.expectedDate')"><el-date-picker v-model="orderForm.expectedDate" type="date" value-format="YYYY-MM-DD" class="full-width" /></el-form-item>

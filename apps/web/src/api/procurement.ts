@@ -17,6 +17,7 @@ export type ProcurementStatus = 'DRAFT' | 'SUBMITTED' | 'APPROVED' | 'PARTIALLY_
 
 export interface PurchaseRequest {
   id: string
+  lineId?: string
   number: string
   status: ProcurementStatus
   supplierId: string

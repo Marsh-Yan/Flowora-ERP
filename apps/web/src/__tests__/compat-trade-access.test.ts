@@ -1,5 +1,7 @@
 import { flushPromises, mount } from '@vue/test-utils'
 import { createPinia } from 'pinia'
+import { defineComponent, h } from 'vue'
+import * as trade from '@/api/trade'
 import { createI18n } from 'vue-i18n'
 import ElementPlus from 'element-plus'
 import { beforeEach, expect, it, vi } from 'vitest'
@@ -86,4 +88,83 @@ it('failed shared reads and optional master pickers preserve orders and show unk
   expect(s.find('#pane-orders').text()).toContain('SO-owned')
   expect(s.findAll('.inventory-summary-grid strong')[1]?.text()).toBe('—')
   expect(s.find('#pane-receivables [role="alert"]').exists()).toBe(true); expect(s.find('#pane-receivables .el-empty').exists()).toBe(false); s.unmount()
+})
+
+const sourceCases = [
+  { view: ProcurementView, module: 'procurement', sourceLabel: en.procurement.sourceRequest, type: 'PURCHASE_REQUEST', create: trade.createPurchaseOrderV2 },
+  { view: SalesView, module: 'sales', sourceLabel: en.sales.sourceQuote, type: 'SALES_QUOTE', create: trade.createSalesOrderV2 },
+] as const
+
+// Two native controls intentionally live beside the component tests.
+// eslint-disable-next-line vue/one-component-per-file
+const NativeSelect = defineComponent({
+  props: { modelValue: { type: String, default: '' } }, emits: ['update:modelValue', 'change'],
+  setup(props, { emit, slots }) {
+    return () => h('select', { value: props.modelValue, onChange: (event: Event) => {
+      const value = (event.target as HTMLSelectElement).value
+      emit('update:modelValue', value); emit('change', value)
+    } }, [h('option', { value: '' }, 'None'), slots.default?.()])
+  },
+})
+// eslint-disable-next-line vue/one-component-per-file
+const NativeOption = defineComponent({
+  props: { value: { type: String, default: '' }, label: { type: String, default: '' } },
+  setup(props) { return () => h('option', { value: props.value }, props.label) },
+})
+async function sourceEditor(entry: typeof sourceCases[number]) {
+  const source = { id: 'source-header', lineId: 'source-line', number: 'SRC-1', status: 'APPROVED', supplierId: 'supplier',
+    customerId: 'customer', warehouseId: 'warehouse', itemId: 'item', quantity: 3, estimatedUnitCost: 10,
+    unitPrice: 10, discountRate: 0, taxRate: 0, currencyCode: 'CNY', requesterUserId: 'user',
+    validUntil: '2026-10-31', totalAmount: 30, note: '' }
+  vi.mocked(procurement.listPurchaseRequests).mockResolvedValue(page([source as procurement.PurchaseRequest]))
+  vi.mocked(sales.listSalesQuotes).mockResolvedValue(page([source as sales.SalesQuote]))
+  const options = global([`${entry.module}:view`, `${entry.module}:create`, 'master:view'])
+  const wrapper = mount(entry.view, { global: { ...options, stubs: { ...options.stubs, ElSelect: NativeSelect, ElOption: NativeOption } } })
+  await flushPromises()
+  await wrapper.find('[id$="-orders"]').trigger('click'); await flushPromises()
+  const button = wrapper.findAll('button').find(b => b.text() === en[entry.module].create)!
+  await button.trigger('click'); await flushPromises()
+  const field = wrapper.findAll('.el-form-item').find(f => f.text().includes(entry.sourceLabel))!
+  await field.find('select').setValue('source-header'); await flushPromises()
+  return { wrapper, field, button }
+}
+async function saveEditor(wrapper: ReturnType<typeof mount>) {
+  await wrapper.findAll('button').find(b => b.text() === en.masterData.save)!.trigger('click')
+  await flushPromises()
+}
+
+it.each(sourceCases)('$module sends the selected real source line and leaves added lines independent', async entry => {
+  const { wrapper } = await sourceEditor(entry)
+  await wrapper.findAll('button').find(b => b.text().includes('Add line'))!.trigger('click')
+  await saveEditor(wrapper)
+  const payload = vi.mocked(entry.create).mock.calls[0]![0]
+  expect(payload.lines[0]).toMatchObject({ sourceDocumentType: entry.type, sourceDocumentId: 'source-header', sourceLineId: 'source-line' })
+  expect(payload.lines[1]).not.toHaveProperty('sourceLineId')
+  wrapper.unmount()
+})
+it.each(sourceCases)('$module clearing the source removes the line association', async entry => {
+  const { wrapper, field } = await sourceEditor(entry)
+  await field.find('select').setValue('')
+  await saveEditor(wrapper)
+  expect(vi.mocked(entry.create).mock.calls[0]![0].lines[0]).not.toHaveProperty('sourceLineId')
+  wrapper.unmount()
+})
+it.each(sourceCases)('$module deleting the source line keeps the remaining line independent', async entry => {
+  const { wrapper } = await sourceEditor(entry)
+  await wrapper.findAll('button').find(b => b.text().includes('Add line'))!.trigger('click')
+  await wrapper.findAll('button').find(b => b.text() === '−')!.trigger('click')
+  await saveEditor(wrapper)
+  const lines = vi.mocked(entry.create).mock.calls[0]![0].lines
+  expect(lines).toHaveLength(1); expect(lines[0]).not.toHaveProperty('sourceLineId')
+  wrapper.unmount()
+})
+it.each(sourceCases)('$module reopening refreshes the editor source selection', async entry => {
+  const { wrapper, button } = await sourceEditor(entry)
+  await wrapper.findAll('button').find(b => b.text() === en.masterData.cancel)!.trigger('click')
+  await button.trigger('click'); await flushPromises()
+  await saveEditor(wrapper)
+  const line = vi.mocked(entry.create).mock.calls[0]![0].lines[0]
+  if (entry.module === 'sales') expect(line).not.toHaveProperty('sourceLineId')
+  else expect(line).toMatchObject({ sourceLineId: 'source-line', sourceDocumentId: 'source-header' })
+  wrapper.unmount()
 })

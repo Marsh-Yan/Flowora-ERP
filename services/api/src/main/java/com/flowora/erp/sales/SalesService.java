@@ -276,7 +276,7 @@ public class SalesService {
 
     private SalesQuoteResponse quoteResponse(SalesQuoteEntity quote) {
         SalesQuoteLineEntity line = quoteLineRepository.findFirstByOrganizationIdAndQuoteId(quote.organizationId(), quote.id()).orElseThrow();
-        return new SalesQuoteResponse(quote.id(), quote.number(), quote.status(), quote.workflowTaskId(), quote.customerId(), line.itemId(), line.quantity(), line.unitPrice(), line.discountRate(), line.taxRate(), quote.currencyCode(), quote.validUntil(), quote.totalAmount(), quote.note(), quote.approvedAt());
+        return new SalesQuoteResponse(quote.id(), quote.number(), quote.status(), quote.workflowTaskId(), quote.customerId(), line.id(), line.itemId(), line.quantity(), line.unitPrice(), line.discountRate(), line.taxRate(), quote.currencyCode(), quote.validUntil(), quote.totalAmount(), quote.note(), quote.approvedAt());
     }
 
     private SalesOrderResponse orderResponse(SalesOrderEntity order) {

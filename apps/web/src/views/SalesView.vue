@@ -33,7 +33,7 @@ const receivablesFailed = ref(false)
 const sharedFailed = ref(false)
 const ordersFailed = ref(false)
 const activeTab = ref<'quotes' | 'orders' | 'receivables'>(canReadShared.value ? 'quotes' : 'orders')
-import { createSalesOrderV2 } from '@/api/trade'
+import { createSalesOrderV2, type TradeLineInput } from '@/api/trade'
 const loading = ref(false)
 const dialogVisible = ref(false)
 const dialogType = ref<'quote' | 'order'>('quote')
@@ -48,7 +48,7 @@ const customers = ref<MasterDataRecord[]>([])
 const warehouses = ref<MasterDataRecord[]>([])
 const items = ref<MasterDataRecord[]>([])
 const quoteForm = reactive({ customerId: '', itemId: '', quantity: 1, unitPrice: 0, discountRate: 0, taxRate: 0, currencyCode: 'USD', validUntil: '', note: '' })
-const orderForm = reactive({ quoteId: '', customerId: '', warehouseId: '', currencyCode: 'USD', dueDate: '', note: '', lines: [{ itemId: '', quantity: 1, unitPrice: 0, discountRate: 0, taxRate: 0 }] })
+const orderForm = reactive({ quoteId: '', customerId: '', warehouseId: '', currencyCode: 'USD', dueDate: '', note: '', lines: [{ itemId: '', quantity: 1, unitPrice: 0, discountRate: 0, taxRate: 0 } as TradeLineInput] })
 const deliveryForm = reactive({ quantity: 1 })
 const paymentForm = reactive({ amount: 0, method: 'BANK' as 'BANK' | 'CASH' | 'OTHER', paymentDate: '', reference: '' })
 
@@ -101,14 +101,27 @@ function openCreate(type: 'quote' | 'order') {
   if (!(type === 'quote' ? canCreateShared.value : canCreateOrder.value)) return
   dialogType.value = type
   if (type === 'quote') quoteForm.validUntil = today()
+  else {
+    orderForm.quoteId = ''
+    orderForm.lines.splice(0, orderForm.lines.length, { itemId: '', quantity: 1, unitPrice: 0, discountRate: 0, taxRate: 0 })
+  }
   dialogVisible.value = true
 }
 
 function applyQuoteToOrder(id: string) {
   const quote = quotes.value.find((item) => item.id === id)
-  if (!quote) return
+  if (!id) {
+    for (const line of orderForm.lines) { delete line.sourceDocumentType; delete line.sourceDocumentId; delete line.sourceLineId }
+    return
+  }
+  if (!canReadShared.value || !quote?.lineId || quote.status !== 'APPROVED') {
+    orderForm.quoteId = ''
+    for (const line of orderForm.lines) { delete line.sourceDocumentType; delete line.sourceDocumentId; delete line.sourceLineId }
+    ElMessage.error(t('sales.saveFailed'))
+    return
+  }
   orderForm.customerId = quote.customerId
-  orderForm.lines.splice(0, orderForm.lines.length, { itemId: quote.itemId, quantity: quote.quantity, unitPrice: quote.unitPrice, discountRate: quote.discountRate, taxRate: quote.taxRate })
+  orderForm.lines.splice(0, orderForm.lines.length, { itemId: quote.itemId, quantity: quote.quantity, unitPrice: quote.unitPrice, discountRate: quote.discountRate, taxRate: quote.taxRate, sourceDocumentType: 'SALES_QUOTE', sourceDocumentId: quote.id, sourceLineId: quote.lineId })
   orderForm.currencyCode = quote.currencyCode
 }
 
@@ -117,7 +130,10 @@ function addOrderLine() {
 }
 
 function removeOrderLine(index: number) {
-  if (orderForm.lines.length > 1) orderForm.lines.splice(index, 1)
+  if (orderForm.lines.length > 1) {
+    orderForm.lines.splice(index, 1)
+    if (!orderForm.lines.some(line => line.sourceDocumentId === orderForm.quoteId)) orderForm.quoteId = ''
+  }
 }
 
 async function submit() {
@@ -126,7 +142,7 @@ async function submit() {
     if (dialogType.value === 'quote') {
       await createSalesQuote({ ...quoteForm })
     } else {
-      await createSalesOrderV2({ customerId: orderForm.customerId, warehouseId: orderForm.warehouseId, currencyCode: orderForm.currencyCode, dueDate: orderForm.dueDate || undefined, note: orderForm.note || undefined, lines: orderForm.lines.map((line, index) => ({ ...line, sourceDocumentType: index === 0 && orderForm.quoteId ? 'SALES_QUOTE' : undefined, sourceDocumentId: index === 0 ? orderForm.quoteId || undefined : undefined, sourceLineId: index === 0 ? orderForm.quoteId || undefined : undefined })) })
+      await createSalesOrderV2({ customerId: orderForm.customerId, warehouseId: orderForm.warehouseId, currencyCode: orderForm.currencyCode, dueDate: orderForm.dueDate || undefined, note: orderForm.note || undefined, lines: orderForm.lines.map(line => ({ ...line })) })
     }
     dialogVisible.value = false
     ElMessage.success(t('sales.created'))
@@ -265,7 +281,7 @@ onMounted(load)
       </el-form>
       <el-form v-else label-position="top" @submit.prevent="submit">
         <div class="operations-form-grid">
-          <el-form-item v-if="canReadShared" :label="t('sales.sourceQuote')"><el-select v-model="orderForm.quoteId" clearable class="full-width" @change="applyQuoteToOrder"><el-option v-for="row in quotes.filter((item) => item.status === 'APPROVED')" :key="row.id" :label="row.number" :value="row.id" /></el-select></el-form-item>
+          <el-form-item v-if="canReadShared" :label="t('sales.sourceQuote')"><el-select v-model="orderForm.quoteId" clearable class="full-width" @change="applyQuoteToOrder"><el-option v-for="row in quotes.filter((item) => item.status === 'APPROVED' && item.lineId)" :key="row.id" :label="row.number" :value="row.id" /></el-select></el-form-item>
           <el-form-item :label="t('sales.customer')"><el-select v-model="orderForm.customerId" class="full-width"><el-option v-for="row in customers" :key="row.id" :label="row.name" :value="row.id" /></el-select></el-form-item>
           <el-form-item :label="t('sales.warehouse')"><el-select v-model="orderForm.warehouseId" class="full-width"><el-option v-for="row in warehouses" :key="row.id" :label="row.name" :value="row.id" /></el-select></el-form-item>
           <el-form-item :label="t('sales.dueDate')"><el-date-picker v-model="orderForm.dueDate" type="date" value-format="YYYY-MM-DD" class="full-width" /></el-form-item>
