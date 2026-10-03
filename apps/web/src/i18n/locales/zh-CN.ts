@@ -122,6 +122,7 @@ export default {
   errors: {
     sourceQuoteExpired: '该报价已过期，请选择有效且已批准的报价。',
     organizationTimezoneInvalid: '组织时区配置无效，请联系管理员。',
+    idempotencyRequestMismatch: '此请求编号已用于不同的订单内容，请刷新后重新提交。',
     sourceQuantityExceeded: '订单数量超过来源剩余可分配数量，请减少数量或更换来源。',
     resourceNotFound: '请求的数据不存在。',
     masterDataConflict: '编码已存在，请更换后重试。',

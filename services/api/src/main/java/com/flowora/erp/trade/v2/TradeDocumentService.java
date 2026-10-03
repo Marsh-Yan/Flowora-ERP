@@ -42,7 +42,7 @@ public class TradeDocumentService {
 
     @Transactional(isolation = Isolation.READ_COMMITTED)
     public DocumentView createSalesOrder(FloworaPrincipal actor, SalesOrderRequest request, String requestKey) {
-        DocumentView replay = findByRequest(actor, true, requestKey);
+        DocumentView replay = findByRequest(actor, true, requestKey, OrderRequestFingerprint.Payload.of(request));
         if (replay != null) return replay;
         claim(actor.organizationId(), "M3_SALES_ORDER_CREATE", requestKey);
         requireResources(actor.organizationId(), "flowora_customer", request.customerId(), request.warehouseId(), request.lines());
@@ -56,13 +56,14 @@ public class TradeDocumentService {
                 """, id, actor.organizationId(), number("SO"), request.customerId(), request.warehouseId(),
                 currency(request.currencyCode()), request.dueDate(), request.note(), actor.userId(), requireKey(requestKey));
         BigDecimal total = insertSalesLines(actor.organizationId(), id, request.lines());
-        jdbc.update("UPDATE flowora_sales_order SET total_amount=? WHERE id=?", total, id);
+        jdbc.update("UPDATE flowora_sales_order SET total_amount=?,request_fingerprint=? WHERE id=?", total,
+                OrderRequestFingerprint.fingerprint(OrderRequestFingerprint.Payload.of(request), false), id);
         return salesOrder(actor.organizationId(), id);
     }
 
     @Transactional(isolation = Isolation.READ_COMMITTED)
     public DocumentView createPurchaseOrder(FloworaPrincipal actor, PurchaseOrderRequest request, String requestKey) {
-        DocumentView replay = findByRequest(actor, false, requestKey);
+        DocumentView replay = findByRequest(actor, false, requestKey, OrderRequestFingerprint.Payload.of(request));
         if (replay != null) return replay;
         claim(actor.organizationId(), "M3_PURCHASE_ORDER_CREATE", requestKey);
         requireResources(actor.organizationId(), "flowora_supplier", request.supplierId(), request.warehouseId(), request.lines());
@@ -76,7 +77,8 @@ public class TradeDocumentService {
                 """, id, actor.organizationId(), number("PO"), request.supplierId(), request.warehouseId(),
                 actor.userId(), currency(request.currencyCode()), request.expectedDate(), request.note(), requireKey(requestKey));
         BigDecimal total = insertPurchaseLines(actor.organizationId(), id, request.lines());
-        jdbc.update("UPDATE flowora_purchase_order SET total_amount=? WHERE id=?", total, id);
+        jdbc.update("UPDATE flowora_purchase_order SET total_amount=?,request_fingerprint=? WHERE id=?", total,
+                OrderRequestFingerprint.fingerprint(OrderRequestFingerprint.Payload.of(request), false), id);
         return purchaseOrder(actor.organizationId(), id);
     }
 
@@ -325,25 +327,59 @@ public class TradeDocumentService {
         if (count == null || count == 0) throw new PlatformApiException(HttpStatus.NOT_FOUND, "RESOURCE_NOT_FOUND", "errors.resourceNotFound");
     }
 
-    private DocumentView findByRequest(FloworaPrincipal actor, boolean sales, String requestKey) {
+    private DocumentView findByRequest(FloworaPrincipal actor, boolean sales, String requestKey, OrderRequestFingerprint.Payload request) {
         if (blank(requestKey)) return null;
         String table = sales ? "flowora_sales_order" : "flowora_purchase_order";
         String ownerColumn = sales ? "sales_user_id" : "buyer_user_id";
         // A create response belongs to its creator, including create-only callers.
         // Organization-wide read access does not transfer another caller's key.
-        List<OrderReplay> rows = jdbc.query("SELECT id," + ownerColumn + " FROM " + table
+        List<OrderReplay> rows = jdbc.query("SELECT id,request_fingerprint," + ownerColumn + " FROM " + table
                         + " WHERE organization_id=? AND request_id=?",
-                (rs, row) -> new OrderReplay(rs.getString("id"), rs.getString(ownerColumn)),
+                (rs, row) -> new OrderReplay(rs.getString("id"), rs.getString(ownerColumn), rs.getString("request_fingerprint")),
                 actor.organizationId(), requestKey.trim());
         if (rows.isEmpty()) return null;
         OrderReplay replay = rows.getFirst();
         if (actor.userId() == null || !actor.userId().equals(replay.creatorId())) {
             throw new PlatformApiException(HttpStatus.CONFLICT, "IDEMPOTENCY_CONFLICT", "errors.idempotencyConflict");
         }
-        return sales ? salesOrder(actor.organizationId(), replay.id()) : purchaseOrder(actor.organizationId(), replay.id());
+        DocumentView document = sales ? salesOrder(actor.organizationId(), replay.id()) : purchaseOrder(actor.organizationId(), replay.id());
+        String expected = replay.fingerprint() == null ? legacyFingerprint(actor.organizationId(), document)
+                : replay.fingerprint();
+        if (!expected.equals(OrderRequestFingerprint.fingerprint(request, replay.fingerprint() == null))) {
+            throw new PlatformApiException(HttpStatus.CONFLICT, "IDEMPOTENCY_REQUEST_MISMATCH", "errors.idempotencyRequestMismatch");
+        }
+        return document;
     }
 
-    private record OrderReplay(String id, String creatorId) {
+    // Pre-migration requests have no immutable fingerprint. Compare only persisted
+    // create fields and amounts, excluding lifecycle status and fulfillment counters.
+    // Never backfill a fingerprint from a retry or rewrite historical orders.
+    private String legacyFingerprint(String organizationId, DocumentView document) {
+        var links = jdbc.query("""
+                SELECT target_line_id,source_document_type,source_document_id,source_line_id
+                FROM flowora_trade_source_line_link
+                WHERE organization_id=? AND target_document_type=? AND target_document_id=?
+                """, (rs, row) -> new SourceReplay(rs.getString(1), rs.getString(2), rs.getString(3), rs.getString(4)),
+                organizationId, document.documentType(), document.id());
+        var lines = new java.util.ArrayList<String>();
+        for (LineView line : document.lines()) {
+            var sources = links.stream().filter(link -> link.targetLine().equals(line.id())).toList();
+            if (sources.size() > 1) {
+                throw new PlatformApiException(HttpStatus.CONFLICT, "IDEMPOTENCY_REQUEST_MISMATCH", "errors.idempotencyRequestMismatch");
+            }
+            SourceReplay source = sources.isEmpty() ? null : sources.getFirst();
+            var input = new LineRequest(line.itemId(), line.orderedQuantity(), line.unitPrice(), line.discountRate(), line.taxRate(),
+                    source == null ? null : source.type(), source == null ? null : source.document(), source == null ? null : source.line());
+            lines.add(OrderRequestFingerprint.line(input, new Amounts(line.netAmount(), line.taxAmount(), line.grossAmount()), true));
+        }
+        lines.sort(String::compareTo);
+        return OrderRequestFingerprint.header(document.partnerId(), document.warehouseId(), document.currencyCode(),
+                document.dueDate(), document.note(), lines);
+    }
+
+    private record SourceReplay(String targetLine, String type, String document, String line) { }
+
+    private record OrderReplay(String id, String creatorId, String fingerprint) {
     }
 
     private boolean hasStatus(String table, String organizationId, String id, String status) {

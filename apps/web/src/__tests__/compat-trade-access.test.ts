@@ -197,3 +197,13 @@ it('sales explains expiry that occurs after the source list was loaded', async (
   expect(wrapper.findAll('button').some(button => button.text() === en.masterData.save)).toBe(true)
   message.mockRestore(); wrapper.unmount()
 })
+
+it.each(sourceCases)('$module explains reuse of a request number with changed content', async entry => {
+  const { wrapper } = await sourceEditor(entry)
+  vi.mocked(entry.create).mockRejectedValueOnce({ isAxiosError: true, response: { data: { code: 'IDEMPOTENCY_REQUEST_MISMATCH' } } })
+  const message = vi.spyOn(ElMessage, 'error')
+  await saveEditor(wrapper)
+  expect(message).toHaveBeenCalledWith(en.errors.idempotencyRequestMismatch)
+  expect(wrapper.findAll('button').some(button => button.text() === en.masterData.save)).toBe(true)
+  message.mockRestore(); wrapper.unmount()
+})

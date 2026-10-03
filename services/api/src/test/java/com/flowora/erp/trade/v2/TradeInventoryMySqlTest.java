@@ -405,6 +405,94 @@ class TradeInventoryMySqlTest {
         assertThat(sourcedOrder(actor, true, List.of(line("1")), key()).status()).isEqualTo("DRAFT");
     }
 
+    @ParameterizedTest
+    @ValueSource(booleans = {true, false})
+    void orderReplayRejectsChangedBody(boolean sales) {
+        String requestKey = key();
+        sourcedOrder(actor, sales, List.of(line("1")), requestKey);
+        var before = snapshot();
+        assertThatThrownBy(() -> sourcedOrder(actor, sales, List.of(line("2")), requestKey))
+                .isInstanceOfSatisfying(PlatformApiException.class,
+                        error -> assertThat(error.code()).isEqualTo("IDEMPOTENCY_REQUEST_MISMATCH"));
+        assertThat(snapshot()).isEqualTo(before);
+    }
+
+    DocumentView requestOrder(boolean sales, String requestKey, String partner, String depot,
+                              String currency, java.time.LocalDate date, String note, List<LineRequest> lines) {
+        return sales ? documents.createSalesOrder(actor, new SalesOrderRequest(partner, depot, currency, date, note, lines), requestKey)
+                : documents.createPurchaseOrder(actor, new PurchaseOrderRequest(partner, depot, currency, date, note, lines), requestKey);
+    }
+
+    @ParameterizedTest
+    @ValueSource(booleans = {true, false})
+    void replayChecksEveryCreateFieldAndAcceptsEquivalentEncoding(boolean sales) {
+        LineRequest source = source(sales, "APPROVED"), otherSource = source(sales, "APPROVED");
+        String partner = sales ? customer : supplier, requestKey = key();
+        var date = java.time.LocalDate.of(2026,12,31);
+        var original = requestOrder(sales, requestKey, partner, warehouse, "CNY", date, "note", List.of(source, line("2")));
+        var before = snapshot();
+        List<java.util.function.Supplier<DocumentView>> changed = List.of(
+                () -> requestOrder(sales,requestKey,"changed",warehouse,"CNY",date,"note",List.of(source,line("2"))),
+                () -> requestOrder(sales,requestKey,partner,target,"CNY",date,"note",List.of(source,line("2"))),
+                () -> requestOrder(sales,requestKey,partner,warehouse,"USD",date,"note",List.of(source,line("2"))),
+                () -> requestOrder(sales,requestKey,partner,warehouse,"CNY",date.plusDays(1),"note",List.of(source,line("2"))),
+                () -> requestOrder(sales,requestKey,partner,warehouse,"CNY",date,"changed",List.of(source,line("2"))),
+                () -> requestOrder(sales,requestKey,partner,warehouse,"CNY",date,"note",List.of(otherSource,line("2"))),
+                () -> requestOrder(sales,requestKey,partner,warehouse,"CNY",date,"note",List.of(source)),
+                () -> requestOrder(sales,requestKey,partner,warehouse,"CNY",date,"note",List.of(source,source,line("2"))),
+                () -> requestOrder(sales,requestKey,partner,warehouse,"CNY",date,"note",List.of(line("1"),line("2")))
+        );
+        for (var retry : changed) {
+            assertThatThrownBy(retry::get).isInstanceOfSatisfying(PlatformApiException.class,
+                    error -> assertThat(error.code()).isEqualTo("IDEMPOTENCY_REQUEST_MISMATCH"));
+            assertThat(snapshot()).isEqualTo(before);
+        }
+        for (int field=0; field<4; field++) {
+            var modified = new LineRequest(field == 0 ? "changed" : item, amount("2"),
+                    amount(field == 1 ? "11" : "10"), amount(field == 2 ? "1" : "0"), amount(field == 3 ? "1" : "0"), null,null,null);
+            assertThatThrownBy(() -> requestOrder(sales,requestKey,partner,warehouse,"CNY",date,"note",List.of(source,modified)))
+                    .isInstanceOfSatisfying(PlatformApiException.class,
+                            error -> assertThat(error.code()).isEqualTo("IDEMPOTENCY_REQUEST_MISMATCH"));
+            assertThat(snapshot()).isEqualTo(before);
+        }
+        var equivalent = new LineRequest(item, amount("1.0000"), amount("10.00"), amount("0.0000"), amount("0"),
+                " " + source.sourceDocumentType().toLowerCase(java.util.Locale.ROOT) + " ",
+                " " + source.sourceDocumentId() + " ", " " + source.sourceLineId() + " ");
+        assertThat(requestOrder(sales," " + requestKey + " ",partner,warehouse,"cny",date,"note",List.of(line("2.00"),equivalent)).id())
+                .isEqualTo(original.id());
+        assertThat(snapshot()).isEqualTo(before);
+    }
+
+    @ParameterizedTest
+    @ValueSource(booleans = {true, false})
+    void legacyReplayComparesPersistedFieldsWithoutBackfill(boolean sales) {
+        LineRequest source = source(sales, "APPROVED");
+        String requestKey = key(), table = sales ? "flowora_sales_order" : "flowora_purchase_order";
+        var original = sourcedOrder(actor,sales,List.of(source),requestKey);
+        jdbc.update("UPDATE " + table + " SET request_fingerprint=NULL WHERE id=?",original.id());
+        if (sales) documents.confirmSalesOrder(org,original.id(),0); else documents.confirmPurchaseOrder(org,original.id(),0);
+        var before = snapshot();
+        assertThat(sourcedOrder(actor,sales,List.of(source),requestKey).status()).isEqualTo("CONFIRMED");
+        assertThatThrownBy(() -> sourcedOrder(actor,sales,List.of(line("1")),requestKey))
+                .isInstanceOfSatisfying(PlatformApiException.class,
+                        error -> assertThat(error.code()).isEqualTo("IDEMPOTENCY_REQUEST_MISMATCH"));
+        assertThat(snapshot()).isEqualTo(before);
+        assertThat(jdbc.queryForObject("SELECT request_fingerprint FROM " + table + " WHERE id=?",String.class,original.id())).isNull();
+    }
+
+    @ParameterizedTest
+    @ValueSource(booleans = {true, false})
+    void newFingerprintRetainsPrecisionBeyondStoredDecimal(boolean sales) {
+        String requestKey = key();
+        var original = sourcedOrder(actor,sales,List.of(line("1.00001")),requestKey);
+        var before = snapshot();
+        assertThatThrownBy(() -> sourcedOrder(actor,sales,List.of(line("1.00002")),requestKey))
+                .isInstanceOfSatisfying(PlatformApiException.class,
+                        error -> assertThat(error.code()).isEqualTo("IDEMPOTENCY_REQUEST_MISMATCH"));
+        assertThat(sourcedOrder(actor,sales,List.of(line("1.000010")),requestKey).id()).isEqualTo(original.id());
+        assertThat(snapshot()).isEqualTo(before);
+    }
+
     LineRequest source(boolean sales, String status) {
         String id = key(), lineId = key();
         if (sales) {

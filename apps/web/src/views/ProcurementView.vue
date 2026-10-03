@@ -123,7 +123,7 @@ async function submit() {
     await load()
   } catch (error) {
     const code = axios.isAxiosError(error) ? error.response?.data?.code : undefined
-    ElMessage.error(t(code === 'SOURCE_QUANTITY_EXCEEDED' ? 'errors.sourceQuantityExceeded' : 'procurement.saveFailed'))
+    ElMessage.error(t(code === 'SOURCE_QUANTITY_EXCEEDED' ? 'errors.sourceQuantityExceeded' : code === 'IDEMPOTENCY_REQUEST_MISMATCH' ? 'errors.idempotencyRequestMismatch' : 'procurement.saveFailed'))
   }
 }
 
