@@ -36,7 +36,7 @@ R5 第一批补齐真实安全 HTTP 回归、覆盖矩阵与过期文档。F01�
 | F24 | outbox 定时事务边界 | `WorkflowOperationsMySqlTest`：两个 worker、崩溃回滚、重试及重放 / 数据库 |
 | F25 | 个人审批使用 v2 任务 | `WorkflowOperationsMySqlTest`：实际流程、当前 assignee、旧任务排除 / 数据库；R4 浏览器卡片 |
 | F26 | 工作流 If-Match CORS | SEC-11：真实预检和不允许来源 / HTTP |
-| F27 | 持续验证不足 | CI 五个 job、十个 HTTP 脚本及本矩阵；发布剩余项未完成 |
+| F27 | 持续验证不足 | CI 五个 job、十二个 HTTP 脚本及本矩阵；发布剩余项未完成 |
 
 所有入口见 [release-verification.md](release-verification.md)，专项测试代码位于 [API 测试目录](../../services/api/src/test/java/com/flowora/erp)，Web 测试位于 [Web 源码](../../apps/web/src)。HTTP 脚本输出稳定 SEC-01–SEC-12 用例 ID，只输出用例和结果，不打印密码、恢复码、Cookie 或 MFA secret。
 
@@ -76,6 +76,8 @@ R5 第九批修复F31登录保留槽：local/production外层过滤器确认请�
 R5 第十批修复兼容采购销售的固定角色写入、旧身份及共享读取范围；采购取消先验证订单范围，创建即批准/确认的接口要求实际提交能力，页面保留 scoped 订单读取和原生草稿创建。新增 13 项后端权限/来源测试、3 项真实 MySQL 回退事务测试、6 项前端组件测试及 21 个 HTTP 场景；专项契约与未覆盖边界见 [兼容采购销售访问](compatibility-trade-access.md)。完整业务 UI、原生 v2 矩阵及其他发布门禁仍待，F27 保持部分完成。
 
 R5 第十一批修复隔离实证的原生采购/销售订单确认与取消越界：四个动作同时要求 view+submit，在事务调用前使用详情同一当前订单范围，保留合法 SELF、同部门及原有状态/版本规则。新增 8 项后端方法安全测试和 18 个 HTTP 场景，本地完整 Maven188/Web24 通过。详见 [原生订单动作](native-order-actions.md)。原生创建/来源行及其他动作矩阵、完整浏览器与发布门禁仍待，F27 保持部分完成。
+
+R5 第十二批针对隔离实证的原生订单创建重放泄露绑定原创建人：其他创建人不能借同组织幂等键取得订单，ALL 可读也不转移键归属；本人仅创建权限的重试保持可用，当前撤权/停用仍拒绝。新增真实 MySQL 8 项（含两种订单的并发争用）和 HTTP14场景，详见 [原生订单创建重放](native-order-replay.md)。正文指纹、来源行完整性、其他原生动作及全量门禁仍待，F27 保持部分完成。
 
 | 顺序 | 待办 | 放行证据 |
 | --- | --- | --- |

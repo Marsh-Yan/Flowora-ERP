@@ -30,7 +30,7 @@ public class TradeDocumentService {
 
     @Transactional
     public DocumentView createSalesOrder(FloworaPrincipal actor, SalesOrderRequest request, String requestKey) {
-        DocumentView replay = findByRequest(actor.organizationId(), true, requestKey);
+        DocumentView replay = findByRequest(actor, true, requestKey);
         if (replay != null) return replay;
         claim(actor.organizationId(), "M3_SALES_ORDER_CREATE", requestKey);
         requireResources(actor.organizationId(), "flowora_customer", request.customerId(), request.warehouseId(), request.lines());
@@ -49,7 +49,7 @@ public class TradeDocumentService {
 
     @Transactional
     public DocumentView createPurchaseOrder(FloworaPrincipal actor, PurchaseOrderRequest request, String requestKey) {
-        DocumentView replay = findByRequest(actor.organizationId(), false, requestKey);
+        DocumentView replay = findByRequest(actor, false, requestKey);
         if (replay != null) return replay;
         claim(actor.organizationId(), "M3_PURCHASE_ORDER_CREATE", requestKey);
         requireResources(actor.organizationId(), "flowora_supplier", request.supplierId(), request.warehouseId(), request.lines());
@@ -229,11 +229,25 @@ public class TradeDocumentService {
         if (count == null || count == 0) throw new PlatformApiException(HttpStatus.NOT_FOUND, "RESOURCE_NOT_FOUND", "errors.resourceNotFound");
     }
 
-    private DocumentView findByRequest(String organizationId, boolean sales, String requestKey) {
+    private DocumentView findByRequest(FloworaPrincipal actor, boolean sales, String requestKey) {
         if (blank(requestKey)) return null;
         String table = sales ? "flowora_sales_order" : "flowora_purchase_order";
-        List<String> ids = jdbc.query("SELECT id FROM " + table + " WHERE organization_id=? AND request_id=?", (rs, row) -> rs.getString(1), organizationId, requestKey.trim());
-        return ids.isEmpty() ? null : sales ? salesOrder(organizationId, ids.getFirst()) : purchaseOrder(organizationId, ids.getFirst());
+        String ownerColumn = sales ? "sales_user_id" : "buyer_user_id";
+        // A create response belongs to its creator, including create-only callers.
+        // Organization-wide read access does not transfer another caller's key.
+        List<OrderReplay> rows = jdbc.query("SELECT id," + ownerColumn + " FROM " + table
+                        + " WHERE organization_id=? AND request_id=?",
+                (rs, row) -> new OrderReplay(rs.getString("id"), rs.getString(ownerColumn)),
+                actor.organizationId(), requestKey.trim());
+        if (rows.isEmpty()) return null;
+        OrderReplay replay = rows.getFirst();
+        if (actor.userId() == null || !actor.userId().equals(replay.creatorId())) {
+            throw new PlatformApiException(HttpStatus.CONFLICT, "IDEMPOTENCY_CONFLICT", "errors.idempotencyConflict");
+        }
+        return sales ? salesOrder(actor.organizationId(), replay.id()) : purchaseOrder(actor.organizationId(), replay.id());
+    }
+
+    private record OrderReplay(String id, String creatorId) {
     }
 
     private boolean hasStatus(String table, String organizationId, String id, String status) {
