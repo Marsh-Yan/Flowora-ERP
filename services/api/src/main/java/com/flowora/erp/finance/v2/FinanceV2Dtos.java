@@ -83,7 +83,7 @@ public final class FinanceV2Dtos {
                               String currencyCode, String baseCurrencyCode, BigDecimal exchangeRate,
                               BigDecimal netAmount, BigDecimal taxAmount, BigDecimal totalAmount,
                               BigDecimal baseTotalAmount, BigDecimal allocatedAmount,
-                              BigDecimal creditedAmount, String matchStatus, LocalDateTime postedAt,
+                              BigDecimal creditedAmount, String matchStatus, String matchExceptionApprovedBy, String matchExceptionReason, LocalDateTime postedAt,
                               long version, List<InvoiceLineView> lines) {
     }
 

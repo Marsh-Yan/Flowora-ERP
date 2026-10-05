@@ -217,6 +217,34 @@ class FinanceMySqlTest {
             jdbc.update("DELETE FROM flowora_organization WHERE id=?",other);
         }
     }
+    @Test void supplierExceptionApprovalRecordsReasonAndAllowsSeparatePosting() {
+        String po=key(),pol=key(),receipt=key(),rl=key();
+        jdbc.update("INSERT INTO flowora_purchase_order(id,organization_id,number,supplier_id,warehouse_id,status,buyer_user_id,order_date) VALUES (?,?,?,?,?,'RECEIVED','system:r3-test','2026-10-01')",po,org,po.substring(0,30),supplier,"r3-warehouse");
+        jdbc.update("INSERT INTO flowora_purchase_order_line(id,organization_id,purchase_order_id,item_id,ordered_quantity,received_quantity,unit_price) VALUES (?,?,?,?,1,1,10)",pol,org,po,"r3-item");
+        jdbc.update("INSERT INTO flowora_purchase_receipt(id,organization_id,number,purchase_order_id,warehouse_id,received_by,status) VALUES (?,?,?,?,?,'system:r3-test','POSTED')",receipt,org,receipt.substring(0,30),po,"r3-warehouse");
+        jdbc.update("INSERT INTO flowora_purchase_receipt_line(id,organization_id,purchase_receipt_id,purchase_order_line_id,item_id,quantity,accepted_quantity,unit_cost) VALUES (?,?,?,?,?,1,1,10)",rl,org,receipt,pol,"r3-item");
+        var source=new InvoiceSourceCreate("PURCHASE_RECEIPT_LINE",receipt,rl,n("1"),n("12"));
+        var draft=run(()->documents.createInvoice(actor,key(),input("SUPPLIER_INVOICE",supplier,"1",List.of(line("12",List.of(source))))));
+        assertThat(draft.matchStatus()).isEqualTo("EXCEPTION");
+        assertThat(draft.lines().getFirst().matchPriceVarianceRate()).isEqualByComparingTo("20");
+        assertThatThrownBy(()->run(()->documents.postInvoice(actor,draft.id(),draft.version()))).isInstanceOf(PlatformApiException.class);
+        assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM flowora_journal_entry WHERE organization_id=?",Integer.class,org)).isZero();
+        var approved=run(()->documents.approveMatchException(actor,draft.id(),"  Supplier price adjustment verified  "));
+        assertThat(approved.status()).isEqualTo("DRAFT");
+        assertThat(approved.matchStatus()).isEqualTo("APPROVED_EXCEPTION");
+        assertThat(approved.matchExceptionApprovedBy()).isEqualTo(actor.userId());
+        assertThat(approved.matchExceptionReason()).isEqualTo("Supplier price adjustment verified");
+        assertThat(approved.version()).isEqualTo(draft.version()+1);
+        assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM flowora_journal_entry WHERE organization_id=?",Integer.class,org)).isZero();
+        assertThatThrownBy(()->run(()->documents.approveMatchException(actor,draft.id(),"different"))).isInstanceOf(PlatformApiException.class);
+        assertThat(documents.invoice(org,draft.id()).matchExceptionReason()).isEqualTo(approved.matchExceptionReason());
+        var posted=run(()->documents.postInvoice(actor,draft.id(),approved.version()));
+        assertThat(posted.status()).isEqualTo("POSTED");
+        assertThat(posted.matchExceptionApprovedBy()).isEqualTo(actor.userId());
+        assertThat(ledger.journals(org,date,date).getFirst().totalDebit()).isEqualByComparingTo("12");
+        assertThat(ledger.journals(org,date,date).getFirst().totalCredit()).isEqualByComparingTo("12");
+        assertThat(documents.stockInvoiceSources(org).getFirst().remainingQuantity()).isEqualByComparingTo("0");
+    }
     AllocationView allocate() {
         var invoice=run(()->documents.createInvoice(actor,key(),input("SALES_INVOICE",customer,"1",List.of(line("100",List.of())))));
         run(()->documents.postInvoice(actor,invoice.id(),0));

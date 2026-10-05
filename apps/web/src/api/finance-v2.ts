@@ -13,6 +13,19 @@ export interface FinanceInvoice {
   accountingDate: string; dueDate: string; matchStatus: string; version: number
 }
 
+export interface FinanceInvoiceDetail extends FinanceInvoice {
+  matchExceptionApprovedBy?: string; matchExceptionReason?: string
+  lines: Array<{ id: string; lineNo: number; description: string; quantity: number; unitPrice: number; taxRate: number; matchQuantityVariance: number; matchPriceVarianceRate: number; matchTaxVariance: number; sources: Array<{ sourceType: string; sourceId: string; sourceLineId?: string; quantity: number; amount: number }> }>
+}
+export async function getFinanceInvoice(id: string) {
+  const response = await apiClient.get<ApiEnvelope<FinanceInvoiceDetail>>(`/v2/finance/invoices/${id}`)
+  return response.data.data
+}
+export async function approveFinanceMatchException(id: string, reason: string) {
+  const response = await apiClient.post<ApiEnvelope<FinanceInvoiceDetail>>(`/v2/finance/invoices/${id}/match-exception/approve`, { reason })
+  return response.data.data
+}
+
 export interface FinancePayment {
   id: string; number: string; paymentType: string; partyType: string; partyId: string; bankAccountId?: string; status: string
   allocationStatus: string; accountingDate: string; currencyCode: string; amount: number; allocatedAmount: number; version: number; allocations: FinanceAllocation[]

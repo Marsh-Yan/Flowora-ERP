@@ -202,7 +202,7 @@ public class FinanceDocumentService {
                 SELECT id,number,document_type,party_type,party_id,original_invoice_id,project_id,status,
                        settlement_status,credit_status,business_date,accounting_date,due_date,exchange_rate_date,
                        currency_code,base_currency_code,exchange_rate,net_amount,tax_amount,total_amount,
-                       base_total_amount,allocated_amount,credited_amount,match_status,posted_at,version_no
+                       base_total_amount,allocated_amount,credited_amount,match_status,match_exception_approved_by,match_exception_reason,posted_at,version_no
                 FROM flowora_finance_invoice WHERE organization_id=? AND id=?
                 """, (rs, row) -> new InvoiceView(rs.getString("id"), rs.getString("number"),
                 rs.getString("document_type"), rs.getString("party_type"), rs.getString("party_id"),
@@ -213,7 +213,7 @@ public class FinanceDocumentService {
                 rs.getString("currency_code"), rs.getString("base_currency_code"), rs.getBigDecimal("exchange_rate"),
                 rs.getBigDecimal("net_amount"), rs.getBigDecimal("tax_amount"), rs.getBigDecimal("total_amount"),
                 rs.getBigDecimal("base_total_amount"), rs.getBigDecimal("allocated_amount"),
-                rs.getBigDecimal("credited_amount"), rs.getString("match_status"),
+                rs.getBigDecimal("credited_amount"), rs.getString("match_status"), rs.getString("match_exception_approved_by"), rs.getString("match_exception_reason"),
                 timestamp(rs.getTimestamp("posted_at")), rs.getLong("version_no"), List.of()), organizationId, id);
         if (values.isEmpty()) throw notFound("invoice", id);
         InvoiceView head = values.getFirst();
@@ -234,7 +234,7 @@ public class FinanceDocumentService {
                 head.originalInvoiceId(), head.projectId(), head.status(), head.settlementStatus(), head.creditStatus(),
                 head.businessDate(), head.accountingDate(), head.dueDate(), head.exchangeRateDate(), head.currencyCode(),
                 head.baseCurrencyCode(), head.exchangeRate(), head.netAmount(), head.taxAmount(), head.totalAmount(),
-                head.baseTotalAmount(), head.allocatedAmount(), head.creditedAmount(), head.matchStatus(), head.postedAt(),
+                head.baseTotalAmount(), head.allocatedAmount(), head.creditedAmount(), head.matchStatus(), head.matchExceptionApprovedBy(), head.matchExceptionReason(), head.postedAt(),
                 head.version(), lines);
     }
 
