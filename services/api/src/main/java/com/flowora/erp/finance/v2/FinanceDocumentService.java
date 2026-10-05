@@ -44,6 +44,47 @@ public class FinanceDocumentService {
         this.ledger = ledger;
     }
 
+    public List<FinanceV2Dtos.StockInvoiceSourceView> stockInvoiceSources(String organizationId) {
+        return jdbc.query("""
+                SELECT b.*,GREATEST(0,b.quantity-COALESCE((
+                    SELECT SUM(s.quantity*(il.quantity-il.credited_quantity)/il.quantity)
+                    FROM flowora_finance_invoice_source s
+                    JOIN flowora_finance_invoice_line il ON il.id=s.invoice_line_id AND il.organization_id=s.organization_id
+                    JOIN flowora_finance_invoice i ON i.id=il.invoice_id AND i.organization_id=s.organization_id
+                    WHERE s.organization_id=? AND s.source_type=b.source_type AND s.source_line_id=b.source_line_id
+                      AND i.document_type=b.document_type AND i.status='POSTED'),0)) remaining_quantity
+                FROM (
+                    SELECT 'SUPPLIER_INVOICE' document_type,'PURCHASE_RECEIPT_LINE' source_type,
+                           h.id source_id,l.id source_line_id,h.number source_number,o.number order_number,
+                           p.id party_id,p.name party_name,l.item_id,COALESCE(item.name,l.item_id) description,
+                           o.currency_code,l.accepted_quantity quantity,ol.unit_price,ol.discount_rate,ol.tax_rate
+                    FROM flowora_purchase_receipt_line l
+                    JOIN flowora_purchase_receipt h ON h.id=l.purchase_receipt_id AND h.organization_id=l.organization_id
+                    JOIN flowora_purchase_order o ON o.id=h.purchase_order_id AND o.organization_id=l.organization_id
+                    JOIN flowora_purchase_order_line ol ON ol.id=l.purchase_order_line_id AND ol.purchase_order_id=o.id AND ol.organization_id=l.organization_id
+                    JOIN flowora_supplier p ON p.id=o.supplier_id AND p.organization_id=l.organization_id AND p.active=TRUE
+                    LEFT JOIN flowora_item item ON item.id=l.item_id AND item.organization_id=l.organization_id
+                    WHERE l.organization_id=? AND h.status='POSTED' AND l.accepted_quantity>0
+                    UNION ALL
+                    SELECT 'SALES_INVOICE','SALES_DELIVERY_LINE',h.id,l.id,h.number,o.number,
+                           p.id,p.name,l.item_id,COALESCE(item.name,l.item_id),o.currency_code,
+                           l.quantity,ol.unit_price,ol.discount_rate,ol.tax_rate
+                    FROM flowora_sales_delivery_line l
+                    JOIN flowora_sales_delivery h ON h.id=l.delivery_id AND h.organization_id=l.organization_id
+                    JOIN flowora_sales_order o ON o.id=h.sales_order_id AND o.organization_id=l.organization_id
+                    JOIN flowora_sales_order_line ol ON ol.id=l.sales_order_line_id AND ol.sales_order_id=o.id AND ol.organization_id=l.organization_id
+                    JOIN flowora_customer p ON p.id=o.customer_id AND p.organization_id=l.organization_id AND p.active=TRUE
+                    LEFT JOIN flowora_item item ON item.id=l.item_id AND item.organization_id=l.organization_id
+                    WHERE l.organization_id=? AND h.status='POSTED' AND l.quantity>0
+                ) b ORDER BY b.source_number,b.source_line_id
+                """, (rs,row)->new FinanceV2Dtos.StockInvoiceSourceView(rs.getString("document_type"),rs.getString("source_type"),
+                rs.getString("source_id"),rs.getString("source_line_id"),rs.getString("source_number"),rs.getString("order_number"),
+                rs.getString("party_id"),rs.getString("party_name"),rs.getString("item_id"),rs.getString("description"),
+                rs.getString("currency_code"),rs.getBigDecimal("quantity"),rs.getBigDecimal("remaining_quantity"),
+                rs.getBigDecimal("unit_price"),rs.getBigDecimal("discount_rate"),rs.getBigDecimal("tax_rate")),
+                organizationId,organizationId,organizationId);
+    }
+
     @Transactional
     public InvoiceView createInvoice(FloworaPrincipal actor, String requestId, InvoiceCreate body) {
         String type = upper(body.documentType());

@@ -240,6 +240,7 @@ export default {
     failed: '订单操作失败，请刷新后重试。',
   },
   sales: {
+    documentCurrency: '单据币种', currencyFailed: '无法读取组织本位币，请刷新后再新建。',
     eyebrow: '销售运营',
     title: '销售中心',
     subtitle: '将已批准报价转为销售订单，跟踪履约、应收和客户收款。',
@@ -503,6 +504,7 @@ export default {
       '61_90': '61–90 天',
       '90_PLUS': '90 天以上',
     },
+    stockInvoice: { open: '从入库 / 发货开票', title: '库存来源发票', source: '来源行', quantity: '本次开票数量', remaining: '可开票数量', terms: '按订单价格、折扣和税率开票，仅显示本位币的已过账入库 / 发货。余额扣除已过账发票并考虑贷记；草稿不占用数量，过账时再次校验。', loadFailed: '无法读取来源或本位币，请重新加载。', failed: '保存结果未确认，已刷新列表；相同内容可显式重试。', empty: '没有可开票的本位币来源行。', saved: '来源发票草稿已创建。' },
     bankMatch: { manage: '对账管理', title: '银行对账管理', statement: '银行流水', payment: '收付款单', apply: '确认匹配', history: '对账记录', confirmed: '已确认', reversed: '已撤销', reverse: '撤销对账', reason: '撤销原因', confirmReverse: '确认撤销对账', keep: '保留对账', remaining: '收付款未匹配金额', note: '每次将一条完整流水匹配到一张收付款单。候选覆盖全部日期，余额仅扣除已确认的对账。', loadFailed: '当前对账数据加载失败，请重新加载后继续。', failed: '未能确认结果，请检查刷新后的记录，再决定是否重试。', saved: '对账已确认。', reversedSuccess: '对账已撤销。', empty: '没有可匹配的未对账流水。' },
     bankEntry: { account: '银行账户', cash: '留空表示现金。仅可选择组织本位币账户。', loadFailed: '银行账户加载失败，请重新加载后选择。', newStatement: '录入银行流水', title: '录入银行流水', date: '交易日期', amount: '带方向金额', reference: '银行参考号', direction: '收款填正数，付款填负数；每次录入一条流水。', save: '保存流水', saved: '流水已录入；同账户的重复参考号会被忽略。', failed: '未能确认结果，请先检查刷新后的流水列表再决定是否重试。', close: '关闭' },
     allocation: {

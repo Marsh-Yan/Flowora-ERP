@@ -16,10 +16,11 @@ import * as master from '@/api/master-data'
 vi.mock('@/api/procurement', () => ({ listPurchaseOrders: vi.fn(), listPurchaseRequests: vi.fn(), createPurchaseRequest: vi.fn() }))
 vi.mock('@/api/sales', () => ({ listSalesOrders: vi.fn(), listSalesQuotes: vi.fn(), listReceivables: vi.fn(), createSalesQuote: vi.fn(), approveSalesQuote: vi.fn(), createDelivery: vi.fn(), createPayment: vi.fn() }))
 vi.mock('@/api/trade', () => ({ createPurchaseOrderV2: vi.fn(), createSalesOrderV2: vi.fn(), getTradeOrderV2: vi.fn(), changeTradeOrderStateV2: vi.fn() }))
-vi.mock('@/api/master-data', () => ({ listMasterData: vi.fn() }))
+vi.mock('@/api/master-data', () => ({ listMasterData: vi.fn(), getOrganizationSettings: vi.fn() }))
 const page = <T>(content: T[]) => ({ content, page: 0, size: 50, totalElements: content.length, totalPages: 1 })
 beforeEach(() => {
   vi.resetAllMocks()
+  vi.mocked(master.getOrganizationSettings).mockResolvedValue({baseCurrencyCode:'CNY'} as Awaited<ReturnType<typeof master.getOrganizationSettings>>)
   vi.mocked(procurement.listPurchaseOrders).mockResolvedValue(page([{ id: 'po', number: 'PO-owned', status: 'DRAFT', supplierId: 'supplier', itemId: 'item', warehouseId: 'warehouse' } as procurement.PurchaseOrder]))
   vi.mocked(procurement.listPurchaseRequests).mockResolvedValue(page([]))
   vi.mocked(sales.listSalesQuotes).mockResolvedValue(page([{ id: 'quote', number: 'QT', status: 'SUBMITTED' } as sales.SalesQuote]))
@@ -303,4 +304,25 @@ it('sales outstanding fulfillment summary excludes cancelled orders with remaini
   const wrapper = mount(SalesView, { global: global(['sales:view'], 'SELF') }); await flushPromises()
   expect(wrapper.find('.inventory-summary-grid strong').text()).toBe('2')
   wrapper.unmount()
+})
+
+it('defaults a manual sales order to organization currency and displays it', async()=>{
+  const {wrapper,field}=await sourceEditor(sourceCases[1]);await field.find('select').setValue('');await flushPromises();
+  expect(wrapper.text()).toContain('Document currency: CNY');await saveEditor(wrapper);
+  expect(trade.createSalesOrderV2).toHaveBeenCalledWith(expect.objectContaining({currencyCode:'CNY'}));wrapper.unmount()
+})
+it('keeps a source quote currency then restores base currency when cleared or reopened', async()=>{
+  const {wrapper,field,button}=await sourceEditor(sourceCases[1]);
+  vi.mocked(sales.listSalesQuotes).mockResolvedValue(page([{id:'source-header',lineId:'source-line',number:'SRC-1',status:'APPROVED',customerId:'customer',itemId:'item',quantity:3,unitPrice:10,discountRate:0,taxRate:0,currencyCode:'EUR',sourceEligible:true} as sales.SalesQuote]));
+  await wrapper.findAll('button').find(b=>b.text()===en.sales.refresh)!.trigger('click');await flushPromises();
+  await field.find('select').setValue('');await field.find('select').setValue('source-header');await flushPromises();expect(wrapper.text()).toContain('Document currency: EUR');
+  await wrapper.findAll('button').find(b=>b.text()===en.masterData.cancel)!.trigger('click');await flushPromises();await button.trigger('click');await flushPromises();
+  expect(wrapper.text()).toContain('Document currency: CNY');wrapper.unmount()
+})
+it('blocks sales creation if currency settings cannot load', async()=>{
+  vi.mocked(master.getOrganizationSettings).mockRejectedValue(new Error('offline'));
+  const options=global(['sales:view','sales:create','master:view']);const wrapper=mount(SalesView,{global:options});await flushPromises();
+  await wrapper.find('[id$="-orders"]').trigger('click');await flushPromises();
+  const button=wrapper.findAll('button').find(b=>b.text()===en.sales.create)!;expect(button.attributes('disabled')).toBeDefined();await button.trigger('click');await flushPromises();
+  expect(trade.createSalesOrderV2).not.toHaveBeenCalled();wrapper.unmount()
 })

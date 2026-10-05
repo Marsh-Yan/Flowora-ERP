@@ -26,7 +26,7 @@ export interface BankStatementLine {
 export interface InvoiceInput {
   documentType: 'SALES_INVOICE' | 'SUPPLIER_INVOICE'; partyId: string; businessDate: string; accountingDate: string
   dueDate: string; exchangeRateDate: string; currencyCode: string; exchangeRate: number
-  lines: Array<{ itemId?: string; description: string; quantity: number; unitPrice: number; discountRate: number; taxRate: number; accountCode?: string; projectId?: string; sources?: never[] }>
+  lines: Array<{ itemId?: string; description: string; quantity: number; unitPrice: number; discountRate: number; taxRate: number; accountCode?: string; projectId?: string; sources?: Array<{ sourceType: string; sourceId: string; sourceLineId: string; quantity: number; amount: number }> }>
 }
 
 export interface PaymentInput {
@@ -44,8 +44,8 @@ export async function listFinanceInvoices() {
   return response.data.data
 }
 
-export async function createFinanceInvoice(payload: InvoiceInput) {
-  const response = await apiClient.post<ApiEnvelope<FinanceInvoice>>('/v2/finance/invoices', payload, { headers: { 'Idempotency-Key': crypto.randomUUID() } })
+export async function createFinanceInvoice(payload: InvoiceInput, key: string = crypto.randomUUID()) {
+  const response = await apiClient.post<ApiEnvelope<FinanceInvoice>>('/v2/finance/invoices', payload, { headers: { 'Idempotency-Key': key } })
   return response.data.data
 }
 
@@ -115,5 +115,15 @@ export async function reconcileBankStatement(bankAccountId: string, statementLin
 }
 export async function reverseBankReconciliation(id: string, reason: string) {
   const response = await apiClient.post<ApiEnvelope<BankReconciliation>>(`/v2/finance/bank/reconciliations/${id}/reverse`, { reason })
+  return response.data.data
+}
+
+export interface StockInvoiceSource {
+  documentType: 'SALES_INVOICE' | 'SUPPLIER_INVOICE'; sourceType: string; sourceId: string; sourceLineId: string
+  sourceNumber: string; orderNumber: string; partyId: string; partyName: string; itemId: string; description: string
+  currencyCode: string; quantity: number; remainingQuantity: number; unitPrice: number; discountRate: number; taxRate: number
+}
+export async function listStockInvoiceSources() {
+  const response = await apiClient.get<ApiEnvelope<StockInvoiceSource[]>>('/v2/finance/invoice-stock-sources')
   return response.data.data
 }
