@@ -99,3 +99,21 @@ export async function importBankStatement(payload: BankStatementInput) {
   const response = await apiClient.post<ApiEnvelope<BankStatementLine[]>>('/v2/finance/bank/statements/import', payload)
   return response.data.data
 }
+
+export interface BankReconciliation {
+  id: string; number: string; bankAccountId: string; status: 'CONFIRMED' | 'REVERSED'
+  totalStatementAmount: number; totalPaymentAmount: number; differenceAmount: number
+  links: Array<{ statementLineId: string; paymentId: string; matchedAmount: number }>
+}
+export async function listBankReconciliations() {
+  const response = await apiClient.get<ApiEnvelope<BankReconciliation[]>>('/v2/finance/bank/reconciliations')
+  return response.data.data
+}
+export async function reconcileBankStatement(bankAccountId: string, statementLineId: string, paymentId: string, matchedAmount: number, key: string) {
+  const response = await apiClient.post<ApiEnvelope<BankReconciliation>>('/v2/finance/bank/reconciliations', { bankAccountId, links: [{ statementLineId, paymentId, matchedAmount }] }, { headers: { 'Idempotency-Key': key } })
+  return response.data.data
+}
+export async function reverseBankReconciliation(id: string, reason: string) {
+  const response = await apiClient.post<ApiEnvelope<BankReconciliation>>(`/v2/finance/bank/reconciliations/${id}/reverse`, { reason })
+  return response.data.data
+}

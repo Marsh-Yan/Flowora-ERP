@@ -164,6 +164,22 @@ class FinanceMySqlTest {
         assertThatThrownBy(()->run(()->operations.reconcile(actor,key(),new ReconciliationCreate(bank,List.of(new ReconciliationLinkCreate(foreignCurrency.id(),payment.id(),n("100"))))))).isInstanceOf(PlatformApiException.class).extracting("code").isEqualTo("RECONCILIATION_CURRENCY_MISMATCH");
         assertThat(run(()->operations.reconcile(actor,key(),new ReconciliationCreate(bank,List.of(new ReconciliationLinkCreate(in.id(),payment.id(),n("100")))))).status()).isEqualTo("CONFIRMED");
     }
+    @Test void bankHistoryLinksExplainPartialMatchesAndSurviveReversal() {
+        var operations=new FinanceOperationsService(jdbc,ledger); String bank=key();
+        jdbc.update("INSERT INTO flowora_bank_account(id,organization_id,code,name,bank_name,account_number_masked,currency_code,ledger_account_code) VALUES (?,?,?,'R5 bank','Synthetic','****0000','EUR','CASH')",bank,org,bank);
+        var payment=run(()->documents.createPayment(actor,key(),new PaymentCreate("RECEIPT",customer,bank,date,date,date,"EUR",n("1"),n("30"),"bank history")));
+        run(()->documents.postPayment(actor,payment.id(),0));
+        var lines=run(()->operations.importStatements(actor,new StatementImport(bank,List.of(new StatementLineCreate(date,date,n("10"),"EUR",key(),null,null),new StatementLineCreate(date,date,n("20"),"EUR",key(),null,null)))));
+        var first=run(()->operations.reconcile(actor,key(),new ReconciliationCreate(bank,List.of(new ReconciliationLinkCreate(lines.get(0).id(),payment.id(),n("10"))))));
+        run(()->operations.reconcile(actor,key(),new ReconciliationCreate(bank,List.of(new ReconciliationLinkCreate(lines.get(1).id(),payment.id(),n("20"))))));
+        assertThat(first.links()).containsExactly(new ReconciliationLinkView(lines.get(0).id(),payment.id(),n("10.0000")));
+        assertThat(operations.reconciliations(org,bank)).hasSize(2);
+        var reversed=run(()->operations.reverseReconciliation(actor,first.id(),"Correct match"));
+        assertThat(reversed.status()).isEqualTo("REVERSED"); assertThat(reversed.links()).isEqualTo(first.links());
+        assertThat(operations.statements(org,bank,"UNMATCHED")).extracting(StatementLineView::id).containsExactly(lines.get(0).id());
+        assertThat(operations.reconciliations(key(),bank)).isEmpty();
+        assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM flowora_journal_entry WHERE organization_id=?",Integer.class,org)).isEqualTo(1);
+    }
     @Test void bankPickerReturnsOnlyActiveAccountsInCurrentOrganization() {
         String active=key(), inactive=key(), other=key();
         jdbc.update("INSERT INTO flowora_organization(id,name,base_currency_code) VALUES (?,'Other bank org','USD')",other);
