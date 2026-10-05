@@ -165,10 +165,12 @@ public final class FinanceV2Dtos {
                                        @NotEmpty @Valid List<ReconciliationLinkCreate> links) {
     }
 
+    public record ReconciliationLinkView(String statementLineId, String paymentId, BigDecimal matchedAmount) {}
+
     public record ReconciliationView(String id, String number, String bankAccountId, String status,
                                      BigDecimal totalStatementAmount, BigDecimal totalPaymentAmount,
                                      BigDecimal differenceAmount, LocalDateTime confirmedAt,
-                                     LocalDateTime reversedAt) {
+                                     LocalDateTime reversedAt, List<ReconciliationLinkView> links) {
     }
 
     public record BudgetLineCreate(int month, @NotBlank String accountCode, String departmentId,

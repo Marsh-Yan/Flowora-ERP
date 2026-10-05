@@ -11,6 +11,7 @@ import {
 
 import FinanceAllocationDialog from './FinanceAllocationDialog.vue'
 import BankStatementDialog from './BankStatementDialog.vue'
+import BankReconciliationDialog from './BankReconciliationDialog.vue'
 import { useAuthStore } from '@/stores/auth'
 
 const emit = defineEmits<{ posted: [] }>()
@@ -26,6 +27,7 @@ const payments = ref<FinancePayment[]>([])
 const statements = ref<BankStatementLine[]>([])
 const banks = ref<FinanceBankAccount[]>([])
 const statementVisible = ref(false)
+const reconciliationVisible = ref(false)
 const paymentBanks = computed(() => banks.value.filter(row => row.currencyCode === baseCurrency.value))
 const customers = ref<MasterDataRecord[]>([])
 const suppliers = ref<MasterDataRecord[]>([])
@@ -153,12 +155,14 @@ onMounted(load)
     <div v-else class="m4-metrics" aria-live="polite"><span>—</span><span>—</span><span>—</span><span>—</span></div>
     <el-alert v-for="section in (['invoices', 'payments', 'statements'] as const)" v-show="errors[section]" :key="section" :title="t(`finance.m4.${section}Failed`)" type="error" :closable="false" show-icon />
     <el-button v-if="auth.hasPermission('finance:view') && auth.hasPermission('finance:bank')" :disabled="loading || saving || !!postingId" @click="statementVisible = true">{{ t('finance.bankEntry.newStatement') }}</el-button>
+    <el-button v-if="auth.hasPermission('finance:view') && auth.hasPermission('finance:bank')" :disabled="loading || saving || !!postingId" @click="reconciliationVisible = true">{{ t('finance.bankMatch.manage') }}</el-button>
     <el-tabs>
       <el-tab-pane :label="t('finance.m4.invoices')"><el-table :data="invoices" size="small"><el-table-column prop="number" :label="t('finance.number')" /><el-table-column prop="documentType" :label="t('finance.m4.type')" /><el-table-column prop="accountingDate" :label="t('finance.entryDate')" /><el-table-column :label="t('finance.amount')"><template #default="{ row }">{{ money(row.totalAmount) }} {{ row.currencyCode }}</template></el-table-column><el-table-column :label="t('finance.statusLabel')"><template #default="{ row }"><el-tag :type="statusType(row.status)">{{ row.status }}</el-tag></template></el-table-column><el-table-column :label="t('finance.actions')"><template #default="{ row }"><el-button v-if="auth.hasPermission('finance:post') && row.status === 'DRAFT'" link type="primary" :disabled="!!postingId || loading" :loading="postingId === row.id" @click="postInvoice(row)">{{ t('finance.m4.post') }}</el-button></template></el-table-column></el-table></el-tab-pane>
       <el-tab-pane :label="t('finance.m4.payments')"><el-table :data="payments" size="small"><el-table-column prop="number" :label="t('finance.number')" /><el-table-column prop="paymentType" :label="t('finance.m4.type')" /><el-table-column prop="accountingDate" :label="t('finance.entryDate')" /><el-table-column :label="t('finance.amount')"><template #default="{ row }">{{ money(row.amount) }} {{ row.currencyCode }}</template></el-table-column><el-table-column :label="t('finance.statusLabel')"><template #default="{ row }"><el-tag :type="statusType(row.status)">{{ row.status }}</el-tag></template></el-table-column><el-table-column :label="t('finance.actions')"><template #default="{ row }"><el-button v-if="auth.hasPermission('finance:post') && row.status === 'DRAFT'" link type="primary" :disabled="!!postingId || loading" :loading="postingId === row.id" @click="postPayment(row)">{{ t('finance.m4.post') }}</el-button><el-button v-if="auth.hasPermission('finance:view') && auth.hasPermission('finance:allocate') && row.status === 'POSTED' && ['RECEIPT', 'PAYMENT'].includes(row.paymentType)" link type="primary" :disabled="loading || !!postingId" @click="openAllocation(row)">{{ t('finance.allocation.manage') }}</el-button></template></el-table-column></el-table></el-tab-pane>
       <el-tab-pane :label="t('finance.m4.bank')"><el-table :data="statements" size="small"><el-table-column :label="t('finance.bankEntry.account')"><template #default="{ row }">{{ bankName(row.bankAccountId) }}</template></el-table-column><el-table-column prop="transactionDate" :label="t('finance.entryDate')" /><el-table-column prop="externalReference" :label="t('finance.m4.reference')" /><el-table-column prop="counterparty" :label="t('finance.m4.counterparty')" /><el-table-column :label="t('finance.amount')"><template #default="{ row }">{{ money(row.amount) }} {{ row.currencyCode }}</template></el-table-column><el-table-column prop="reconciliationStatus" :label="t('finance.statusLabel')" /></el-table></el-tab-pane>
     </el-tabs>
   </el-card>
+  <BankReconciliationDialog v-model="reconciliationVisible" @changed="allocationChanged" />
   <BankStatementDialog v-model="statementVisible" @changed="allocationChanged" />
   <FinanceAllocationDialog v-model="allocationVisible" :payment-id="allocationPaymentId" @changed="allocationChanged" />
 

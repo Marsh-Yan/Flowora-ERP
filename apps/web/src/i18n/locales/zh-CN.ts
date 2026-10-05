@@ -503,6 +503,7 @@ export default {
       '61_90': '61–90 天',
       '90_PLUS': '90 天以上',
     },
+    bankMatch: { manage: '对账管理', title: '银行对账管理', statement: '银行流水', payment: '收付款单', apply: '确认匹配', history: '对账记录', confirmed: '已确认', reversed: '已撤销', reverse: '撤销对账', reason: '撤销原因', confirmReverse: '确认撤销对账', keep: '保留对账', remaining: '收付款未匹配金额', note: '每次将一条完整流水匹配到一张收付款单。候选覆盖全部日期，余额仅扣除已确认的对账。', loadFailed: '当前对账数据加载失败，请重新加载后继续。', failed: '未能确认结果，请检查刷新后的记录，再决定是否重试。', saved: '对账已确认。', reversedSuccess: '对账已撤销。', empty: '没有可匹配的未对账流水。' },
     bankEntry: { account: '银行账户', cash: '留空表示现金。仅可选择组织本位币账户。', loadFailed: '银行账户加载失败，请重新加载后选择。', newStatement: '录入银行流水', title: '录入银行流水', date: '交易日期', amount: '带方向金额', reference: '银行参考号', direction: '收款填正数，付款填负数；每次录入一条流水。', save: '保存流水', saved: '流水已录入；同账户的重复参考号会被忽略。', failed: '未能确认结果，请先检查刷新后的流水列表再决定是否重试。', close: '关闭' },
     allocation: {
       close: '关闭',

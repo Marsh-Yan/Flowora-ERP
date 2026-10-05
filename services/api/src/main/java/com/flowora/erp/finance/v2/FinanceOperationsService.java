@@ -440,9 +440,18 @@ public class FinanceOperationsService {
                 """, (rs, row) -> new ReconciliationView(rs.getString("id"), rs.getString("number"),
                 rs.getString("bank_account_id"), rs.getString("status"), rs.getBigDecimal("total_statement_amount"),
                 rs.getBigDecimal("total_payment_amount"), rs.getBigDecimal("difference_amount"),
-                timestamp(rs.getTimestamp("confirmed_at")), timestamp(rs.getTimestamp("reversed_at"))), organizationId, id);
+                timestamp(rs.getTimestamp("confirmed_at")), timestamp(rs.getTimestamp("reversed_at")),
+                reconciliationLinks(organizationId, rs.getString("id"))), organizationId, id);
         if (values.isEmpty()) throw notFound("bankReconciliation", id);
         return values.getFirst();
+    }
+
+    private List<FinanceV2Dtos.ReconciliationLinkView> reconciliationLinks(String organizationId, String id) {
+        return jdbc.query("""
+                SELECT statement_line_id,payment_id,matched_amount FROM flowora_bank_reconciliation_link
+                WHERE organization_id=? AND reconciliation_id=? ORDER BY statement_line_id,payment_id
+                """, (rs, row) -> new FinanceV2Dtos.ReconciliationLinkView(rs.getString("statement_line_id"),
+                rs.getString("payment_id"), rs.getBigDecimal("matched_amount")), organizationId, id);
     }
 
     private ReconciliationView reconciliationForUpdate(String organizationId, String id) {

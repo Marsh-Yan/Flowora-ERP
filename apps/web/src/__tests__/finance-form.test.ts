@@ -10,7 +10,7 @@ import BankDialog from '@/components/finance/BankStatementDialog.vue'
 import en from '@/i18n/locales/en-US'
 import * as api from '@/api/finance-v2'
 import * as master from '@/api/master-data'
-vi.mock('@/api/finance-v2', () => ({ getFinanceDashboard: vi.fn(), listFinanceInvoices: vi.fn(), listFinancePayments: vi.fn(), listBankStatementLines: vi.fn(), listFinanceBankAccounts: vi.fn().mockResolvedValue([]), importBankStatement: vi.fn(), createFinanceInvoice: vi.fn(), createFinancePayment: vi.fn(), postFinanceInvoice: vi.fn(), postFinancePayment: vi.fn(), allocateFinancePayment: vi.fn(), reverseFinanceAllocation: vi.fn() }))
+vi.mock('@/api/finance-v2', () => ({ getFinanceDashboard: vi.fn(), listFinanceInvoices: vi.fn(), listFinancePayments: vi.fn(), listBankStatementLines: vi.fn(), listBankReconciliations: vi.fn().mockResolvedValue([]), reconcileBankStatement: vi.fn(), reverseBankReconciliation: vi.fn(), listFinanceBankAccounts: vi.fn().mockResolvedValue([]), importBankStatement: vi.fn(), createFinanceInvoice: vi.fn(), createFinancePayment: vi.fn(), postFinanceInvoice: vi.fn(), postFinancePayment: vi.fn(), allocateFinancePayment: vi.fn(), reverseFinanceAllocation: vi.fn() }))
 vi.mock('@/api/master-data', () => ({ listMasterData: vi.fn(), getOrganizationSettings: vi.fn() }))
 const table = defineComponent({ props: { data: { type: Array, default: () => [] } }, setup(props, { slots }) { provide('rows', computed(() => props.data)); return () => h('div', slots.default?.()) } })
 const column = defineComponent({ setup(_, { slots }) { const rows = inject<Ref<api.FinanceInvoice[]>>('rows')!; return () => h('div', rows.value.flatMap(row => slots.default?.({ row }) ?? [])) } })
