@@ -676,4 +676,3 @@ export default {
     revoke: '撤销',
   },
 } as const
-

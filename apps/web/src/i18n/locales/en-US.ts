@@ -736,4 +736,3 @@ export default {
     revoke: 'Revoke',
   },
 } as const
-
