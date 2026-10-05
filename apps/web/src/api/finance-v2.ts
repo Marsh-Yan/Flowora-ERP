@@ -9,13 +9,13 @@ export interface FinanceDashboard {
 
 export interface FinanceInvoice {
   id: string; number: string; documentType: string; partyType: string; partyId: string; projectId?: string
-  status: string; settlementStatus: string; currencyCode: string; totalAmount: number; allocatedAmount: number
+  status: string; settlementStatus: string; currencyCode: string; totalAmount: number; allocatedAmount: number; creditedAmount: number
   accountingDate: string; dueDate: string; matchStatus: string; version: number
 }
 
 export interface FinancePayment {
   id: string; number: string; paymentType: string; partyType: string; partyId: string; status: string
-  allocationStatus: string; accountingDate: string; currencyCode: string; amount: number; allocatedAmount: number; version: number
+  allocationStatus: string; accountingDate: string; currencyCode: string; amount: number; allocatedAmount: number; version: number; allocations: FinanceAllocation[]
 }
 
 export interface BankStatementLine {
@@ -71,5 +71,20 @@ export async function postFinancePayment(payment: FinancePayment) {
 
 export async function listBankStatementLines() {
   const response = await apiClient.get<ApiEnvelope<BankStatementLine[]>>('/v2/finance/bank/statements')
+  return response.data.data
+}
+
+export interface FinanceAllocation {
+  id: string; paymentId: string; invoiceId: string; amount: number; baseAmount: number
+  realizedExchangeDifference: number; status: 'ACTIVE' | 'REVERSED'; allocatedAt: string; reversedAt?: string
+}
+
+export async function allocateFinancePayment(paymentId: string, invoiceId: string, amount: number) {
+  const response = await apiClient.post<ApiEnvelope<FinanceAllocation>>(`/v2/finance/payments/${paymentId}/allocations`, { invoiceId, amount })
+  return response.data.data
+}
+
+export async function reverseFinanceAllocation(id: string, reason: string, key: string) {
+  const response = await apiClient.post<ApiEnvelope<FinanceAllocation>>(`/v2/finance/allocations/${id}/reverse`, { reason }, { headers: { 'Idempotency-Key': key } })
   return response.data.data
 }

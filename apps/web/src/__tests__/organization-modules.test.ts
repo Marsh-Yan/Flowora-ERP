@@ -17,7 +17,7 @@ vi.mock('@/api/master-data', () => ({ listMasterData: vi.fn() }))
 vi.mock('@/api/procurement', () => ({ listPurchaseOrders: vi.fn() }))
 vi.mock('@/api/finance-v2', () => ({
   getFinanceDashboard: vi.fn().mockResolvedValue({}), listFinanceInvoices: vi.fn().mockResolvedValue([]), listFinancePayments: vi.fn().mockResolvedValue([]), listBankStatementLines: vi.fn().mockResolvedValue([]),
-  createFinanceInvoice: vi.fn(), createFinancePayment: vi.fn(), postFinanceInvoice: vi.fn(), postFinancePayment: vi.fn(),
+  createFinanceInvoice: vi.fn(), createFinancePayment: vi.fn(), postFinanceInvoice: vi.fn(), postFinancePayment: vi.fn(), allocateFinancePayment: vi.fn(), reverseFinanceAllocation: vi.fn(),
 }))
 beforeEach(() => {
   vi.clearAllMocks()
