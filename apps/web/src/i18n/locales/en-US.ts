@@ -505,6 +505,7 @@ export default {
       '90_PLUS': '90+ days',
     },
     m4: {
+      baseCurrency: 'Organization currency: {currency} (exchange rate 1)', description: 'Description', settingsFailed: 'Unable to load organization currency. Retry before saving.',
       title: 'Finance operations cockpit',
       subtitle: 'Formal invoices, receipts and payments, posting, settlement and bank reconciliation in one place.',
       receivables: 'Receivables', payables: 'Payables', netIncome: 'Net income', unmatched: 'Unmatched bank lines',

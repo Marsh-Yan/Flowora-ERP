@@ -504,6 +504,7 @@ export default {
       '90_PLUS': '90 天以上',
     },
     m4: {
+      baseCurrency: '组织本位币：{currency}（汇率 1）', description: '摘要', settingsFailed: '无法加载组织币种，请重新加载后保存。',
       title: '财务运营工作台',
       subtitle: '统一处理正式发票、收付款、过账、核销和银行对账。',
       receivables: '应收余额', payables: '应付余额', netIncome: '净利润', unmatched: '未匹配银行流水',

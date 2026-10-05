@@ -13,7 +13,7 @@ vi.mock('@/api/finance-v2', () => ({
   getFinanceDashboard: vi.fn(), listFinanceInvoices: vi.fn(), listFinancePayments: vi.fn(), listBankStatementLines: vi.fn(),
   createFinanceInvoice: vi.fn(), createFinancePayment: vi.fn(), postFinanceInvoice: vi.fn(), postFinancePayment: vi.fn(),
 }))
-vi.mock('@/api/master-data', () => ({ listMasterData: vi.fn().mockResolvedValue({ content: [] }) }))
+vi.mock('@/api/master-data', () => ({ listMasterData: vi.fn().mockResolvedValue({ content: [] }), getOrganizationSettings: vi.fn().mockResolvedValue({ baseCurrencyCode: 'USD' }) }))
 const slot = defineComponent({ template: '<div><slot /></div>' })
 const alert = defineComponent({ props: { title: { type: String, default: '' } }, template: '<div role="alert">{{ title }}</div>' })
 const picker = defineComponent({ props: { modelValue: { type: Array, default: () => [] } }, emits: ['update:modelValue', 'change'], template: '<input />' })
