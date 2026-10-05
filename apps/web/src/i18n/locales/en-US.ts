@@ -504,6 +504,10 @@ export default {
       '61_90': '61–90 days',
       '90_PLUS': '90+ days',
     },
+    allocation: {
+      close: 'Close',
+      manage: 'Manage allocations', title: 'Payment allocations', payment: 'Payment', remaining: 'Remaining to allocate', invoice: 'Invoice', amount: 'Allocation amount', apply: 'Allocate', history: 'Allocation history', active: 'Active', reversed: 'Reversed', reverse: 'Reverse allocation', reason: 'Reversal reason', confirmReverse: 'Confirm reversal', cancelReverse: 'Keep allocation', invoiceRemaining: 'Unsettled', empty: 'No eligible posted invoices with an unsettled balance.', loadFailed: 'Unable to load current settlement data. Reload before continuing.', failed: 'Unable to confirm the operation result. Check the refreshed balances and history before trying again.', allocated: 'Allocation saved.', reversedSuccess: 'Allocation reversed.', allDates: 'Invoice candidates include all accounting dates.',
+    },
     m4: {
       baseCurrency: 'Organization currency: {currency} (exchange rate 1)', description: 'Description', settingsFailed: 'Unable to load organization currency. Retry before saving.',
       title: 'Finance operations cockpit',
@@ -732,3 +736,4 @@ export default {
     revoke: 'Revoke',
   },
 } as const
+
