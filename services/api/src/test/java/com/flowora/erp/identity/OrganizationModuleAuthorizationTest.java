@@ -134,6 +134,19 @@ class OrganizationModuleAuthorizationTest {
         }
         verify(documents,times(1)).stockInvoiceSources("org");
     }
+    @Test void matchApprovalRequiresItsOwnPermissionAndAllScope() {
+        var body=new com.flowora.erp.finance.v2.FinanceV2Dtos.MatchExceptionApproval("verified");
+        var allowed=login(DataScope.ALL,List.of("CUSTOM"),List.of("finance:match-exception"));
+        nativeFinance.approveException("invoice",body,allowed,request);
+        verify(documents).approveMatchException(any(),eq("invoice"),eq("verified"));
+        var viewOnly=login(DataScope.ALL,List.of("ADMIN"),List.of("finance:view","finance:post"));
+        assertThatThrownBy(()->nativeFinance.approveException("invoice",body,viewOnly,request)).isInstanceOf(AccessDeniedException.class);
+        for(var scope:List.of(DataScope.SELF,DataScope.DEPARTMENT,DataScope.ASSIGNED)) {
+            var denied=login(scope,List.of("ADMIN"),List.of("finance:match-exception"));
+            assertThatThrownBy(()->nativeFinance.approveException("invoice",body,denied,request)).isInstanceOf(AccessDeniedException.class);
+        }
+        verify(documents,times(1)).approveMatchException(any(),anyString(),anyString());
+    }
     Authentication login(DataScope scope,List<String> roles,List<String> permissions) {
         var actor=actor(scope,roles,permissions);
         var a=UsernamePasswordAuthenticationToken.authenticated(actor,null,actor.getAuthorities());
