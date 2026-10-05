@@ -138,6 +138,8 @@ public final class FinanceV2Dtos {
     public record CloseCheckView(String code, String status, int count, String details) {
     }
 
+    public record BankAccountView(String id, String code, String name, String currencyCode) {}
+
     public record StatementLineCreate(@NotNull LocalDate transactionDate, LocalDate valueDate,
                                       @NotNull BigDecimal amount, @NotBlank String currencyCode,
                                       @NotBlank @Size(max = 160) String externalReference,

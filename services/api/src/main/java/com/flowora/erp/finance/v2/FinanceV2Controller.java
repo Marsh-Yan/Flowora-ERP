@@ -144,6 +144,12 @@ public class FinanceV2Controller {
         return response(operations.reopenPeriod(principal(authentication), id, body.reason(), key), request);
     }
 
+    @GetMapping("/bank/accounts")
+    @PreAuthorize("@floworaAuthorization.hasOrganizationPermission(authentication, 'finance:view')")
+    public ApiResponse<List<BankAccountView>> bankAccounts(Authentication authentication, HttpServletRequest request) {
+        return response(operations.bankAccounts(principal(authentication).organizationId()), request);
+    }
+
     @PostMapping("/bank/statements/import")
     @PreAuthorize("@floworaAuthorization.hasOrganizationPermission(authentication, 'finance:bank')")
     public ApiResponse<List<StatementLineView>> importStatements(@Valid @RequestBody StatementImport body,

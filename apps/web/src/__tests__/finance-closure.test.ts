@@ -10,7 +10,7 @@ import en from '@/i18n/locales/en-US'
 import * as api from '@/api/finance-v2'
 
 vi.mock('@/api/finance-v2', () => ({
-  getFinanceDashboard: vi.fn(), listFinanceInvoices: vi.fn(), listFinancePayments: vi.fn(), listBankStatementLines: vi.fn(),
+  getFinanceDashboard: vi.fn(), listFinanceInvoices: vi.fn(), listFinancePayments: vi.fn(), listBankStatementLines: vi.fn(), listFinanceBankAccounts: vi.fn().mockResolvedValue([]), importBankStatement: vi.fn(),
   createFinanceInvoice: vi.fn(), createFinancePayment: vi.fn(), postFinanceInvoice: vi.fn(), postFinancePayment: vi.fn(), allocateFinancePayment: vi.fn(), reverseFinanceAllocation: vi.fn(),
 }))
 vi.mock('@/api/master-data', () => ({ listMasterData: vi.fn().mockResolvedValue({ content: [] }), getOrganizationSettings: vi.fn().mockResolvedValue({ baseCurrencyCode: 'USD' }) }))

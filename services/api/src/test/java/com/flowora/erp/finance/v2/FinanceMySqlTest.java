@@ -164,6 +164,20 @@ class FinanceMySqlTest {
         assertThatThrownBy(()->run(()->operations.reconcile(actor,key(),new ReconciliationCreate(bank,List.of(new ReconciliationLinkCreate(foreignCurrency.id(),payment.id(),n("100"))))))).isInstanceOf(PlatformApiException.class).extracting("code").isEqualTo("RECONCILIATION_CURRENCY_MISMATCH");
         assertThat(run(()->operations.reconcile(actor,key(),new ReconciliationCreate(bank,List.of(new ReconciliationLinkCreate(in.id(),payment.id(),n("100")))))).status()).isEqualTo("CONFIRMED");
     }
+    @Test void bankPickerReturnsOnlyActiveAccountsInCurrentOrganization() {
+        String active=key(), inactive=key(), other=key();
+        jdbc.update("INSERT INTO flowora_organization(id,name,base_currency_code) VALUES (?,'Other bank org','USD')",other);
+        try {
+            for (String id : List.of(active,inactive)) jdbc.update("INSERT INTO flowora_bank_account(id,organization_id,code,name,bank_name,account_number_masked,currency_code,active) VALUES (?,?,?,'Bank','Synthetic','****0000','USD',?)",id,org,id,id.equals(active));
+            jdbc.update("INSERT INTO flowora_bank_account(id,organization_id,code,name,bank_name,account_number_masked,currency_code) VALUES (?,?,?,'Other','Synthetic','****1111','USD')",key(),other,key());
+            var result=new FinanceOperationsService(jdbc,ledger).bankAccounts(org);
+            assertThat(result).extracting(BankAccountView::id).containsExactly(active);
+            assertThat(result.getFirst().currencyCode()).isEqualTo("USD");
+        } finally {
+            jdbc.update("DELETE FROM flowora_bank_account WHERE organization_id=?",other);
+            jdbc.update("DELETE FROM flowora_organization WHERE id=?",other);
+        }
+    }
     AllocationView allocate() {
         var invoice=run(()->documents.createInvoice(actor,key(),input("SALES_INVOICE",customer,"1",List.of(line("100",List.of())))));
         run(()->documents.postInvoice(actor,invoice.id(),0));
