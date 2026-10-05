@@ -16,7 +16,7 @@ import {
   type SalesOrder,
   type SalesQuote,
 } from '@/api/sales'
-import { listMasterData, type MasterDataRecord } from '@/api/master-data'
+import { getOrganizationSettings, listMasterData, type MasterDataRecord } from '@/api/master-data'
 
 import { useAuthStore } from '@/stores/auth'
 import { useTradeOrderActions } from '@/composables/useTradeOrderActions'
@@ -38,6 +38,8 @@ const ordersFailed = ref(false)
 const activeTab = ref<'quotes' | 'orders' | 'receivables'>(canReadShared.value ? 'quotes' : 'orders')
 import { createSalesOrderV2, type TradeLineInput } from '@/api/trade'
 const loading = ref(false)
+const baseCurrency = ref('')
+const currencyFailed = ref(false)
 const dialogVisible = ref(false)
 const dialogType = ref<'quote' | 'order'>('quote')
 const deliveryVisible = ref(false)
@@ -50,8 +52,8 @@ const receivables = ref<Receivable[]>([])
 const customers = ref<MasterDataRecord[]>([])
 const warehouses = ref<MasterDataRecord[]>([])
 const items = ref<MasterDataRecord[]>([])
-const quoteForm = reactive({ customerId: '', itemId: '', quantity: 1, unitPrice: 0, discountRate: 0, taxRate: 0, currencyCode: 'USD', validUntil: '', note: '' })
-const orderForm = reactive({ quoteId: '', customerId: '', warehouseId: '', currencyCode: 'USD', dueDate: '', note: '', lines: [{ itemId: '', quantity: 1, unitPrice: 0, discountRate: 0, taxRate: 0 } as TradeLineInput] })
+const quoteForm = reactive({ customerId: '', itemId: '', quantity: 1, unitPrice: 0, discountRate: 0, taxRate: 0, currencyCode: '', validUntil: '', note: '' })
+const orderForm = reactive({ quoteId: '', customerId: '', warehouseId: '', currencyCode: '', dueDate: '', note: '', lines: [{ itemId: '', quantity: 1, unitPrice: 0, discountRate: 0, taxRate: 0 } as TradeLineInput] })
 const deliveryForm = reactive({ quantity: 1 })
 const paymentForm = reactive({ amount: 0, method: 'BANK' as 'BANK' | 'CASH' | 'OTHER', paymentDate: '', reference: '' })
 
@@ -89,6 +91,12 @@ async function load() {
   if (!canReadShared.value) activeTab.value = 'orders'
   try {
     const results = await Promise.all([
+      (async () => {
+        currencyFailed.value = false; baseCurrency.value = ''
+        if (!canReadMaster.value || !auth.hasPermission('sales:create')) return true
+        try { baseCurrency.value = (await getOrganizationSettings()).baseCurrencyCode; return !!baseCurrency.value }
+        catch { currencyFailed.value = true; return false }
+      })(),
       read(quotes, canReadShared.value, listSalesQuotes, sharedFailed),
       read(orders, auth.hasPermission('sales:view'), listSalesOrders, ordersFailed),
       read(receivables, canReadShared.value, listReceivables, receivablesFailed),
@@ -101,11 +109,11 @@ async function load() {
 }
 
 function openCreate(type: 'quote' | 'order') {
-  if (!(type === 'quote' ? canCreateShared.value : canCreateOrder.value)) return
+  if (loading.value || currencyFailed.value || !baseCurrency.value || !(type === 'quote' ? canCreateShared.value : canCreateOrder.value)) return
   dialogType.value = type
-  if (type === 'quote') quoteForm.validUntil = today()
+  if (type === 'quote') { quoteForm.validUntil = today(); quoteForm.currencyCode = baseCurrency.value }
   else {
-    orderForm.quoteId = ''
+    orderForm.quoteId = ''; orderForm.currencyCode = baseCurrency.value
     orderForm.lines.splice(0, orderForm.lines.length, { itemId: '', quantity: 1, unitPrice: 0, discountRate: 0, taxRate: 0 })
   }
   dialogVisible.value = true
@@ -114,11 +122,12 @@ function openCreate(type: 'quote' | 'order') {
 function applyQuoteToOrder(id: string) {
   const quote = quotes.value.find((item) => item.id === id)
   if (!id) {
+    orderForm.currencyCode = baseCurrency.value
     for (const line of orderForm.lines) { delete line.sourceDocumentType; delete line.sourceDocumentId; delete line.sourceLineId }
     return
   }
   if (!canReadShared.value || !quote?.lineId || quote.status !== 'APPROVED' || quote.sourceEligible !== true) {
-    orderForm.quoteId = ''
+    orderForm.quoteId = ''; orderForm.currencyCode = baseCurrency.value
     for (const line of orderForm.lines) { delete line.sourceDocumentType; delete line.sourceDocumentId; delete line.sourceLineId }
     ElMessage.error(t('sales.saveFailed'))
     return
@@ -140,7 +149,7 @@ function removeOrderLine(index: number) {
 }
 
 async function submit() {
-  if (!(dialogType.value === 'quote' ? canCreateShared.value : canCreateOrder.value)) return
+  if (loading.value || currencyFailed.value || !baseCurrency.value || !(dialogType.value === 'quote' ? canCreateShared.value : canCreateOrder.value)) return
   try {
     if (dialogType.value === 'quote') {
       await createSalesQuote({ ...quoteForm })
@@ -219,7 +228,7 @@ onMounted(load)
       </div>
       <div class="operations-actions">
         <el-button round plain :loading="loading" @click="load"><el-icon><Refresh /></el-icon>{{ t('sales.refresh') }}</el-button>
-        <el-button v-if="activeTab === 'quotes' ? canCreateShared : activeTab === 'orders' && canCreateOrder" type="primary" round @click="openCreate(activeTab === 'quotes' ? 'quote' : 'order')"><el-icon><Plus /></el-icon>{{ t('sales.create') }}</el-button>
+        <el-button v-if="activeTab === 'quotes' ? canCreateShared : activeTab === 'orders' && canCreateOrder" type="primary" round :disabled="loading || currencyFailed || !baseCurrency" @click="openCreate(activeTab === 'quotes' ? 'quote' : 'order')"><el-icon><Plus /></el-icon>{{ t('sales.create') }}</el-button>
       </div>
     </div>
 
@@ -271,7 +280,9 @@ onMounted(load)
       </el-tabs>
     </el-card>
 
-    <el-dialog v-model="dialogVisible" :title="dialogType === 'quote' ? t('sales.createQuote') : t('sales.createOrder')" width="580px">
+    <el-alert v-if="currencyFailed" :title="t('sales.currencyFailed')" type="error" :closable="false" />
+    <el-dialog v-model="dialogVisible" :title="dialogType === 'quote' ? t('sales.createQuote') : t('sales.createOrder')" width="min(580px, calc(100vw - 32px))">
+      <p>{{ t('sales.documentCurrency') }}: {{ dialogType === 'quote' ? quoteForm.currencyCode : orderForm.currencyCode }}</p>
       <el-form v-if="dialogType === 'quote'" label-position="top" @submit.prevent="submit">
         <div class="operations-form-grid">
           <el-form-item :label="t('sales.customer')"><el-select v-model="quoteForm.customerId" class="full-width"><el-option v-for="row in customers" :key="row.id" :label="row.name" :value="row.id" /></el-select></el-form-item>

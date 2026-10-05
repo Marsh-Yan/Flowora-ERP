@@ -121,6 +121,19 @@ class OrganizationModuleAuthorizationTest {
         assertThatThrownBy(()->nativeFinance.bankAccounts(denied,request)).isInstanceOf(AccessDeniedException.class);
         verify(operations,times(1)).bankAccounts("org");
     }
+    @Test void stockInvoicePickerRequiresBothFinancePermissionsAndAllScope() {
+        var allowed=login(DataScope.ALL,List.of("CUSTOM"),List.of("finance:view","finance:invoice"));
+        nativeFinance.stockInvoiceSources(allowed,request); verify(documents).stockInvoiceSources("org");
+        for(var permissions:List.of(List.of("finance:view"),List.of("finance:invoice"),List.<String>of())) {
+            var denied=login(DataScope.ALL,List.of("ADMIN"),permissions);
+            assertThatThrownBy(()->nativeFinance.stockInvoiceSources(denied,request)).isInstanceOf(AccessDeniedException.class);
+        }
+        for(var scope:List.of(DataScope.SELF,DataScope.DEPARTMENT,DataScope.ASSIGNED)) {
+            var denied=login(scope,List.of("ADMIN"),List.of("finance:view","finance:invoice"));
+            assertThatThrownBy(()->nativeFinance.stockInvoiceSources(denied,request)).isInstanceOf(AccessDeniedException.class);
+        }
+        verify(documents,times(1)).stockInvoiceSources("org");
+    }
     Authentication login(DataScope scope,List<String> roles,List<String> permissions) {
         var actor=actor(scope,roles,permissions);
         var a=UsernamePasswordAuthenticationToken.authenticated(actor,null,actor.getAuthorities());

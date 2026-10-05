@@ -38,6 +38,12 @@ public class FinanceV2Controller {
         return response(documents.createInvoice(principal(authentication), key, body), request);
     }
 
+    @GetMapping("/invoice-stock-sources")
+    @PreAuthorize("@floworaAuthorization.hasOrganizationPermission(authentication, 'finance:view') && @floworaAuthorization.hasOrganizationPermission(authentication, 'finance:invoice')")
+    public ApiResponse<List<StockInvoiceSourceView>> stockInvoiceSources(Authentication authentication, HttpServletRequest request) {
+        return response(documents.stockInvoiceSources(principal(authentication).organizationId()), request);
+    }
+
     @GetMapping("/invoices")
     @PreAuthorize("@floworaAuthorization.hasOrganizationPermission(authentication, 'finance:view')")
     public ApiResponse<List<InvoiceView>> invoices(@RequestParam(defaultValue = "") String documentType,

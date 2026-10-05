@@ -241,6 +241,7 @@ export default {
     failed: 'The order action failed. Refresh and try again.',
   },
   sales: {
+    documentCurrency: 'Document currency', currencyFailed: 'Unable to load organization currency. Refresh before creating a document.',
     eyebrow: 'Sales operations',
     title: 'Sales center',
     subtitle: 'Turn approved quotes into orders, fulfillment, receivables and customer payments.',
@@ -504,6 +505,7 @@ export default {
       '61_90': '61–90 days',
       '90_PLUS': '90+ days',
     },
+    stockInvoice: { open: 'Invoice from receipt / delivery', title: 'Stock source invoice', source: 'Source line', quantity: 'Invoice quantity', remaining: 'Available quantity', terms: 'Uses order price, discount and tax. Posted receipts / deliveries in base currency only. Posted invoices consume quantity, credits release it; drafts do not reserve quantity. Posting checks again.', loadFailed: 'Unable to load sources or base currency. Reload to continue.', failed: 'Save outcome is uncertain. The list was refreshed; retry unchanged content explicitly.', empty: 'No available base currency source lines.', saved: 'Stock source invoice draft created.' },
     bankMatch: { manage: 'Manage bank reconciliation', title: 'Bank reconciliation', statement: 'Statement line', payment: 'Receipt / payment', apply: 'Confirm match', history: 'Reconciliation history', confirmed: 'Confirmed', reversed: 'Reversed', reverse: 'Reverse reconciliation', reason: 'Reversal reason', confirmReverse: 'Confirm reversal', keep: 'Keep reconciliation', remaining: 'Unmatched payment amount', note: 'Match one full statement line to one payment. Candidates include all dates and use confirmed reconciliation balances.', loadFailed: 'Unable to load current reconciliation data. Reload before continuing.', failed: 'Unable to confirm the result. Check refreshed records before trying again.', saved: 'Reconciliation confirmed.', reversedSuccess: 'Reconciliation reversed.', empty: 'No eligible unmatched statement lines.' },
     bankEntry: { account: 'Bank account', cash: 'Leave blank for cash. Only accounts in the organization base currency are available.', loadFailed: 'Unable to load bank accounts. Reload before selecting one.', newStatement: 'Record bank statement', title: 'Record bank statement', date: 'Transaction date', amount: 'Signed amount', reference: 'Bank reference', direction: 'Positive for money received; negative for money paid. One statement line per entry.', save: 'Save statement', saved: 'Statement recorded. Duplicate bank references are ignored.', failed: 'Unable to confirm the result. Check the refreshed statement list before retrying.', close: 'Close' },
     allocation: {

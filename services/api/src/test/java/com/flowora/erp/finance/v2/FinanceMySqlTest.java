@@ -45,7 +45,7 @@ class FinanceMySqlTest {
     @AfterEach void cleanup() {
         jdbc.update("UPDATE flowora_journal_entry SET reversal_of_id=NULL WHERE organization_id=?",org);
         jdbc.update("UPDATE flowora_finance_invoice SET original_invoice_id=NULL WHERE organization_id=?",org);
-        for(String table:List.of("flowora_currency_revaluation_line","flowora_currency_revaluation","flowora_bank_reconciliation_link","flowora_bank_reconciliation","flowora_bank_statement_line","flowora_allocation_reversal","flowora_payment_allocation","flowora_payment_v2","flowora_bank_account","flowora_finance_invoice_source","flowora_finance_invoice_line","flowora_finance_invoice","flowora_journal_line","flowora_journal_entry","flowora_accounting_period","flowora_posting_mapping","flowora_finance_setting","flowora_purchase_receipt_line","flowora_purchase_receipt","flowora_purchase_order_line","flowora_purchase_order","flowora_supplier","flowora_customer"))
+        for(String table:List.of("flowora_currency_revaluation_line","flowora_currency_revaluation","flowora_bank_reconciliation_link","flowora_bank_reconciliation","flowora_bank_statement_line","flowora_allocation_reversal","flowora_payment_allocation","flowora_payment_v2","flowora_bank_account","flowora_finance_invoice_source","flowora_finance_invoice_line","flowora_finance_invoice","flowora_journal_line","flowora_journal_entry","flowora_accounting_period","flowora_posting_mapping","flowora_finance_setting","flowora_sales_delivery_line","flowora_sales_delivery","flowora_sales_order_line","flowora_sales_order","flowora_purchase_receipt_line","flowora_purchase_receipt","flowora_purchase_order_line","flowora_purchase_order","flowora_supplier","flowora_customer"))
             jdbc.update("DELETE FROM "+table+" WHERE organization_id=?",org);
         jdbc.update("DELETE FROM flowora_organization WHERE id=?",org);
     }
@@ -55,6 +55,8 @@ class FinanceMySqlTest {
         jdbc.update("INSERT INTO flowora_purchase_order_line(id,organization_id,purchase_order_id,item_id,ordered_quantity,received_quantity,unit_price) VALUES (?,?,?,?,1,1,10)",pol,org,po,"r3-item");
         jdbc.update("INSERT INTO flowora_purchase_receipt(id,organization_id,number,purchase_order_id,warehouse_id,received_by,status) VALUES (?,?,?,?,?,'system:r3-test','POSTED')",receipt,org,receipt.substring(0,30),po,"r3-warehouse");
         jdbc.update("INSERT INTO flowora_purchase_receipt_line(id,organization_id,purchase_receipt_id,purchase_order_line_id,item_id,quantity,accepted_quantity,unit_cost) VALUES (?,?,?,?,?,1,1,10)",rl,org,receipt,pol,"r3-item");
+        assertThat(documents.stockInvoiceSources(org).getFirst().remainingQuantity()).isEqualByComparingTo("1");
+        assertThat(documents.stockInvoiceSources(key())).isEmpty();
         var source=new InvoiceSourceCreate("PURCHASE_RECEIPT_LINE",receipt,rl,n("1"),n("10"));
         var invoice=run(()->documents.createInvoice(actor,key(),input("SUPPLIER_INVOICE",supplier,"1",List.of(line("10",List.of(source))))));
         var duplicate=run(()->documents.createInvoice(actor,key(),input("SUPPLIER_INVOICE",supplier,"1",List.of(line("10",List.of(source))))));
@@ -66,6 +68,7 @@ class FinanceMySqlTest {
             assertThat(List.of(first.get(15,java.util.concurrent.TimeUnit.SECONDS),second.get(15,java.util.concurrent.TimeUnit.SECONDS)))
                     .containsExactlyInAnyOrder("POSTED","INVOICE_SOURCE_QUANTITY_EXCEEDED");
         } finally { pool.shutdownNow(); }
+        assertThat(documents.stockInvoiceSources(org).getFirst().remainingQuantity()).isEqualByComparingTo("0");
         String otherSupplier=key();
         jdbc.update("INSERT INTO flowora_supplier(id,organization_id,code,name,currency_code) VALUES (?,?,?,'R3 other supplier','EUR')",otherSupplier,org,otherSupplier);
         assertThatThrownBy(()->run(()->documents.createInvoice(actor,key(),input("SUPPLIER_INVOICE",otherSupplier,"1",List.of(line("10",List.of(source))))))).isInstanceOf(PlatformApiException.class);
@@ -85,6 +88,7 @@ class FinanceMySqlTest {
         var creditLine=new InvoiceLineCreate(null,"R3 original accrual reversal",n("1"),n("10"),n("0"),n("0"),"ACCRUED_PAYABLE",null,List.of(creditSource));
         var credit=run(()->documents.createInvoice(actor,key(),new InvoiceCreate("SUPPLIER_CREDIT",supplier,null,posted.id(),date,date,date,date,"EUR",n("1"),List.of(creditLine))));
         run(()->documents.postInvoice(actor,credit.id(),0));
+        assertThat(documents.stockInvoiceSources(org).getFirst().remainingQuantity()).isEqualByComparingTo("1");
         var remaining=documents.invoices(org,"SUPPLIER_INVOICE","DRAFT").getFirst();
         assertThat(run(()->documents.postInvoice(actor,remaining.id(),0)).status()).isEqualTo("POSTED");
     }
@@ -92,6 +96,25 @@ class FinanceMySqlTest {
         barrier.await(10,java.util.concurrent.TimeUnit.SECONDS);
         try {return run(()->documents.postInvoice(actor,invoiceId,0)).status();}
         catch (PlatformApiException ex) {if (!"INVOICE_SOURCE_QUANTITY_EXCEEDED".equals(ex.code())) throw ex; return ex.code();}
+    }
+    @Test void salesSourcePickerUsesOrderTermsAndPostedInvoiceRemainder() {
+        String so=key(),sol=key(),delivery=key(),dl=key();
+        jdbc.update("INSERT INTO flowora_sales_order(id,organization_id,number,customer_id,warehouse_id,status,sales_user_id,order_date,currency_code,total_amount) VALUES (?,?,?,?,?,'DELIVERED','system:r5w','2026-10-01','EUR',28.5)",so,org,so.substring(0,30),customer,"r5w-warehouse");
+        jdbc.update("INSERT INTO flowora_sales_order_line(id,organization_id,sales_order_id,item_id,ordered_quantity,fulfilled_quantity,unit_price,discount_rate,tax_rate) VALUES (?,?,?,?,3,3,10,5,0)",sol,org,so,"r5w-item");
+        jdbc.update("INSERT INTO flowora_sales_delivery(id,organization_id,number,sales_order_id,warehouse_id,status,actor_user_id) VALUES (?,?,?,?,?,'POSTED','system:r5w')",delivery,org,delivery.substring(0,30),so,"r5w-warehouse");
+        jdbc.update("INSERT INTO flowora_sales_delivery_line(id,organization_id,delivery_id,sales_order_line_id,item_id,quantity,unit_cost) VALUES (?,?,?,?,?,3,8)",dl,org,delivery,sol,"r5w-item");
+        var row=documents.stockInvoiceSources(org).getFirst();
+        assertThat(row.documentType()).isEqualTo("SALES_INVOICE"); assertThat(row.partyId()).isEqualTo(customer);
+        assertThat(row.currencyCode()).isEqualTo("EUR"); assertThat(row.remainingQuantity()).isEqualByComparingTo("3");
+        assertThat(row.unitPrice()).isEqualByComparingTo("10"); assertThat(row.discountRate()).isEqualByComparingTo("5");
+        var source=new InvoiceSourceCreate("SALES_DELIVERY_LINE",delivery,dl,n("1"),n("9.5"));
+        var line=new InvoiceLineCreate("r5w-item","Sales source",n("1"),n("10"),n("5"),n("0"),null,null,List.of(source));
+        var draft=run(()->documents.createInvoice(actor,key(),input("SALES_INVOICE",customer,"1",List.of(line))));
+        assertThat(documents.stockInvoiceSources(org).getFirst().remainingQuantity()).isEqualByComparingTo("3");
+        run(()->documents.postInvoice(actor,draft.id(),0));
+        assertThat(documents.stockInvoiceSources(org).getFirst().remainingQuantity()).isEqualByComparingTo("2");
+        jdbc.update("UPDATE flowora_sales_delivery SET status='DRAFT' WHERE id=? AND organization_id=?",delivery,org);
+        assertThat(documents.stockInvoiceSources(org)).isEmpty();
     }
     @Test void roundingMismatchIsRejectedBeforeAnyJournalOrInvoicePosting() {
         var invoice=run(()->documents.createInvoice(actor,key(),input("SALES_INVOICE",customer,"0.5",List.of(line("0.0001",List.of()),line("0.0001",List.of())))));

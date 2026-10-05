@@ -57,6 +57,12 @@ public final class FinanceV2Dtos {
     public record MatchExceptionApproval(@NotBlank @Size(max = 500) String reason) {
     }
 
+    public record StockInvoiceSourceView(String documentType, String sourceType, String sourceId,
+                                         String sourceLineId, String sourceNumber, String orderNumber,
+                                         String partyId, String partyName, String itemId, String description,
+                                         String currencyCode, BigDecimal quantity, BigDecimal remainingQuantity,
+                                         BigDecimal unitPrice, BigDecimal discountRate, BigDecimal taxRate) {}
+
     public record InvoiceSourceView(String sourceType, String sourceId, String sourceLineId,
                                     BigDecimal quantity, BigDecimal amount) {
     }
