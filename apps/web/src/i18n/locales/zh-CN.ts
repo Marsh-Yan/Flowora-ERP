@@ -503,6 +503,7 @@ export default {
       '61_90': '61–90 天',
       '90_PLUS': '90 天以上',
     },
+    bankEntry: { account: '银行账户', cash: '留空表示现金。仅可选择组织本位币账户。', loadFailed: '银行账户加载失败，请重新加载后选择。', newStatement: '录入银行流水', title: '录入银行流水', date: '交易日期', amount: '带方向金额', reference: '银行参考号', direction: '收款填正数，付款填负数；每次录入一条流水。', save: '保存流水', saved: '流水已录入；同账户的重复参考号会被忽略。', failed: '未能确认结果，请先检查刷新后的流水列表再决定是否重试。', close: '关闭' },
     allocation: {
       close: '关闭',
       manage: '核销管理', title: '收付款核销', payment: '收付款单', remaining: '可核销余额', invoice: '发票', amount: '核销金额', apply: '核销', history: '核销记录', active: '有效', reversed: '已撤销', reverse: '撤销核销', reason: '撤销原因', confirmReverse: '确认撤销核销', cancelReverse: '保留核销', invoiceRemaining: '未结金额', empty: '没有可核销的已过账未结发票。', loadFailed: '当前核销数据加载失败，请重新加载后继续。', failed: '未能确认操作结果，请核对刷新后的余额和记录，再决定是否重试。', allocated: '核销已保存。', reversedSuccess: '核销已撤销。', allDates: '候选发票包含全部记账日期。',

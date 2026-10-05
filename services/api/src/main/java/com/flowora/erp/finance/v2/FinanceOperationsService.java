@@ -75,6 +75,14 @@ public class FinanceOperationsService {
         return new PeriodCloseView(periodId, "OPEN", 0, List.of());
     }
 
+    public List<FinanceV2Dtos.BankAccountView> bankAccounts(String organizationId) {
+        return jdbc.query("""
+                SELECT id,code,name,currency_code FROM flowora_bank_account
+                WHERE organization_id=? AND active=TRUE ORDER BY code,id
+                """, (rs, row) -> new FinanceV2Dtos.BankAccountView(rs.getString("id"),
+                rs.getString("code"), rs.getString("name"), rs.getString("currency_code")), organizationId);
+    }
+
     @Transactional
     public List<StatementLineView> importStatements(FloworaPrincipal actor, StatementImport body) {
         requireBank(actor.organizationId(), body.bankAccountId());

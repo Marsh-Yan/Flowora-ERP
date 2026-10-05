@@ -47,6 +47,7 @@ class OrganizationModuleAuthorizationTest {
     @Autowired AccountingService accounting;
     @Autowired TradeInventoryService trade;
     @Autowired FinanceDocumentService documents;
+    @Autowired FinanceOperationsService operations;
     final MockHttpServletRequest request = new MockHttpServletRequest();
     @BeforeEach void resetContext() { auth.setAuthenticator(null); clearInvocations(stock,accounting,trade,documents); }
     @AfterEach void clearContext() { SecurityContextHolder.clearContext(); }
@@ -108,6 +109,17 @@ class OrganizationModuleAuthorizationTest {
         when(resolver.principalForOrganization("user","org")).thenReturn(actor(DataScope.SELF,List.of("ADMIN"),List.of("inventory:post")));
         assertThatThrownBy(()->inventory.count(null,a,request)).isInstanceOf(AccessDeniedException.class);
         verify(accounting,times(1)).manual(any(),any()); verifyNoInteractions(stock);
+    }
+    @Test void bankAccountPickerRequiresFinanceViewAndAllScope() {
+        var allowed=login(DataScope.ALL,List.of("CUSTOM"),List.of("finance:view"));
+        nativeFinance.bankAccounts(allowed,request); verify(operations).bankAccounts("org");
+        for (DataScope scope : List.of(DataScope.SELF,DataScope.DEPARTMENT,DataScope.ASSIGNED)) {
+            var scoped=login(scope,List.of("ADMIN"),List.of("finance:view"));
+            assertThatThrownBy(()->nativeFinance.bankAccounts(scoped,request)).isInstanceOf(AccessDeniedException.class);
+        }
+        var denied=login(DataScope.ALL,List.of("ADMIN"),List.of());
+        assertThatThrownBy(()->nativeFinance.bankAccounts(denied,request)).isInstanceOf(AccessDeniedException.class);
+        verify(operations,times(1)).bankAccounts("org");
     }
     Authentication login(DataScope scope,List<String> roles,List<String> permissions) {
         var actor=actor(scope,roles,permissions);

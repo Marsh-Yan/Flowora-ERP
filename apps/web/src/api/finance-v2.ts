@@ -14,12 +14,12 @@ export interface FinanceInvoice {
 }
 
 export interface FinancePayment {
-  id: string; number: string; paymentType: string; partyType: string; partyId: string; status: string
+  id: string; number: string; paymentType: string; partyType: string; partyId: string; bankAccountId?: string; status: string
   allocationStatus: string; accountingDate: string; currencyCode: string; amount: number; allocatedAmount: number; version: number; allocations: FinanceAllocation[]
 }
 
 export interface BankStatementLine {
-  id: string; transactionDate: string; amount: number; currencyCode: string; externalReference: string
+  id: string; bankAccountId: string; transactionDate: string; amount: number; currencyCode: string; externalReference: string
   counterparty?: string; description?: string; reconciliationStatus: string
 }
 
@@ -86,5 +86,16 @@ export async function allocateFinancePayment(paymentId: string, invoiceId: strin
 
 export async function reverseFinanceAllocation(id: string, reason: string, key: string) {
   const response = await apiClient.post<ApiEnvelope<FinanceAllocation>>(`/v2/finance/allocations/${id}/reverse`, { reason }, { headers: { 'Idempotency-Key': key } })
+  return response.data.data
+}
+
+export interface FinanceBankAccount { id: string; code: string; name: string; currencyCode: string }
+export interface BankStatementInput { bankAccountId: string; lines: Array<{ transactionDate: string; amount: number; currencyCode: string; externalReference: string }> }
+export async function listFinanceBankAccounts() {
+  const response = await apiClient.get<ApiEnvelope<FinanceBankAccount[]>>('/v2/finance/bank/accounts')
+  return response.data.data
+}
+export async function importBankStatement(payload: BankStatementInput) {
+  const response = await apiClient.post<ApiEnvelope<BankStatementLine[]>>('/v2/finance/bank/statements/import', payload)
   return response.data.data
 }
