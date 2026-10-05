@@ -1,8 +1,8 @@
 <script setup lang="ts">
-import { onMounted, reactive, ref } from 'vue'
+import { computed, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
 import { ElMessage } from 'element-plus'
 import { useI18n } from 'vue-i18n'
-import { listMasterData, type MasterDataRecord } from '@/api/master-data'
+import { getOrganizationSettings, listMasterData, type MasterDataRecord } from '@/api/master-data'
 import {
   createFinanceInvoice, createFinancePayment, getFinanceDashboard, listBankStatementLines,
   listFinanceInvoices, listFinancePayments, postFinanceInvoice, postFinancePayment,
@@ -11,9 +11,13 @@ import {
 
 import { useAuthStore } from '@/stores/auth'
 
+const emit = defineEmits<{ posted: [] }>()
 const auth = useAuthStore()
 const { t, locale } = useI18n()
 const loading = ref(false)
+const saving = ref(false)
+const baseCurrency = ref('')
+const postingId = ref('')
 const dashboard = ref<FinanceDashboard | null>(null)
 const invoices = ref<FinanceInvoice[]>([])
 const payments = ref<FinancePayment[]>([])
@@ -26,11 +30,28 @@ const localDate = (value: Date) => `${value.getFullYear()}-${String(value.getMon
 const today = () => localDate(new Date())
 const plusDays = (days: number) => { const value = new Date(); value.setDate(value.getDate() + days); return localDate(value) }
 const dateRange = ref<[string, string]>([`${today().slice(0, 7)}-01`, today()])
-type Section = 'dashboard' | 'invoices' | 'payments' | 'statements' | 'parties'
-const errors = reactive<Record<Section, boolean>>({ dashboard: false, invoices: false, payments: false, statements: false, parties: false })
+type Section = 'dashboard' | 'invoices' | 'payments' | 'statements' | 'parties' | 'settings'
+const errors = reactive<Record<Section, boolean>>({ dashboard: false, invoices: false, payments: false, statements: false, parties: false, settings: false })
 let loadVersion = 0
 const invoiceForm = reactive({ documentType: 'SALES_INVOICE' as 'SALES_INVOICE' | 'SUPPLIER_INVOICE', partyId: '', description: '', quantity: 1, unitPrice: 0, taxRate: 0 })
 const paymentForm = reactive({ paymentType: 'RECEIPT' as 'RECEIPT' | 'PAYMENT', partyId: '', amount: 0, reference: '' })
+
+const hasParty = (type: string, id: string) => parties(type).some(row => row.id === id && row.active)
+const ready = computed(() => !loading.value && !errors.parties && !errors.settings && !!baseCurrency.value && auth.hasPermission('master:view'))
+const invoiceReady = computed(() => ready.value && auth.hasPermission('finance:invoice') && hasParty(invoiceForm.documentType, invoiceForm.partyId) && !!invoiceForm.description.trim() && Number.isFinite(invoiceForm.quantity) && invoiceForm.quantity > 0 && Number.isFinite(invoiceForm.unitPrice) && invoiceForm.unitPrice > 0 && Number.isFinite(invoiceForm.taxRate) && invoiceForm.taxRate >= 0 && invoiceForm.taxRate <= 100)
+const paymentReady = computed(() => ready.value && auth.hasPermission('finance:create') && hasParty(paymentForm.paymentType, paymentForm.partyId) && Number.isFinite(paymentForm.amount) && paymentForm.amount > 0 && paymentForm.reference.length <= 160)
+watch(() => invoiceForm.documentType, () => { invoiceForm.partyId = '' })
+watch(() => paymentForm.paymentType, () => { paymentForm.partyId = '' })
+function openInvoice() {
+  if (saving.value || loading.value) return
+  Object.assign(invoiceForm, { documentType: 'SALES_INVOICE', partyId: '', description: '', quantity: 1, unitPrice: 0, taxRate: 0 })
+  invoiceVisible.value = true
+}
+function openPayment() {
+  if (saving.value || loading.value) return
+  Object.assign(paymentForm, { paymentType: 'RECEIPT', partyId: '', amount: 0, reference: '' })
+  paymentVisible.value = true
+}
 
 function money(value?: number) { return Number(value ?? 0).toLocaleString(locale.value, { minimumFractionDigits: 2, maximumFractionDigits: 2 }) }
 function statusType(status: string) { return ['POSTED', 'PAID', 'ALLOCATED', 'MATCHED'].includes(status) ? 'success' : status.includes('EXCEPTION') ? 'danger' : status === 'DRAFT' ? 'warning' : 'info' }
@@ -41,6 +62,7 @@ async function load() {
   const version = ++loadVersion
   const [from, to] = dateRange.value
   loading.value = true
+  baseCurrency.value = ''
   dashboard.value = null; invoices.value = []; payments.value = []; statements.value = []
   const inRange = (date: string) => date >= from && date <= to
   async function section(key: Section, work: () => Promise<void>) {
@@ -48,48 +70,63 @@ async function load() {
     try { await work() } catch { if (version === loadVersion) errors[key] = true }
   }
   await Promise.all([
+    section('settings', async () => { const value = await getOrganizationSettings(); if (version === loadVersion) baseCurrency.value = value.baseCurrencyCode }),
     section('dashboard', async () => { const value = await getFinanceDashboard(from, to); if (version === loadVersion) dashboard.value = value }),
     section('invoices', async () => { const value = await listFinanceInvoices(); if (version === loadVersion) invoices.value = value.filter(row => inRange(row.accountingDate)) }),
     section('payments', async () => { const value = await listFinancePayments(); if (version === loadVersion) payments.value = value.filter(row => inRange(row.accountingDate)) }),
     section('statements', async () => { const value = await listBankStatementLines(); if (version === loadVersion) statements.value = value.filter(row => inRange(row.transactionDate)) }),
     ...(auth.hasPermission('master:view') ? [section('parties', async () => {
       const [customerPage, supplierPage] = await Promise.all([listMasterData<MasterDataRecord>('customers', '', 0, 100), listMasterData<MasterDataRecord>('suppliers', '', 0, 100)])
-      if (version === loadVersion) { customers.value = customerPage.content; suppliers.value = supplierPage.content }
+      if (version === loadVersion) { customers.value = customerPage.content.filter(row => row.active); suppliers.value = supplierPage.content.filter(row => row.active) }
     })] : []),
   ])
   if (version === loadVersion) loading.value = false
 }
 
 async function submitInvoice() {
+  if (saving.value || !invoiceReady.value) return
+  saving.value = true
   try {
     const date = today()
     await createFinanceInvoice({
       documentType: invoiceForm.documentType, partyId: invoiceForm.partyId, businessDate: date, accountingDate: date,
-      dueDate: plusDays(30), exchangeRateDate: date, currencyCode: 'USD', exchangeRate: 1,
+      dueDate: plusDays(30), exchangeRateDate: date, currencyCode: baseCurrency.value, exchangeRate: 1,
       lines: [{ description: invoiceForm.description, quantity: invoiceForm.quantity, unitPrice: invoiceForm.unitPrice, discountRate: 0, taxRate: invoiceForm.taxRate, sources: [] }],
     })
     invoiceVisible.value = false; ElMessage.success(t('finance.m4.invoiceCreated')); await load()
-  } catch { ElMessage.error(t('finance.saveFailed')) }
+  } catch { ElMessage.error(t('finance.saveFailed')) } finally { saving.value = false }
 }
 
 async function submitPayment() {
+  if (saving.value || !paymentReady.value) return
+  saving.value = true
   try {
     const date = today()
-    await createFinancePayment({ paymentType: paymentForm.paymentType, partyId: paymentForm.partyId, businessDate: date, accountingDate: date, exchangeRateDate: date, currencyCode: 'USD', exchangeRate: 1, amount: paymentForm.amount, reference: paymentForm.reference })
+    await createFinancePayment({ paymentType: paymentForm.paymentType, partyId: paymentForm.partyId, businessDate: date, accountingDate: date, exchangeRateDate: date, currencyCode: baseCurrency.value, exchangeRate: 1, amount: paymentForm.amount, reference: paymentForm.reference })
     paymentVisible.value = false; ElMessage.success(t('finance.m4.paymentCreated')); await load()
-  } catch { ElMessage.error(t('finance.saveFailed')) }
+  } catch { ElMessage.error(t('finance.saveFailed')) } finally { saving.value = false }
 }
 
-async function postInvoice(row: FinanceInvoice) { try { await postFinanceInvoice(row); await load(); ElMessage.success(t('finance.m4.posted')) } catch { ElMessage.error(t('finance.saveFailed')) } }
-async function postPayment(row: FinancePayment) { try { await postFinancePayment(row); await load(); ElMessage.success(t('finance.m4.posted')) } catch { ElMessage.error(t('finance.saveFailed')) } }
+async function postInvoice(row: FinanceInvoice) {
+  if (postingId.value || loading.value || !auth.hasPermission('finance:post') || row.status !== 'DRAFT') return
+  postingId.value = row.id
+  try { await postFinanceInvoice(row); emit('posted'); await load(); ElMessage.success(t('finance.m4.posted')) } catch { ElMessage.error(t('finance.saveFailed')); await load() } finally { postingId.value = '' }
+}
+async function postPayment(row: FinancePayment) {
+  if (postingId.value || loading.value || !auth.hasPermission('finance:post') || row.status !== 'DRAFT') return
+  postingId.value = row.id
+  try { await postFinancePayment(row); emit('posted'); await load(); ElMessage.success(t('finance.m4.posted')) } catch { ElMessage.error(t('finance.saveFailed')); await load() } finally { postingId.value = '' }
+}
+onBeforeUnmount(() => { loadVersion++ })
 onMounted(load)
 </script>
 
 <template>
   <el-card v-loading="loading" shadow="never" class="m4-panel">
-    <div class="section-heading"><div><span class="eyebrow">M4 · Finance close</span><h2>{{ t('finance.m4.title') }}</h2><p>{{ t('finance.m4.subtitle') }}</p></div><div><el-button v-if="auth.hasPermission('finance:invoice') && auth.hasPermission('master:view')" plain @click="invoiceVisible = true">{{ t('finance.m4.newInvoice') }}</el-button><el-button v-if="auth.hasPermission('finance:create') && auth.hasPermission('master:view')" type="primary" @click="paymentVisible = true">{{ t('finance.m4.newPayment') }}</el-button></div></div>
+    <div class="section-heading"><div><span class="eyebrow">M4 · Finance close</span><h2>{{ t('finance.m4.title') }}</h2><p>{{ t('finance.m4.subtitle') }}</p></div><div><el-button v-if="auth.hasPermission('finance:invoice') && auth.hasPermission('master:view')" plain :disabled="loading || saving" @click="openInvoice">{{ t('finance.m4.newInvoice') }}</el-button><el-button v-if="auth.hasPermission('finance:create') && auth.hasPermission('master:view')" type="primary" :disabled="loading || saving" @click="openPayment">{{ t('finance.m4.newPayment') }}</el-button></div></div>
     <div class="finance-range"><el-date-picker v-model="dateRange" type="daterange" value-format="YYYY-MM-DD" :clearable="false" @change="load" /><el-button @click="load">{{ t('finance.m4.retry') }}</el-button><span>{{ t('finance.m4.rangeNote') }}</span></div>
     <el-alert v-if="errors.dashboard" :title="t('finance.m4.dashboardFailed')" type="error" :closable="false" show-icon />
+    <el-alert v-if="errors.settings" :title="t('finance.m4.settingsFailed')" type="error" :closable="false" show-icon />
     <el-alert v-if="errors.parties" :title="t('finance.m4.partiesFailed')" type="error" :closable="false" show-icon />
     <div v-if="dashboard" class="m4-metrics">
       <div><span>{{ t('finance.m4.receivables') }}</span><strong>{{ money(dashboard?.receivables) }}</strong></div>
@@ -100,14 +137,14 @@ onMounted(load)
     <div v-else class="m4-metrics" aria-live="polite"><span>—</span><span>—</span><span>—</span><span>—</span></div>
     <el-alert v-for="section in (['invoices', 'payments', 'statements'] as const)" v-show="errors[section]" :key="section" :title="t(`finance.m4.${section}Failed`)" type="error" :closable="false" show-icon />
     <el-tabs>
-      <el-tab-pane :label="t('finance.m4.invoices')"><el-table :data="invoices" size="small"><el-table-column prop="number" :label="t('finance.number')" /><el-table-column prop="documentType" :label="t('finance.m4.type')" /><el-table-column prop="accountingDate" :label="t('finance.entryDate')" /><el-table-column :label="t('finance.amount')"><template #default="{ row }">{{ money(row.totalAmount) }} {{ row.currencyCode }}</template></el-table-column><el-table-column :label="t('finance.statusLabel')"><template #default="{ row }"><el-tag :type="statusType(row.status)">{{ row.status }}</el-tag></template></el-table-column><el-table-column :label="t('finance.actions')"><template #default="{ row }"><el-button v-if="auth.hasPermission('finance:post') && row.status === 'DRAFT'" link type="primary" @click="postInvoice(row)">{{ t('finance.m4.post') }}</el-button></template></el-table-column></el-table></el-tab-pane>
-      <el-tab-pane :label="t('finance.m4.payments')"><el-table :data="payments" size="small"><el-table-column prop="number" :label="t('finance.number')" /><el-table-column prop="paymentType" :label="t('finance.m4.type')" /><el-table-column prop="accountingDate" :label="t('finance.entryDate')" /><el-table-column :label="t('finance.amount')"><template #default="{ row }">{{ money(row.amount) }} {{ row.currencyCode }}</template></el-table-column><el-table-column :label="t('finance.statusLabel')"><template #default="{ row }"><el-tag :type="statusType(row.status)">{{ row.status }}</el-tag></template></el-table-column><el-table-column :label="t('finance.actions')"><template #default="{ row }"><el-button v-if="auth.hasPermission('finance:post') && row.status === 'DRAFT'" link type="primary" @click="postPayment(row)">{{ t('finance.m4.post') }}</el-button></template></el-table-column></el-table></el-tab-pane>
+      <el-tab-pane :label="t('finance.m4.invoices')"><el-table :data="invoices" size="small"><el-table-column prop="number" :label="t('finance.number')" /><el-table-column prop="documentType" :label="t('finance.m4.type')" /><el-table-column prop="accountingDate" :label="t('finance.entryDate')" /><el-table-column :label="t('finance.amount')"><template #default="{ row }">{{ money(row.totalAmount) }} {{ row.currencyCode }}</template></el-table-column><el-table-column :label="t('finance.statusLabel')"><template #default="{ row }"><el-tag :type="statusType(row.status)">{{ row.status }}</el-tag></template></el-table-column><el-table-column :label="t('finance.actions')"><template #default="{ row }"><el-button v-if="auth.hasPermission('finance:post') && row.status === 'DRAFT'" link type="primary" :disabled="!!postingId || loading" :loading="postingId === row.id" @click="postInvoice(row)">{{ t('finance.m4.post') }}</el-button></template></el-table-column></el-table></el-tab-pane>
+      <el-tab-pane :label="t('finance.m4.payments')"><el-table :data="payments" size="small"><el-table-column prop="number" :label="t('finance.number')" /><el-table-column prop="paymentType" :label="t('finance.m4.type')" /><el-table-column prop="accountingDate" :label="t('finance.entryDate')" /><el-table-column :label="t('finance.amount')"><template #default="{ row }">{{ money(row.amount) }} {{ row.currencyCode }}</template></el-table-column><el-table-column :label="t('finance.statusLabel')"><template #default="{ row }"><el-tag :type="statusType(row.status)">{{ row.status }}</el-tag></template></el-table-column><el-table-column :label="t('finance.actions')"><template #default="{ row }"><el-button v-if="auth.hasPermission('finance:post') && row.status === 'DRAFT'" link type="primary" :disabled="!!postingId || loading" :loading="postingId === row.id" @click="postPayment(row)">{{ t('finance.m4.post') }}</el-button></template></el-table-column></el-table></el-tab-pane>
       <el-tab-pane :label="t('finance.m4.bank')"><el-table :data="statements" size="small"><el-table-column prop="transactionDate" :label="t('finance.entryDate')" /><el-table-column prop="externalReference" :label="t('finance.m4.reference')" /><el-table-column prop="counterparty" :label="t('finance.m4.counterparty')" /><el-table-column prop="amount" :label="t('finance.amount')" /><el-table-column prop="reconciliationStatus" :label="t('finance.statusLabel')" /></el-table></el-tab-pane>
     </el-tabs>
   </el-card>
 
-  <el-dialog v-model="invoiceVisible" :title="t('finance.m4.newInvoice')" width="560px"><el-form label-position="top"><div class="form-grid"><el-form-item :label="t('finance.m4.type')"><el-select v-model="invoiceForm.documentType"><el-option label="Sales invoice" value="SALES_INVOICE" /><el-option label="Supplier invoice" value="SUPPLIER_INVOICE" /></el-select></el-form-item><el-form-item :label="t('finance.m4.party')"><el-select v-model="invoiceForm.partyId" filterable><el-option v-for="item in parties(invoiceForm.documentType)" :key="item.id" :label="`${item.code} · ${item.name}`" :value="item.id" /></el-select></el-form-item><el-form-item :label="t('finance.description')"><el-input v-model="invoiceForm.description" /></el-form-item><el-form-item :label="t('finance.m4.quantity')"><el-input-number v-model="invoiceForm.quantity" :min="0.01" /></el-form-item><el-form-item :label="t('finance.m4.unitPrice')"><el-input-number v-model="invoiceForm.unitPrice" :min="0" :precision="2" /></el-form-item><el-form-item :label="t('finance.m4.taxRate')"><el-input-number v-model="invoiceForm.taxRate" :min="0" :precision="2" /></el-form-item></div></el-form><template #footer><el-button @click="invoiceVisible = false">{{ t('projects.cancel') }}</el-button><el-button type="primary" @click="submitInvoice">{{ t('projects.save') }}</el-button></template></el-dialog>
-  <el-dialog v-model="paymentVisible" :title="t('finance.m4.newPayment')" width="520px"><el-form label-position="top"><div class="form-grid"><el-form-item :label="t('finance.m4.type')"><el-select v-model="paymentForm.paymentType"><el-option label="Receipt" value="RECEIPT" /><el-option label="Payment" value="PAYMENT" /></el-select></el-form-item><el-form-item :label="t('finance.m4.party')"><el-select v-model="paymentForm.partyId" filterable><el-option v-for="item in parties(paymentForm.paymentType)" :key="item.id" :label="`${item.code} · ${item.name}`" :value="item.id" /></el-select></el-form-item><el-form-item :label="t('finance.amount')"><el-input-number v-model="paymentForm.amount" :min="0.01" :precision="2" /></el-form-item><el-form-item :label="t('finance.m4.reference')"><el-input v-model="paymentForm.reference" /></el-form-item></div></el-form><template #footer><el-button @click="paymentVisible = false">{{ t('projects.cancel') }}</el-button><el-button type="primary" @click="submitPayment">{{ t('projects.save') }}</el-button></template></el-dialog>
+  <el-dialog v-model="invoiceVisible" :title="t('finance.m4.newInvoice')" width="min(560px, calc(100vw - 32px))" destroy-on-close :close-on-click-modal="!saving" :close-on-press-escape="!saving" :show-close="!saving"><p>{{ t('finance.m4.baseCurrency', { currency: baseCurrency || '—' }) }}</p><el-form :disabled="saving" label-position="top"><div class="form-grid"><el-form-item :label="t('finance.m4.type')"><el-select v-model="invoiceForm.documentType"><el-option label="Sales invoice" value="SALES_INVOICE" /><el-option label="Supplier invoice" value="SUPPLIER_INVOICE" /></el-select></el-form-item><el-form-item :label="t('finance.m4.party')"><el-select v-model="invoiceForm.partyId" filterable><el-option v-for="item in parties(invoiceForm.documentType)" :key="item.id" :label="`${item.code} · ${item.name}`" :value="item.id" /></el-select></el-form-item><el-form-item :label="t('finance.m4.description')"><el-input v-model="invoiceForm.description" /></el-form-item><el-form-item :label="t('finance.m4.quantity')"><el-input-number v-model="invoiceForm.quantity" :min="0.01" /></el-form-item><el-form-item :label="t('finance.m4.unitPrice')"><el-input-number v-model="invoiceForm.unitPrice" :min="0" :precision="2" /></el-form-item><el-form-item :label="t('finance.m4.taxRate')"><el-input-number v-model="invoiceForm.taxRate" :min="0" :max="100" :precision="2" /></el-form-item></div></el-form><template #footer><el-button :disabled="saving" @click="invoiceVisible = false">{{ t('projects.cancel') }}</el-button><el-button type="primary" :loading="saving" :disabled="saving || !invoiceReady" @click="submitInvoice">{{ t('projects.save') }}</el-button></template></el-dialog>
+  <el-dialog v-model="paymentVisible" :title="t('finance.m4.newPayment')" width="min(520px, calc(100vw - 32px))" destroy-on-close :close-on-click-modal="!saving" :close-on-press-escape="!saving" :show-close="!saving"><p>{{ t('finance.m4.baseCurrency', { currency: baseCurrency || '—' }) }}</p><el-form :disabled="saving" label-position="top"><div class="form-grid"><el-form-item :label="t('finance.m4.type')"><el-select v-model="paymentForm.paymentType"><el-option label="Receipt" value="RECEIPT" /><el-option label="Payment" value="PAYMENT" /></el-select></el-form-item><el-form-item :label="t('finance.m4.party')"><el-select v-model="paymentForm.partyId" filterable><el-option v-for="item in parties(paymentForm.paymentType)" :key="item.id" :label="`${item.code} · ${item.name}`" :value="item.id" /></el-select></el-form-item><el-form-item :label="t('finance.amount')"><el-input-number v-model="paymentForm.amount" :min="0.01" :precision="2" /></el-form-item><el-form-item :label="t('finance.m4.reference')"><el-input v-model="paymentForm.reference" /></el-form-item></div></el-form><template #footer><el-button :disabled="saving" @click="paymentVisible = false">{{ t('projects.cancel') }}</el-button><el-button type="primary" :loading="saving" :disabled="saving || !paymentReady" @click="submitPayment">{{ t('projects.save') }}</el-button></template></el-dialog>
 </template>
 
 <style scoped>

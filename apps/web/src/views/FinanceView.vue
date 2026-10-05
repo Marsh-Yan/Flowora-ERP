@@ -190,7 +190,7 @@ onMounted(load)
       </div>
     </div>
 
-    <FinanceClosurePanel />
+    <FinanceClosurePanel @posted="load" />
     <el-alert v-for="section in failedSections" :key="section" :title="`${t(`finance.${section}`)}：${t('finance.loadFailed')}`" type="error" :closable="false" show-icon />
 
     <div class="inventory-summary-grid">
