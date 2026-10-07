@@ -84,8 +84,9 @@ class FinanceMySqlTest {
             })).isInstanceOf(PlatformApiException.class).extracting("code").isEqualTo("INVALID_INVOICE_SOURCE");
         } finally { jdbc.update("DELETE FROM flowora_organization WHERE id=?",foreignOrg); }
         var posted=documents.invoices(org,"SUPPLIER_INVOICE","POSTED").getFirst();
+        assertThat(posted.lines().getFirst().reversalAccountCode()).isEqualTo("ACCRUED_PAYABLE");
         var creditSource=new InvoiceSourceCreate("ORIGINAL_INVOICE_LINE",posted.id(),posted.lines().getFirst().id(),n("1"),n("10"));
-        var creditLine=new InvoiceLineCreate(null,"R3 original accrual reversal",n("1"),n("10"),n("0"),n("0"),"ACCRUED_PAYABLE",null,List.of(creditSource));
+        var creditLine=new InvoiceLineCreate(null,"R3 original accrual reversal",n("1"),n("10"),n("0"),n("0"),posted.lines().getFirst().reversalAccountCode(),null,List.of(creditSource));
         var credit=run(()->documents.createInvoice(actor,key(),new InvoiceCreate("SUPPLIER_CREDIT",supplier,null,posted.id(),date,date,date,date,"EUR",n("1"),List.of(creditLine))));
         run(()->documents.postInvoice(actor,credit.id(),0));
         assertThat(documents.stockInvoiceSources(org).getFirst().remainingQuantity()).isEqualByComparingTo("1");

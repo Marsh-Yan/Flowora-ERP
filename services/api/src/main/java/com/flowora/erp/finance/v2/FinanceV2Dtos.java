@@ -71,7 +71,7 @@ public final class FinanceV2Dtos {
                                   BigDecimal quantity, BigDecimal unitPrice, BigDecimal discountRate,
                                   BigDecimal taxRate, BigDecimal netAmount, BigDecimal taxAmount,
                                   BigDecimal totalAmount, BigDecimal baseTotalAmount, String accountCode,
-                                  String projectId, BigDecimal creditedQuantity,
+                                  String projectId, BigDecimal creditedQuantity, String reversalAccountCode,
                                   BigDecimal matchQuantityVariance, BigDecimal matchPriceVarianceRate,
                                   BigDecimal matchTaxVariance, List<InvoiceSourceView> sources) {
     }

@@ -15,7 +15,8 @@ export interface FinanceInvoice {
 
 export interface FinanceInvoiceDetail extends FinanceInvoice {
   matchExceptionApprovedBy?: string; matchExceptionReason?: string
-  lines: Array<{ id: string; lineNo: number; description: string; quantity: number; unitPrice: number; taxRate: number; matchQuantityVariance: number; matchPriceVarianceRate: number; matchTaxVariance: number; sources: Array<{ sourceType: string; sourceId: string; sourceLineId?: string; quantity: number; amount: number }> }>
+  exchangeRate?: number; originalInvoiceId?: string; projectId?: string
+  lines: Array<{ id: string; lineNo: number; description: string; quantity: number; unitPrice: number; discountRate?: number; taxRate: number; creditedQuantity?: number; itemId?: string; accountCode?: string; reversalAccountCode?: string; projectId?: string; matchQuantityVariance: number; matchPriceVarianceRate: number; matchTaxVariance: number; sources: Array<{ sourceType: string; sourceId: string; sourceLineId?: string; quantity: number; amount: number }> }>
 }
 export async function getFinanceInvoice(id: string) {
   const response = await apiClient.get<ApiEnvelope<FinanceInvoiceDetail>>(`/v2/finance/invoices/${id}`)
@@ -37,7 +38,7 @@ export interface BankStatementLine {
 }
 
 export interface InvoiceInput {
-  documentType: 'SALES_INVOICE' | 'SUPPLIER_INVOICE'; partyId: string; businessDate: string; accountingDate: string
+  documentType: 'SALES_INVOICE' | 'SUPPLIER_INVOICE' | 'CUSTOMER_CREDIT' | 'SUPPLIER_CREDIT'; originalInvoiceId?: string; projectId?: string; partyId: string; businessDate: string; accountingDate: string
   dueDate: string; exchangeRateDate: string; currencyCode: string; exchangeRate: number
   lines: Array<{ itemId?: string; description: string; quantity: number; unitPrice: number; discountRate: number; taxRate: number; accountCode?: string; projectId?: string; sources?: Array<{ sourceType: string; sourceId: string; sourceLineId: string; quantity: number; amount: number }> }>
 }
