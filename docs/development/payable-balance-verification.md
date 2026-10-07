@@ -29,3 +29,14 @@ F50：FinanceView原“应付未结”把旧版应付单第一页直接相加，
 ## 仍待验收
 
 本阶段只统一正式应付余额卡片；旧版应付表、账龄及其他历史报表未宣称统一。贷记页面、外币/汇兑页面、历史读口径覆盖、完整角色与业务矩阵、恢复与历史升级、性能及发布决策继续跟踪。F27部分完成，CI通过不能替代完整发布门禁。
+
+
+## 本阶段CI依赖门禁（2026-10-07）
+
+首轮CI37579059067：隔离MySQL回归及Windows路径检查成功；Web、API、Production Compose未通过，不能放行。Web新增公告命中source-map-js1.2.1、Vue server-renderer3.5.40、postcss-selector-parser7.1.4；更新Vue至3.5.43并将两个传递分支分别锁定补丁1.2.2和7.1.6，保留测试工具2.4.11。
+
+官方依据：[Vue公告](https://github.com/advisories/GHSA-g2v6-rqmx-r4w6)、[source-map-js公告](https://github.com/advisories/GHSA-68fv-2mgg-jv7q)、[selector parser公告](https://github.com/advisories/GHSA-rj75-hqrm-r3gf)。不运行公告中的复现代码。
+
+API打包成功，但现有实际JAR扫描阻断CVE-2026-47884/spring-webmvc6.2.19；[Spring官方公告](https://spring.io/security/cve-2026-47884/)将6.2.20列为企业支持版本，公开修复为7.0.9。公共Maven Central元数据的6.2分支仍止于6.2.19。扫描器标为CRITICAL，官方标为MEDIUM，差异如实保留；不修改门禁级别、忽略项或扫描逻辑来放行。
+
+Spring/Boot主版本升级与应用兼容、完整数据库/启动/Compose复验需要单独交付；本阶段未升级后端框架，PR保持草稿，CI失败阻止合并/发布。后续CI结果应按对应提交重新核对，不能用首轮成功job证明不同提交。
