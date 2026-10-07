@@ -1,9 +1,11 @@
 <script setup lang="ts">
-import { computed, onMounted, reactive, ref } from 'vue'
+import { computed, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
 import { ElMessage } from 'element-plus'
 import { CreditCard, Plus, Refresh } from '@element-plus/icons-vue'
 import { useI18n } from 'vue-i18n'
 import FinanceClosurePanel from '@/components/finance/FinanceClosurePanel.vue'
+import { getFinanceDashboard } from '@/api/finance-v2'
+import { getOrganizationSettings } from '@/api/master-data'
 import {
   closeAccountingPeriod,
   createManualJournal,
@@ -48,9 +50,9 @@ const manualForm = reactive({ entryDate: today(), memo: '', currencyCode: 'USD',
 const paymentForm = reactive({ amount: 0, method: 'BANK' as PaymentMethod, paymentDate: today(), reference: '' })
 
 const failedSections = ref<string[]>([])
-const payablesLoaded = ref(false)
+const payableBalance = ref<{ amount: number; currency: string } | null>(null)
 let loadVersion = 0
-const outstandingTotal = computed(() => payablesLoaded.value ? payables.value.reduce((sum, item) => sum + Number(item.outstandingAmount), 0) : undefined)
+const outstandingTotal = computed(() => payableBalance.value?.amount)
 const postedTotal = computed(() => trialBalance.value?.totalDebit)
 const profitTotal = computed(() => incomeStatement.value?.total)
 
@@ -92,11 +94,20 @@ function bucketLabel(bucket: string) {
 }
 
 async function load() {
+  if (!auth.user?.organizationId) {
+    loadVersion++
+    loading.value = false
+    failedSections.value = []; payableBalance.value = null
+    journals.value = []; periods.value = []; trialBalance.value = null; incomeStatement.value = null; balanceSheet.value = null
+    payables.value = []; receivableAging.value = []; payableAging.value = []
+    selectedPayable.value = null; manualVisible.value = false; paymentVisible.value = false
+    return
+  }
   if (!startDate.value || !endDate.value || startDate.value > endDate.value) return
   const version = ++loadVersion
   const from = startDate.value, to = endDate.value
   loading.value = true
-  failedSections.value = []; payablesLoaded.value = false
+  failedSections.value = []; payableBalance.value = null
   journals.value = []; periods.value = []; trialBalance.value = null; incomeStatement.value = null; balanceSheet.value = null
   payables.value = []; receivableAging.value = []; payableAging.value = []
   async function section(key: string, work: () => Promise<void>) {
@@ -108,7 +119,12 @@ async function load() {
     section('trialBalance', async () => { const value = await getTrialBalance(from, to); if (version === loadVersion) trialBalance.value = value }),
     section('incomeStatement', async () => { const value = await getIncomeStatement(from, to); if (version === loadVersion) incomeStatement.value = value }),
     section('balanceSheet', async () => { const value = await getBalanceSheet(from, to); if (version === loadVersion) balanceSheet.value = value }),
-    section('payables', async () => { const value = await listPayables(); if (version === loadVersion) { payables.value = value.content; payablesLoaded.value = true } }),
+    section('payableBalance', async () => {
+      const [dashboard, settings] = await Promise.all([getFinanceDashboard(from, to), getOrganizationSettings()])
+      if (!Number.isFinite(dashboard.payables) || !settings.baseCurrencyCode) throw new Error('Payable balance unavailable')
+      if (version === loadVersion) payableBalance.value = { amount: dashboard.payables, currency: settings.baseCurrencyCode }
+    }),
+    section('payables', async () => { const value = await listPayables(); if (version === loadVersion) { payables.value = value.content } }),
     section('receivableAging', async () => { const value = await getReceivableAging(to); if (version === loadVersion) receivableAging.value = value }),
     section('payableAging', async () => { const value = await getPayableAging(to); if (version === loadVersion) payableAging.value = value }),
   ])
@@ -171,6 +187,8 @@ async function closePeriod(period: AccountingPeriod) {
   }
 }
 
+watch(() => auth.user?.organizationId, () => { void load() })
+onBeforeUnmount(() => { loadVersion++ })
 onMounted(load)
 </script>
 
@@ -196,7 +214,7 @@ onMounted(load)
     <div class="inventory-summary-grid">
       <el-card shadow="never"><span class="eyebrow">{{ t('finance.postedDebit') }}</span><strong>{{ formatAmount(postedTotal) }}</strong><small>{{ t('finance.postedDebitHint') }}</small></el-card>
       <el-card shadow="never"><span class="eyebrow">{{ t('finance.profit') }}</span><strong>{{ formatAmount(profitTotal) }}</strong><small>{{ t('finance.profitHint') }}</small></el-card>
-      <el-card shadow="never"><span class="eyebrow">{{ t('finance.payableOutstanding') }}</span><strong>{{ formatAmount(outstandingTotal) }}</strong><small>{{ t('finance.payableHint') }}</small></el-card>
+      <el-card shadow="never" data-testid="payable-balance" aria-live="polite"><span class="eyebrow">{{ t('finance.payableOutstanding') }}</span><strong>{{ formatAmount(outstandingTotal) }}{{ payableBalance ? ` ${payableBalance.currency}` : '' }}</strong><small>{{ t('finance.payableHint') }}</small><el-alert v-if="failedSections.includes('payableBalance')" :title="t('finance.payableBalanceFailed')" type="error" :closable="false" /></el-card>
     </div>
 
     <el-card shadow="never" class="operations-card">
@@ -241,6 +259,7 @@ onMounted(load)
         </el-tab-pane>
 
         <el-tab-pane :label="t('finance.payables')" name="payables">
+          <p>{{ t('finance.legacyPayablesNote') }}</p>
           <el-table v-loading="loading" :data="payables" empty-text=""><el-table-column prop="number" :label="t('finance.number')" width="150" /><el-table-column prop="supplierId" :label="t('finance.supplier')" min-width="170" /><el-table-column prop="dueDate" :label="t('finance.dueDate')" width="130" /><el-table-column prop="totalAmount" :label="t('finance.amount')" width="140" /><el-table-column prop="outstandingAmount" :label="t('finance.outstanding')" width="150" /><el-table-column :label="t('finance.statusLabel')" width="150"><template #default="{ row }"><el-tag :type="statusType(row.status)">{{ statusLabel(row.status) }}</el-tag></template></el-table-column><el-table-column :label="t('finance.actions')" width="140"><template #default="{ row }"><el-button v-if="auth.hasPermission('finance:post') && row.outstandingAmount > 0" link type="primary" @click="openPayment(row)"><el-icon><CreditCard /></el-icon>{{ t('finance.pay') }}</el-button></template></el-table-column></el-table>
           <el-empty v-if="!payables.length && !loading" :description="t('finance.emptyPayables')" />
         </el-tab-pane>

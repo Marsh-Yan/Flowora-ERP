@@ -65,7 +65,7 @@ Web 端只通过同源 `/api` 访问后端。生产部署中 MySQL、Redis、API
 | 层级 | 技术 |
 | --- | --- |
 | Web | Vue 3、TypeScript、Vite、Element Plus、Pinia、Vue Router、vue-i18n、Axios |
-| API | Java 25、Spring Boot 3.5.16、Spring Security、Spring Data JPA/JDBC、Flyway、Actuator |
+| API | Java 25、Spring Boot 4.0.8、Spring Security、Spring Data JPA/JDBC、Flyway、Actuator |
 | 数据 | MySQL 8、Redis 7 |
 | 可观测性 | Micrometer、Prometheus、健康检查、诊断包、业务运行指标 |
 | 契约与质量 | OpenAPI、ESLint、vue-tsc、Vitest、JUnit、GitHub Actions |
