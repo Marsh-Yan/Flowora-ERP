@@ -228,6 +228,7 @@ public class FinanceDocumentService {
                 rs.getBigDecimal("net_amount"), rs.getBigDecimal("tax_amount"), rs.getBigDecimal("total_amount"),
                 rs.getBigDecimal("base_total_amount"), rs.getString("revenue_expense_account_code"),
                 rs.getString("project_id"), rs.getBigDecimal("credited_quantity"),
+                reversalAccount(organizationId, head, rs.getString("id")),
                 rs.getBigDecimal("match_quantity_variance"), rs.getBigDecimal("match_price_variance_rate"),
                 rs.getBigDecimal("match_tax_variance"), sources(organizationId, rs.getString("id"))), organizationId, id);
         return new InvoiceView(head.id(), head.number(), head.documentType(), head.partyType(), head.partyId(),
@@ -236,6 +237,17 @@ public class FinanceDocumentService {
                 head.baseCurrencyCode(), head.exchangeRate(), head.netAmount(), head.taxAmount(), head.totalAmount(),
                 head.baseTotalAmount(), head.allocatedAmount(), head.creditedAmount(), head.matchStatus(), head.matchExceptionApprovedBy(), head.matchExceptionReason(), head.postedAt(),
                 head.version(), lines);
+    }
+
+    private String reversalAccount(String organizationId, InvoiceView head, String lineId) {
+        if (!"POSTED".equals(head.status()) || !Set.of("SALES_INVOICE", "SUPPLIER_INVOICE").contains(head.documentType())) return null;
+        List<String> accounts = jdbc.query("""
+                SELECT DISTINCT l.account_code FROM flowora_journal_line l
+                JOIN flowora_journal_entry e ON e.id=l.journal_entry_id AND e.organization_id=l.organization_id
+                WHERE e.organization_id=? AND e.source_type=? AND e.source_id=? AND e.status='POSTED'
+                  AND l.source_line_id=?
+                """, (rs, row) -> rs.getString(1), organizationId, head.documentType(), head.id(), lineId);
+        return accounts.size() == 1 ? accounts.getFirst() : null;
     }
 
     @Transactional
