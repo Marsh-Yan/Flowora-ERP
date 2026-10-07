@@ -50,3 +50,6 @@ CI 从当次运行容器复制 `/bin/prometheus` 与 `/bin/promtool`，使用固
 后端 JAR 曾余一条 `CVE-2026-49844` / Log4j API MEDIUM，升级 2.25.5 后为 0。两条 Prometheus UNKNOWN 原始记录保留，CI 的两个实际二进制分析均为 OpenPGP 包未出现，`prometheus-triage.json` 记录对应 image ID 和两个 SHA256。因此当次扫描没有未处置的阻断结果，不能改写成“所有镜像零告警”。后续 head 必须重新运行，PR 的最新检查及 artifacts 是合并依据。
 
 中低等级 OS 告警仍会完整保留，后续按修复版本与实际输入边界继续评估。Redis 的 C 运行程序不属于 APK 包清单，扫描只能证明其发行版依赖覆盖；Redis 自身仍需结合上游公告及版本审查。扫描不能发现所有应用逻辑漏洞，也不能替代完整角色/并发/附件矩阵、数据库与附件成对恢复、性能/TLS/告警链路和 Pilot/UAT。F27 仍未完成，不据本批结果宣告 GA。
+
+
+2026-10-07后续运行时升级至Boot4.0.8，版本、桥接范围及新扫描结果见[Boot4迁移验证](spring-boot-4-verification.md)。本文版本表保留当日历史证据。

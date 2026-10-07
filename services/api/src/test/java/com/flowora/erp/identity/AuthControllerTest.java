@@ -5,7 +5,7 @@ import com.flowora.erp.config.SecurityConfig;
 import jakarta.servlet.http.Cookie;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.boot.test.autoconfigure.web.servlet.WebMvcTest;
+import org.springframework.boot.webmvc.test.autoconfigure.WebMvcTest;
 import org.springframework.context.annotation.Import;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.mock.web.MockHttpSession;
@@ -23,6 +23,7 @@ import static org.mockito.Mockito.when;
 import static org.mockito.Mockito.verify;
 import java.util.List;
 
+@org.springframework.boot.autoconfigure.ImportAutoConfiguration(org.springframework.boot.jackson2.autoconfigure.Jackson2AutoConfiguration.class)
 @WebMvcTest({AuthController.class, SessionV2Controller.class})
 @Import({SecurityConfig.class, DemoUserStore.class, GlobalExceptionHandler.class})
 class AuthControllerTest {

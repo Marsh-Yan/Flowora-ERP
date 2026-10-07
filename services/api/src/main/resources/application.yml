@@ -7,10 +7,14 @@ spring:
       demo: local
   autoconfigure:
     exclude:
-      - org.springframework.boot.autoconfigure.jdbc.DataSourceAutoConfiguration
-      - org.springframework.boot.autoconfigure.orm.jpa.HibernateJpaAutoConfiguration
-      - org.springframework.boot.autoconfigure.data.redis.RedisAutoConfiguration
-      - org.springframework.boot.autoconfigure.session.SessionAutoConfiguration
+      - org.springframework.boot.jdbc.autoconfigure.DataSourceAutoConfiguration
+      - org.springframework.boot.hibernate.autoconfigure.HibernateJpaAutoConfiguration
+      - org.springframework.boot.data.redis.autoconfigure.DataRedisAutoConfiguration
+      - org.springframework.boot.session.autoconfigure.SessionAutoConfiguration
+      - org.springframework.boot.session.data.redis.autoconfigure.SessionDataRedisAutoConfiguration
+  http:
+    converters:
+      preferred-json-mapper: jackson2
   session:
     timeout: 8h
 
