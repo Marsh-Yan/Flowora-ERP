@@ -245,6 +245,25 @@ class FinanceMySqlTest {
         assertThat(ledger.journals(org,date,date).getFirst().totalCredit()).isEqualByComparingTo("12");
         assertThat(documents.stockInvoiceSources(org).getFirst().remainingQuantity()).isEqualByComparingTo("0");
     }
+    @Test void payableDashboardUsesAllPostedBaseBalancesLessAllocationsAndCreditsRegardlessOfRange() {
+        var invoice=run(()->documents.createInvoice(actor,key(),input("SUPPLIER_INVOICE",supplier,"2",List.of(line("100",List.of())))));
+        run(()->documents.postInvoice(actor,invoice.id(),invoice.version()));
+        run(()->documents.createInvoice(actor,key(),input("SUPPLIER_INVOICE",supplier,"2",List.of(line("999",List.of())))));
+        var payment=run(()->documents.createPayment(actor,key(),new PaymentCreate("PAYMENT",supplier,null,date,date,date,"EUR",n("2"),n("25"),"balance test")));
+        run(()->documents.postPayment(actor,payment.id(),payment.version()));
+        run(()->documents.allocate(actor,payment.id(),new AllocationCreate(invoice.id(),n("25"))));
+        var original=documents.invoice(org,invoice.id());
+        var source=new InvoiceSourceCreate("ORIGINAL_INVOICE_LINE",original.id(),original.lines().getFirst().id(),n("0.1"),n("10"));
+        var creditLine=new InvoiceLineCreate(null,"credit",n("0.1"),n("100"),n("0"),n("0"),null,null,List.of(source));
+        var credit=run(()->documents.createInvoice(actor,key(),new InvoiceCreate("SUPPLIER_CREDIT",supplier,null,invoice.id(),date,date,date.plusDays(30),date,"EUR",n("2"),List.of(creditLine))));
+        run(()->documents.postInvoice(actor,credit.id(),credit.version()));
+        var operations=new FinanceOperationsService(jdbc,ledger);
+        assertThat(operations.dashboard(org,date,date).payables()).isEqualByComparingTo("130");
+        assertThat(operations.dashboard(org,date.plusDays(6),date.plusDays(6)).payables()).isEqualByComparingTo("130");
+        assertThat(documents.invoice(org,invoice.id()).allocatedAmount()).isEqualByComparingTo("25");
+        assertThat(documents.invoice(org,invoice.id()).creditedAmount()).isEqualByComparingTo("10");
+        assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM flowora_payable_document WHERE organization_id=?",Integer.class,org)).isZero();
+    }
     AllocationView allocate() {
         var invoice=run(()->documents.createInvoice(actor,key(),input("SALES_INVOICE",customer,"1",List.of(line("100",List.of())))));
         run(()->documents.postInvoice(actor,invoice.id(),0));
