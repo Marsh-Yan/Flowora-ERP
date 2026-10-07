@@ -22,6 +22,9 @@
         <java.version>25</java.version>
         <maven.compiler.release>25</maven.compiler.release>
         <!-- Preserve the existing JSON contract during the Boot 4 migration. -->
+        <!-- Patch maintained runtime dependencies beyond the Boot BOM baseline. -->
+        <tomcat.version>11.0.26</tomcat.version>
+        <jackson-bom.version>3.1.7</jackson-bom.version>
         <jackson-2-bom.version>2.21.7</jackson-2-bom.version>
     </properties>
 

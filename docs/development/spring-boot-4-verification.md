@@ -4,7 +4,7 @@
 
 ## 升级与兼容范围
 
-原CI37580006292因spring-webmvc6.2.19/CVE-2026-47884在实际JAR和Compose镜像扫描被阻断。[Spring官方公告](https://spring.io/security/cve-2026-47884/)的公开修复版本为7.0.9；6.2.20属于企业支持版本。升级Boot3.5.16至公开稳定维护版本4.0.8，Framework7.0.9、Tomcat11.0.24、Netty4.2.17.Final由同一BOM管理；移除旧主版本覆盖。保留Java25。
+原CI37580006292因spring-webmvc6.2.19/CVE-2026-47884在实际JAR和Compose镜像扫描被阻断。[Spring官方公告](https://spring.io/security/cve-2026-47884/)的公开修复版本为7.0.9；6.2.20属于企业支持版本。升级Boot3.5.16至公开稳定维护版本4.0.8，Framework7.0.9、Netty4.2.17.Final随BOM管理；移除旧主版本覆盖。Boot默认Tomcat11.0.24与Jackson3.1.5仍在CI37597139964被依赖检查阻断，按[Tomcat官方公告](https://tomcat.apache.org/security-11.html)及[Jackson3.1.7发布说明](https://github.com/FasterXML/jackson/wiki/Jackson-Release-3.1.7)分别补到同一主版本Tomcat11.0.26与Jackson BOM3.1.7。实际JAR同时保留已补丁Jackson2.21.7；不因应用仍走Jackson2忽略打包的Jackson3依赖。保留Java25。
 
 按[官方Boot4迁移指南](https://github.com/spring-projects/spring-boot/wiki/Spring-Boot-4.0-Migration-Guide)改为WebMVC、Flyway、Redis Session显式starter，补MVC/安全/HTTP客户端测试starter及新测试包。standalone排除新包DataSource/Hibernate/DataRedis/Session/RedisSession自动配置，local/production仍清空排除列表、使用真实数据库与Redis。
 
@@ -24,7 +24,7 @@ Jackson2兼容模块已被官方弃用，未来仍需独立迁移至Jackson3并�
 
 普通隔离浏览器在新运行时实际登录、创建2*12税10%的供应商发票并单独过账。SQL核对POSTED/CNY总额26.4、核销与贷记0、1凭证借贷各26.4、不平0；M4与正式卡片均26.40 CNY。真实local启动含Hibernate schema validate、Flyway、Redis会话。普通注销至登录页，关闭临时标签；测试用户停用/组织归档、四隔离端口关闭、业务历史保留。
 
-本地证据.cache/r5z-api-test.log、r5z-api-final.log、r5z-db-verification.log、r5z-upgrade-finance.png、r5z-fixture-cleanup.log、r5z-service-cleanup.log。完整现有GitHub工作流继续执行，最终放行以PR50最新提交CI为准，旧失败运行保留历史记录。
+本地补丁后完整回归证据.cache/r5za-api-test.log、r5z-artifact-verification.log；初轮及普通浏览器证据.cache/r5z-api-test.log、r5z-api-final.log、r5z-db-verification.log、r5z-upgrade-finance.png、r5z-fixture-cleanup.log、r5z-service-cleanup.log。完整现有GitHub工作流继续执行，最终放行以PR50最新提交CI为准，旧失败运行保留历史记录。
 
 ## 仍待工作
 
