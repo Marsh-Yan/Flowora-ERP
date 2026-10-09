@@ -73,8 +73,8 @@ export async function listFinancePayments() {
   return response.data.data
 }
 
-export async function createFinancePayment(payload: PaymentInput) {
-  const response = await apiClient.post<ApiEnvelope<FinancePayment>>('/v2/finance/payments', payload, { headers: { 'Idempotency-Key': crypto.randomUUID() } })
+export async function createFinancePayment(payload: PaymentInput, key: string = crypto.randomUUID()) {
+  const response = await apiClient.post<ApiEnvelope<FinancePayment>>('/v2/finance/payments', payload, { headers: { 'Idempotency-Key': key } })
   return response.data.data
 }
 
