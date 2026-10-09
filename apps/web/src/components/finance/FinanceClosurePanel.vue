@@ -14,6 +14,7 @@ import BankStatementDialog from './BankStatementDialog.vue'
 import BankReconciliationDialog from './BankReconciliationDialog.vue'
 import StockInvoiceDialog from './StockInvoiceDialog.vue'
 import CreditNoteDialog from './CreditNoteDialog.vue'
+import CurrencyRevaluationDialog from './CurrencyRevaluationDialog.vue'
 import ForeignDocumentDialog from './ForeignDocumentDialog.vue'
 import MatchExceptionDialog from './MatchExceptionDialog.vue'
 import { useAuthStore } from '@/stores/auth'
@@ -37,7 +38,7 @@ const customers = ref<MasterDataRecord[]>([])
 const suppliers = ref<MasterDataRecord[]>([])
 const invoiceVisible = ref(false)
 const stockInvoiceVisible = ref(false)
-const creditVisible = ref(false)
+const creditVisible = ref(false), revaluationVisible = ref(false)
 const foreignVisible = ref(false)
 const matchVisible = ref(false), matchInvoiceId = ref('')
 function openMatch(row: FinanceInvoice) {
@@ -169,6 +170,7 @@ onMounted(load)
     <el-button v-if="auth.hasPermission('finance:view') && auth.hasPermission('finance:bank')" :disabled="loading || saving || !!postingId" @click="statementVisible = true">{{ t('finance.bankEntry.newStatement') }}</el-button>
     <el-button v-if="auth.hasPermission('finance:view') && auth.hasPermission('finance:bank')" :disabled="loading || saving || !!postingId" @click="reconciliationVisible = true">{{ t('finance.bankMatch.manage') }}</el-button>
     <el-button v-if="auth.hasPermission('finance:view') && auth.hasPermission('finance:invoice')" :disabled="loading || saving || !!postingId" @click="stockInvoiceVisible = true">{{ t('finance.stockInvoice.open') }}</el-button>
+    <el-button v-if="auth.hasPermission('finance:view')" :disabled="loading || saving || !!postingId" @click="revaluationVisible = true">{{ t('finance.revaluation.open') }}</el-button>
     <el-button v-if="auth.hasPermission('finance:view') && auth.hasPermission('finance:invoice')" :disabled="loading || saving || !!postingId" @click="creditVisible = true">{{ t('finance.creditNote.open') }}</el-button>
     <el-button v-if="auth.hasPermission('finance:view') && auth.hasPermission('master:view') && (auth.hasPermission('finance:invoice') || auth.hasPermission('finance:create'))" :disabled="loading || saving || !!postingId" @click="foreignVisible = true">{{ t('finance.foreign.open') }}</el-button>
     <el-tabs>
@@ -178,6 +180,7 @@ onMounted(load)
     </el-tabs>
   </el-card>
   <ForeignDocumentDialog v-model="foreignVisible" @changed="allocationChanged" />
+  <CurrencyRevaluationDialog v-model="revaluationVisible" @changed="allocationChanged" />
   <CreditNoteDialog v-model="creditVisible" @changed="allocationChanged" />
   <StockInvoiceDialog v-model="stockInvoiceVisible" @changed="allocationChanged" />
   <BankReconciliationDialog v-model="reconciliationVisible" @changed="allocationChanged" />

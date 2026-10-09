@@ -460,6 +460,21 @@ public class FinanceOperationsService {
         return reconciliation(organizationId, id);
     }
 
+    public List<FinanceV2Dtos.RevaluationHistoryView> revaluations(String organizationId) {
+        return jdbc.query("""
+                SELECT r.id,r.number,r.accounting_date,r.currency_code,r.rate,r.total_gain,r.total_loss,
+                       r.journal_entry_id,
+                       CASE WHEN r.journal_entry_id IS NULL THEN 'NO_ADJUSTMENT'
+                            ELSE COALESCE(e.status,'UNAVAILABLE') END journal_status
+                FROM flowora_currency_revaluation r
+                LEFT JOIN flowora_journal_entry e ON e.id=r.journal_entry_id AND e.organization_id=r.organization_id
+                WHERE r.organization_id=? ORDER BY r.accounting_date DESC,r.created_at DESC,r.id
+                """, (rs, row) -> new FinanceV2Dtos.RevaluationHistoryView(rs.getString("id"),rs.getString("number"),
+                rs.getDate("accounting_date").toLocalDate(),rs.getString("currency_code"),rs.getBigDecimal("rate"),
+                rs.getBigDecimal("total_gain"),rs.getBigDecimal("total_loss"),rs.getString("journal_entry_id"),
+                rs.getString("journal_status")),organizationId);
+    }
+
     private RevaluationView revaluation(String organizationId, String id) {
         List<RevaluationView> values = jdbc.query("""
                 SELECT id,number,accounting_date,currency_code,rate,total_gain,total_loss,journal_entry_id,reversal_date

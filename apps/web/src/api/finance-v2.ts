@@ -141,3 +141,22 @@ export async function listStockInvoiceSources() {
   const response = await apiClient.get<ApiEnvelope<StockInvoiceSource[]>>('/v2/finance/invoice-stock-sources')
   return response.data.data
 }
+
+
+export interface CurrencyRevaluation {
+  id: string; number: string; accountingDate: string; currencyCode: string; rate: number
+  totalGain: number; totalLoss: number; journalEntryId?: string; status: 'POSTED' | 'REVERSED' | 'NO_ADJUSTMENT' | 'UNAVAILABLE'
+}
+export interface RevaluationInput { accountingDate: string; currencyCode: string; rate: number }
+export async function listCurrencyRevaluations() {
+  const response = await apiClient.get<ApiEnvelope<CurrencyRevaluation[]>>('/v2/finance/revaluations')
+  return response.data.data
+}
+export async function createCurrencyRevaluation(payload: RevaluationInput, key: string) {
+  const response = await apiClient.post<ApiEnvelope<Omit<CurrencyRevaluation, 'status'>>>('/v2/finance/revaluations', payload, { headers: { 'Idempotency-Key': key } })
+  return response.data.data
+}
+export async function reverseCurrencyRevaluation(id: string, accountingDate: string, reason: string, key: string) {
+  const response = await apiClient.post<ApiEnvelope<unknown>>(`/v2/finance/revaluations/${id}/reverse`, { reason }, { params: { accountingDate }, headers: { 'Idempotency-Key': key } })
+  return response.data.data
+}

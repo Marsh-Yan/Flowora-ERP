@@ -208,6 +208,12 @@ public class FinanceV2Controller {
         return response(operations.budgetExecution(principal(authentication).organizationId(), fiscalYear), request);
     }
 
+    @GetMapping("/revaluations")
+    @PreAuthorize("@floworaAuthorization.hasOrganizationPermission(authentication, 'finance:view')")
+    public ApiResponse<List<RevaluationHistoryView>> revaluations(Authentication authentication, HttpServletRequest request) {
+        return response(operations.revaluations(principal(authentication).organizationId()),request);
+    }
+
     @PostMapping("/revaluations/{id}/reverse")
     @PreAuthorize("@floworaAuthorization.hasOrganizationPermission(authentication, 'finance:post')")
     public ApiResponse<JournalView> reverseRevaluation(@PathVariable String id, @RequestParam LocalDate accountingDate,
