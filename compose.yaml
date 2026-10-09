@@ -38,7 +38,7 @@ services:
     ports: ["8080:8080"]
     depends_on: { api: { condition: service_healthy } }
   prometheus:
-    image: prom/prometheus:v3.15.0
+    build: { context: ., dockerfile: deploy/prometheus/Dockerfile }
     restart: unless-stopped
     command: ["--config.file=/etc/prometheus/prometheus.yml", "--storage.tsdb.retention.time=15d"]
     volumes: ["./deploy/prometheus:/etc/prometheus:ro", "prometheus-data:/prometheus"]

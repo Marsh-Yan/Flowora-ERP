@@ -6,7 +6,7 @@
 
 贷记允许选择已过账、有未核销余额的本位币或外币原发票。只读显示并沿用原币种、会计汇率、汇率日期、原行价格/折扣/税率、项目/物料及实际原凭证科目；不允许页面另填汇率。外币原发票汇率、日期或本位币信息不完整时暂停创建，不以 1 或当天值猜测。保留未核销金额及原行剩余数量限制；贷记仅冲减原发票，不产生现金退款。
 
-前端详情类型补充已有响应中的 exchangeRateDate/baseCurrencyCode，未新增后端响应或迁移。finance:view/finance:invoice 及 ALL 范围、明确重试请求键、失败重读、保存中重复/关闭保护和迟到读取保护沿用原模式。来源开票补充保存结果的组织/关闭代次保护。业务及记账日期仍为当天，来源发票到期日加 30 日，当前为单行处理。后端生产写规则、权限定义、依赖和 CI 门禁不变；本轮界面锁定原币种及汇率不代表全部后台货币一致性规则已完成复核。
+前端详情类型补充已有响应中的 exchangeRateDate/baseCurrencyCode，未新增后端响应或迁移。finance:view/finance:invoice 及 ALL 范围、明确重试请求键、失败重读、保存中重复/关闭保护和迟到读取保护沿用原模式。来源开票补充保存结果的组织/关闭代次保护。业务及记账日期仍为当天，来源发票到期日加 30 日，当前为单行处理。后端生产写规则、权限定义和 CI 门禁不变；部署依赖修复见下文；本轮界面锁定原币种及汇率不代表全部后台货币一致性规则已完成复核。
 
 ## 验证
 
@@ -30,3 +30,12 @@ SQL 四单均 POSTED，原发票 credited_amount 分别 13.2/9.5 USD，原行 cr
 这是财务来源选择到开票及贷记的普通页面验收；入库、发货和来源凭证为 SQL 预置，不能称本轮浏览器完整库存流程验收。没有额外安全探测或异常 HTTP 脚本，GitHub 完整现有 CI 不跳过。期末重估、退款、其他旧新财务读口径与完整发布验收仍待。
 
 普通注销到登录页、关闭临时标签；合成用户停用/组织归档各 1，保留业务历史。按精确进程身份先关闭 API/Vite，再 Redis/MySQL，最终四隔离端口关闭。证据位于本地 .cache/r6c-web-final-test.log、r6c-web-lint.log、r6c-web-build.log、r6c-finance-mysql-pass.log、r6c-sql-final.json、r6c-fx-credit-editor.png、r6c-source-released.png、r6c-fx-final.png 及 r6c-fixture-cleanup.log。
+
+
+## 同批部署依赖修复
+
+首次完整 CI 的业务四项通过，但实际 Compose 镜像检查阻塞：API 基础镜像中未使用的 Pebble、MySQL gosu 与 Prometheus 两个程序的 Go 标准库需补丁，Prometheus x/net 需 0.60.0。原检查覆盖及失败门禁保留，没有新增排除项。
+
+MySQL 同一 gosu 源码改用 Go 1.27.2 编译。API 固定官方 Temurin 25.0.4.1_1-jre-noble（Ubuntu 24.04），保持 Java 25、CA/字体库及 curl，以免浮动 OS 别名引入无业务用途的旧 Go 服务管理程序。Prometheus 仍为 3.15.0，固定官方源码 commit 5241a27fe3c6983549fccc32f6e65917408c63cd 及已发布 UI 资产的 SHA256，使用 Go 1.27.2/x/net 0.60.0 编译 prometheus 和 promtool，包含 builtinassets，沿用上游 nobody、入口、配置及数据卷。未将旧二进制作为修复结果交付。
+
+依据：[Go 官方补丁发布记录](https://go.dev/doc/devel/release)、[Temurin 官方镜像标签](https://github.com/docker-library/official-images/blob/master/library/eclipse-temurin)、[Prometheus 3.15.0 官方发布](https://github.com/prometheus/prometheus/releases/tag/v3.15.0)及其源码构建配置。最终以最新提交完整 CI 的实际镜像、规则测试、启动/健康和重启结果核实兼容性；Windows 本机未执行 Docker 镜像构建。
