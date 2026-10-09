@@ -309,6 +309,76 @@ class FinanceMySqlTest {
         assertThat(documents.invoice(org,invoice.id()).creditedAmount()).isEqualByComparingTo("10");
         assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM flowora_payable_document WHERE organization_id=?",Integer.class,org)).isZero();
     }
+    @Test void partialRefundsReserveOriginalUnallocatedBalanceAndPreserveLedgerBothSides() {
+        for (boolean purchase : List.of(false, true)) {
+            String party=purchase?supplier:customer;
+            String type=purchase?"PAYMENT":"RECEIPT", refundType=purchase?"SUPPLIER_REFUND":"CUSTOMER_REFUND";
+            var original=run(()->documents.createPayment(actor,key(),new PaymentCreate(type,party,null,date,date,date,"EUR",n("1.3"),n("100"),"original")));
+            run(()->documents.postPayment(actor,original.id(),0));
+            String request=key();
+            var input=new PaymentCreate(refundType,party,null,date,date,date,"EUR",n("1.3"),n("40"),"partial refund",original.id());
+            var refund=run(()->documents.createPayment(actor,request,input));
+            assertThat(refund.originalPaymentId()).isEqualTo(original.id());
+            assertThat(run(()->documents.createPayment(actor,request,input)).id()).isEqualTo(refund.id());
+            var invoice=run(()->documents.createInvoice(actor,key(),input(purchase?"SUPPLIER_INVOICE":"SALES_INVOICE",party,"1.3",List.of(line("100",List.of())))));
+            run(()->documents.postInvoice(actor,invoice.id(),0));
+            // A draft refund already reserves 40; ordinary allocation may use the remaining 60.
+            var allocation=run(()->documents.allocate(actor,original.id(),new AllocationCreate(invoice.id(),n("60"))));
+            var posted=run(()->documents.postPayment(actor,refund.id(),0));
+            assertThat(posted.status()).isEqualTo("POSTED");
+            assertThat(posted.baseAmount()).isEqualByComparingTo("52");
+            assertThat(documents.payment(org,original.id()).allocatedAmount()).isEqualByComparingTo("60");
+            run(()->documents.reverseAllocation(actor,allocation.id(),key(),new AllocationReverse("Release balance for final refund")));
+            var rest=run(()->documents.createPayment(actor,key(),new PaymentCreate(refundType,party,null,date,date,date,"EUR",n("1.3"),n("60"),"final refund",original.id())));
+            run(()->documents.postPayment(actor,rest.id(),0));
+            assertThat(jdbc.queryForObject("SELECT SUM(base_debit-base_credit) FROM flowora_journal_line WHERE organization_id=? AND account_code='CASH' AND party_id=?",BigDecimal.class,org,party)).isEqualByComparingTo("0");
+            for (var journal:ledger.journals(org,date,date)) assertThat(journal.totalDebit()).isEqualByComparingTo(journal.totalCredit());
+        }
+    }
+    @Test void refundReservationSerializesConcurrentDrafts() throws Exception {
+        var original=run(()->documents.createPayment(actor,key(),new PaymentCreate("RECEIPT",customer,null,date,date,date,"EUR",n("1"),n("100"),"original")));
+        run(()->documents.postPayment(actor,original.id(),0));
+        var pool=java.util.concurrent.Executors.newFixedThreadPool(2);
+        var barrier=new java.util.concurrent.CyclicBarrier(2);
+        try {
+            java.util.concurrent.Callable<String> work=()->{
+                barrier.await(10,java.util.concurrent.TimeUnit.SECONDS);
+                try { return run(()->documents.createPayment(actor,key(),new PaymentCreate("CUSTOMER_REFUND",customer,null,date,date,date,"EUR",n("1"),n("60"),"concurrent partial",original.id()))).status(); }
+                catch (PlatformApiException ex) { return ex.code(); }
+            };
+            var a=pool.submit(work); var b=pool.submit(work);
+            assertThat(List.of(a.get(15,java.util.concurrent.TimeUnit.SECONDS),b.get(15,java.util.concurrent.TimeUnit.SECONDS)))
+                    .containsExactlyInAnyOrder("DRAFT","REFUND_EXCEEDS_REMAINING");
+            assertThat(jdbc.queryForObject("SELECT SUM(amount) FROM flowora_payment_v2 WHERE organization_id=? AND original_payment_id=?",BigDecimal.class,org,original.id())).isEqualByComparingTo("60");
+        } finally { pool.shutdownNow(); }
+    }
+    @Test void refundSourceBoundsReplayAndAllocationRemainConsistent() {
+        var original=run(()->documents.createPayment(actor,key(),new PaymentCreate("RECEIPT",customer,null,date,date,date,"EUR",n("1.3"),n("100"),"original")));
+        run(()->documents.postPayment(actor,original.id(),0));
+        String request=key();
+        var refund=run(()->documents.createPayment(actor,request,new PaymentCreate("CUSTOMER_REFUND",customer,null,date,date,date,"EUR",n("1.3"),n("40"),"refund",original.id())));
+        assertThatThrownBy(()->run(()->documents.createPayment(actor,request,new PaymentCreate("CUSTOMER_REFUND",customer,null,date,date,date,"EUR",n("1.3"),n("41"),"refund",original.id()))))
+                .isInstanceOf(PlatformApiException.class).extracting("code").isEqualTo("IDEMPOTENCY_KEY_REUSED");
+        assertThatThrownBy(()->run(()->documents.createPayment(actor,key(),new PaymentCreate("CUSTOMER_REFUND",customer,null,date,date,date,"EUR",n("1.3"),n("61"),"too much",original.id()))))
+                .isInstanceOf(PlatformApiException.class).extracting("code").isEqualTo("REFUND_EXCEEDS_REMAINING");
+        assertThatThrownBy(()->run(()->documents.createPayment(actor,key(),new PaymentCreate("CUSTOMER_REFUND",customer,null,date,date,date,"EUR",n("1.4"),n("10"),"different rate",original.id()))))
+                .isInstanceOf(PlatformApiException.class).extracting("code").isEqualTo("REFUND_SOURCE_MISMATCH");
+        var invoice=run(()->documents.createInvoice(actor,key(),input("SALES_INVOICE",customer,"1.3",List.of(line("100",List.of())))));
+        run(()->documents.postInvoice(actor,invoice.id(),0));
+        assertThatThrownBy(()->run(()->documents.allocate(actor,original.id(),new AllocationCreate(invoice.id(),n("61")))))
+                .isInstanceOf(PlatformApiException.class).extracting("code").isEqualTo("ALLOCATION_CONSUMES_REFUND_RESERVATION");
+        run(()->documents.postPayment(actor,refund.id(),0));
+        assertThatThrownBy(()->run(()->documents.allocate(actor,refund.id(),new AllocationCreate(invoice.id(),n("10")))))
+                .isInstanceOf(PlatformApiException.class).extracting("code").isEqualTo("ALLOCATION_DOCUMENT_TYPE_MISMATCH");
+        assertThat(documents.invoice(org,invoice.id()).allocatedAmount()).isEqualByComparingTo("0");
+        assertThat(documents.payment(org,original.id()).allocatedAmount()).isEqualByComparingTo("0");
+        // Simulate a pre-migration refund whose source cannot safely be inferred.
+        jdbc.update("UPDATE flowora_payment_v2 SET original_payment_id=NULL WHERE organization_id=? AND id=?",org,refund.id());
+        assertThatThrownBy(()->run(()->documents.createPayment(actor,key(),new PaymentCreate("CUSTOMER_REFUND",customer,null,date,date,date,"EUR",n("1.3"),n("10"),"new refund",original.id()))))
+                .isInstanceOf(PlatformApiException.class).extracting("code").isEqualTo("REFUND_HISTORY_REQUIRES_RECONCILIATION");
+        assertThatThrownBy(()->run(()->documents.allocate(actor,original.id(),new AllocationCreate(invoice.id(),n("10")))))
+                .isInstanceOf(PlatformApiException.class).extracting("code").isEqualTo("REFUND_HISTORY_REQUIRES_RECONCILIATION");
+    }
     AllocationView allocate() {
         var invoice=run(()->documents.createInvoice(actor,key(),input("SALES_INVOICE",customer,"1",List.of(line("100",List.of())))));
         run(()->documents.postInvoice(actor,invoice.id(),0));

@@ -19,12 +19,14 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.math.BigDecimal;
+import java.time.LocalDate;
 import java.math.RoundingMode;
 import java.sql.Timestamp;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Set;
 import java.util.UUID;
 
@@ -252,27 +254,47 @@ public class FinanceDocumentService {
 
     @Transactional
     public PaymentView createPayment(FloworaPrincipal actor, String requestId, PaymentCreate body) {
+        ledger.lockOrganizationFinance(actor.organizationId());
         String type = upper(body.paymentType());
         if (!PAYMENT_TYPES.contains(type)) throw conflict("INVALID_PAYMENT_TYPE", Map.of("paymentType", type));
         String key = requiredKey(requestId);
         List<String> existing = jdbc.query("SELECT id FROM flowora_payment_v2 WHERE organization_id=? AND request_id=?",
                 (rs, row) -> rs.getString(1), actor.organizationId(), key);
-        if (!existing.isEmpty()) return payment(actor.organizationId(), existing.getFirst());
+        if (!existing.isEmpty()) {
+            PaymentView replay = payment(actor.organizationId(), existing.getFirst());
+            if ((type.endsWith("REFUND") || replay.paymentType().endsWith("REFUND"))
+                    && (!type.equals(replay.paymentType()) || !Objects.equals(body.originalPaymentId(), replay.originalPaymentId())
+                    || !body.partyId().equals(replay.partyId()) || !Objects.equals(nullable(body.bankAccountId()), replay.bankAccountId())
+                    || !body.businessDate().equals(replay.businessDate()) || !body.accountingDate().equals(replay.accountingDate())
+                    || !body.exchangeRateDate().equals(replay.exchangeRateDate()) || !upper(body.currencyCode()).equals(replay.currencyCode())
+                    || body.exchangeRate().compareTo(replay.exchangeRate()) != 0 || body.amount().compareTo(replay.amount()) != 0
+                    || !Objects.equals(clean(body.reference()), replay.reference()))) {
+                throw conflict("IDEMPOTENCY_KEY_REUSED", Map.of());
+            }
+            return replay;
+        }
         String partyType = type.equals("RECEIPT") || type.equals("CUSTOMER_REFUND") ? "CUSTOMER" : "SUPPLIER";
         requireParty(actor.organizationId(), partyType, body.partyId());
         if (body.bankAccountId() != null) requireBank(actor.organizationId(), body.bankAccountId(), body.currencyCode());
         String baseCurrency = ledger.baseCurrency(actor.organizationId());
+        if (type.endsWith("REFUND")) {
+            requireRefundBasis(actor.organizationId(), type, body.partyId(), body.originalPaymentId(),
+                    body.currencyCode(), baseCurrency, body.exchangeRate(), body.exchangeRateDate(), body.accountingDate());
+            requireRefundCapacity(actor.organizationId(), body.originalPaymentId(), null, body.amount());
+        } else if (nullable(body.originalPaymentId()) != null) {
+            throw conflict("PAYMENT_SOURCE_NOT_APPLICABLE", Map.of());
+        }
         String id = UUID.randomUUID().toString();
         jdbc.update("""
                 INSERT INTO flowora_payment_v2
                 (id,organization_id,number,payment_type,party_type,party_id,bank_account_id,status,allocation_status,
                  business_date,accounting_date,exchange_rate_date,currency_code,base_currency_code,exchange_rate,
-                 amount,base_amount,created_by,request_id,reference)
-                VALUES (?,?,?,?,?,?,?,'DRAFT','UNALLOCATED',?,?,?,?,?,?,?,?,?,?,?)
+                 amount,base_amount,created_by,request_id,reference,original_payment_id)
+                VALUES (?,?,?,?,?,?,?,'DRAFT','UNALLOCATED',?,?,?,?,?,?,?,?,?,?,?,?)
                 """, id, actor.organizationId(), paymentPrefix(type) + "-" + System.currentTimeMillis(), type,
                 partyType, body.partyId(), nullable(body.bankAccountId()), body.businessDate(), body.accountingDate(),
                 body.exchangeRateDate(), upper(body.currencyCode()), baseCurrency, body.exchangeRate(), body.amount(),
-                FinancePostingPolicy.base(body.amount(), body.exchangeRate()), actor.userId(), key, clean(body.reference()));
+                FinancePostingPolicy.base(body.amount(), body.exchangeRate()), actor.userId(), key, clean(body.reference()), nullable(body.originalPaymentId()));
         return payment(actor.organizationId(), id);
     }
 
@@ -282,6 +304,11 @@ public class FinanceDocumentService {
         PaymentView payment = paymentForUpdate(actor.organizationId(), paymentId);
         if (!"DRAFT".equals(payment.status()) || payment.version() != version) {
             throw conflict("PAYMENT_STATE_CONFLICT", Map.of("status", payment.status()));
+        }
+        if (payment.paymentType().endsWith("REFUND")) {
+            requireRefundBasis(actor.organizationId(), payment.paymentType(), payment.partyId(), payment.originalPaymentId(),
+                    payment.currencyCode(), payment.baseCurrencyCode(), payment.exchangeRate(), payment.exchangeRateDate(), payment.accountingDate());
+            requireRefundCapacity(actor.organizationId(), payment.originalPaymentId(), payment.id(), payment.amount());
         }
         String cash = payment.bankAccountId() == null ? ledger.mapping(actor.organizationId(), "CASH") : bankLedger(actor.organizationId(), payment.bankAccountId());
         String control = ledger.mapping(actor.organizationId(), "CUSTOMER".equals(payment.partyType()) ? "RECEIVABLE" : "PAYABLE");
@@ -311,6 +338,14 @@ public class FinanceDocumentService {
         if (!"POSTED".equals(payment.status()) || !"POSTED".equals(invoice.status())) throw conflict("ALLOCATION_REQUIRES_POSTED_DOCUMENTS", Map.of());
         if (!payment.partyType().equals(invoice.partyType()) || !payment.partyId().equals(invoice.partyId())) throw conflict("ALLOCATION_PARTY_MISMATCH", Map.of());
         if (!payment.currencyCode().equals(invoice.currencyCode())) throw conflict("ALLOCATION_CURRENCY_MISMATCH", Map.of());
+        String expectedInvoice = switch (payment.paymentType()) {
+            case "RECEIPT" -> "SALES_INVOICE";
+            case "PAYMENT" -> "SUPPLIER_INVOICE";
+            default -> "";
+        };
+        if (!expectedInvoice.equals(invoice.documentType())) throw conflict("ALLOCATION_DOCUMENT_TYPE_MISMATCH", Map.of());
+        if (body.amount().compareTo(refundRemaining(actor.organizationId(), payment)) > 0)
+            throw conflict("ALLOCATION_CONSUMES_REFUND_RESERVATION", Map.of());
         BigDecimal paymentRemaining = payment.amount().subtract(payment.allocatedAmount());
         BigDecimal invoiceRemaining = invoice.totalAmount().subtract(invoice.allocatedAmount()).subtract(invoice.creditedAmount());
         if (body.amount().compareTo(paymentRemaining) > 0 || body.amount().compareTo(invoiceRemaining) > 0) {
@@ -380,7 +415,7 @@ public class FinanceDocumentService {
         List<PaymentView> values = jdbc.query("""
                 SELECT id,number,payment_type,party_type,party_id,bank_account_id,status,allocation_status,business_date,
                        accounting_date,exchange_rate_date,currency_code,base_currency_code,exchange_rate,amount,
-                       base_amount,allocated_amount,reference,reversal_of_id,posted_at,version_no
+                       base_amount,allocated_amount,reference,reversal_of_id,posted_at,version_no,original_payment_id
                 FROM flowora_payment_v2 WHERE organization_id=? AND id=?
                 """, (rs, row) -> new PaymentView(rs.getString("id"), rs.getString("number"),
                 rs.getString("payment_type"), rs.getString("party_type"), rs.getString("party_id"),
@@ -389,10 +424,59 @@ public class FinanceDocumentService {
                 rs.getDate("exchange_rate_date").toLocalDate(), rs.getString("currency_code"),
                 rs.getString("base_currency_code"), rs.getBigDecimal("exchange_rate"), rs.getBigDecimal("amount"),
                 rs.getBigDecimal("base_amount"), rs.getBigDecimal("allocated_amount"), rs.getString("reference"),
-                rs.getString("reversal_of_id"), timestamp(rs.getTimestamp("posted_at")), rs.getLong("version_no"),
+                rs.getString("reversal_of_id"), timestamp(rs.getTimestamp("posted_at")), rs.getLong("version_no"), rs.getString("original_payment_id"),
                 allocations(organizationId, rs.getString("id"))), organizationId, id);
         if (values.isEmpty()) throw notFound("payment", id);
         return values.getFirst();
+    }
+
+    // All callers hold the organization finance lock, including receipt allocation.
+    private PaymentView requireRefundBasis(String organizationId, String type, String partyId, String originalId,
+                                           String currency, String baseCurrency, BigDecimal rate,
+                                           LocalDate rateDate, LocalDate accountingDate) {
+        if (nullable(originalId) == null) throw conflict("REFUND_SOURCE_REQUIRED", Map.of());
+        PaymentView original = paymentForUpdate(organizationId, originalId);
+        requireNoUnlinkedRefunds(organizationId, original);
+        String expected = "CUSTOMER_REFUND".equals(type) ? "RECEIPT" : "PAYMENT";
+        if (!expected.equals(original.paymentType()) || !"POSTED".equals(original.status())
+                || !partyId.equals(original.partyId()) || !upper(currency).equals(original.currencyCode())
+                || !baseCurrency.equals(original.baseCurrencyCode()) || rate.compareTo(original.exchangeRate()) != 0
+                || !rateDate.equals(original.exchangeRateDate()) || accountingDate.isBefore(original.accountingDate())) {
+            throw conflict("REFUND_SOURCE_MISMATCH", Map.of());
+        }
+        return original;
+    }
+
+    private void requireNoUnlinkedRefunds(String organizationId, PaymentView original) {
+        Integer count = jdbc.queryForObject("""
+                SELECT COUNT(*) FROM flowora_payment_v2
+                WHERE organization_id=? AND party_type=? AND party_id=? AND currency_code=?
+                  AND payment_type IN ('CUSTOMER_REFUND','SUPPLIER_REFUND') AND status IN ('DRAFT','POSTED')
+                  AND original_payment_id IS NULL
+                """, Integer.class, organizationId, original.partyType(), original.partyId(), original.currencyCode());
+        if (count != null && count > 0) throw conflict("REFUND_HISTORY_REQUIRES_RECONCILIATION", Map.of());
+    }
+
+    private BigDecimal reservedRefunds(String organizationId, String originalId, String excludedId) {
+        return jdbc.queryForObject("""
+                SELECT COALESCE(SUM(amount),0) FROM flowora_payment_v2
+                WHERE organization_id=? AND original_payment_id=?
+                  AND payment_type IN ('CUSTOMER_REFUND','SUPPLIER_REFUND') AND status IN ('DRAFT','POSTED')
+                  AND (? IS NULL OR id<>?)
+                """, BigDecimal.class, organizationId, originalId, excludedId, excludedId);
+    }
+
+    private BigDecimal refundRemaining(String organizationId, PaymentView original) {
+        requireNoUnlinkedRefunds(organizationId, original);
+        return original.amount().subtract(original.allocatedAmount())
+                .subtract(reservedRefunds(organizationId, original.id(), null));
+    }
+
+    private void requireRefundCapacity(String organizationId, String originalId, String excludedId, BigDecimal amount) {
+        PaymentView original = paymentForUpdate(organizationId, originalId);
+        BigDecimal remaining = original.amount().subtract(original.allocatedAmount())
+                .subtract(reservedRefunds(organizationId, originalId, excludedId));
+        if (amount.compareTo(remaining) > 0) throw conflict("REFUND_EXCEEDS_REMAINING", Map.of("remaining", remaining));
     }
 
     private List<CalculatedLine> calculateLines(String organizationId, String type, List<InvoiceLineCreate> inputs,
