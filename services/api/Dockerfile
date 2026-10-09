@@ -6,7 +6,10 @@ RUN mvn -B -pl services/api -am dependency:go-offline
 COPY services/api services/api
 RUN mvn -B -pl services/api -am -DskipTests package
 
-FROM eclipse-temurin:25-jre
+# Pin the supported Ubuntu 24.04 variant instead of following the floating OS
+# alias to Ubuntu 26.04, whose unused Pebble binary carries an older Go runtime.
+# Java, CA/font libraries and readiness curl remain in the runtime image.
+FROM eclipse-temurin:25.0.4.1_1-jre-noble
 RUN apt-get update && apt-get upgrade -y --no-install-recommends \
     && apt-get install -y --no-install-recommends curl \
     && rm -rf /var/lib/apt/lists/*

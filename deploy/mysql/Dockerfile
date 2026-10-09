@@ -1,4 +1,4 @@
-FROM golang:1.27.1-bookworm AS gosu-build
+FROM golang:1.27.2-bookworm AS gosu-build
 WORKDIR /src
 # Rebuild the same upstream gosu 1.19 source with patched Go and x/sys.
 # Immutable commit and archive checksum verified from the official repository.
