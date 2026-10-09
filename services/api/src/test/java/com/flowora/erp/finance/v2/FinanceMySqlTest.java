@@ -198,11 +198,22 @@ class FinanceMySqlTest {
         run(()->documents.postInvoice(actor,invoice.id(),0));
         String request=key(); var body=new RevaluationCreate(date,"EUR",n("2"),date.plusDays(1));
         var valuation=run(()->operations.revalue(actor,request,body));
+        assertThat(operations.revaluations(org)).singleElement().satisfies(row -> {
+            assertThat(row.id()).isEqualTo(valuation.id());
+            assertThat(row.status()).isEqualTo("POSTED");
+            assertThat(row.totalGain()).isEqualByComparingTo("100");
+        });
+        assertThat(operations.revaluations(key())).isEmpty();
         assertThat(run(()->operations.revalue(actor,request,body)).id()).isEqualTo(valuation.id());
         assertThatThrownBy(()->run(()->operations.revalue(actor,key(),body))).isInstanceOf(PlatformApiException.class);
         String reverseKey=key();
         var reversed=run(()->operations.reverseRevaluation(actor,valuation.id(),date.plusDays(1),"R3 valuation undo",reverseKey));
         assertThat(run(()->operations.reverseRevaluation(actor,valuation.id(),date.plusDays(1),"R3 valuation undo",reverseKey)).id()).isEqualTo(reversed.id());
+        assertThat(operations.revaluations(org)).singleElement().extracting(RevaluationHistoryView::status).isEqualTo("REVERSED");
+        var noAdjustment=run(()->operations.revalue(actor,key(),new RevaluationCreate(date.plusDays(1),"EUR",n("1"),null)));
+        assertThat(noAdjustment.journalEntryId()).isNull();
+        assertThat(operations.revaluations(org)).filteredOn(row -> row.id().equals(noAdjustment.id()))
+                .singleElement().extracting(RevaluationHistoryView::status).isEqualTo("NO_ADJUSTMENT");
         assertThat(jdbc.queryForObject("SELECT SUM(base_credit-base_debit) FROM flowora_journal_line WHERE organization_id=? AND account_code='FX_GAIN'",BigDecimal.class,org)).isEqualByComparingTo("0");
     }
     @Test void bankReconciliationRequiresCorrectDirectionAndSameBankAndCurrency() {

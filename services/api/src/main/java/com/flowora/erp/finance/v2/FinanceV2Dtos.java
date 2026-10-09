@@ -202,6 +202,10 @@ public final class FinanceV2Dtos {
                                   BigDecimal totalLoss, String journalEntryId, LocalDate reversalDate) {
     }
 
+    public record RevaluationHistoryView(String id, String number, LocalDate accountingDate,
+                                         String currencyCode, BigDecimal rate, BigDecimal totalGain,
+                                         BigDecimal totalLoss, String journalEntryId, String status) {}
+
     public record TrialBalanceRow(String accountCode, BigDecimal debit, BigDecimal credit,
                                   BigDecimal balance) {
     }
