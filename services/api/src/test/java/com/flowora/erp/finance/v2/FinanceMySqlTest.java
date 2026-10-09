@@ -117,6 +117,39 @@ class FinanceMySqlTest {
         jdbc.update("UPDATE flowora_sales_delivery SET status='DRAFT' WHERE id=? AND organization_id=?",delivery,org);
         assertThat(documents.stockInvoiceSources(org)).isEmpty();
     }
+    @Test void foreignStockInvoicesAndCreditsRetainOriginalRateAndReleaseSourceQuantity() {
+        for (boolean purchase : List.of(true, false)) {
+            String order=key(), orderLine=key(), stock=key(), stockLine=key();
+            String party=purchase?supplier:customer;
+            if (purchase) {
+                jdbc.update("INSERT INTO flowora_purchase_order(id,organization_id,number,supplier_id,warehouse_id,status,buyer_user_id,order_date,currency_code) VALUES (?,?,?,?,?,'RECEIVED','system:r6c','2026-10-01','EUR')",order,org,order.substring(0,30),party,"r6c-warehouse");
+                jdbc.update("INSERT INTO flowora_purchase_order_line(id,organization_id,purchase_order_id,item_id,ordered_quantity,received_quantity,unit_price,discount_rate,tax_rate) VALUES (?,?,?,?,2,2,10,5,10)",orderLine,org,order,"r6c-item");
+                jdbc.update("INSERT INTO flowora_purchase_receipt(id,organization_id,number,purchase_order_id,warehouse_id,status,received_by) VALUES (?,?,?,?,?,'POSTED','system:r6c')",stock,org,stock.substring(0,30),order,"r6c-warehouse");
+                jdbc.update("INSERT INTO flowora_purchase_receipt_line(id,organization_id,purchase_receipt_id,purchase_order_line_id,item_id,quantity,accepted_quantity,unit_cost) VALUES (?,?,?,?,?,2,2,12.35)",stockLine,org,stock,orderLine,"r6c-item");
+            } else {
+                jdbc.update("INSERT INTO flowora_sales_order(id,organization_id,number,customer_id,warehouse_id,status,sales_user_id,order_date,currency_code,total_amount) VALUES (?,?,?,?,?,'DELIVERED','system:r6c','2026-10-01','EUR',20.9)",order,org,order.substring(0,30),party,"r6c-warehouse");
+                jdbc.update("INSERT INTO flowora_sales_order_line(id,organization_id,sales_order_id,item_id,ordered_quantity,fulfilled_quantity,unit_price,discount_rate,tax_rate) VALUES (?,?,?,?,2,2,10,5,10)",orderLine,org,order,"r6c-item");
+                jdbc.update("INSERT INTO flowora_sales_delivery(id,organization_id,number,sales_order_id,warehouse_id,status,actor_user_id) VALUES (?,?,?,?,?,'POSTED','system:r6c')",stock,org,stock.substring(0,30),order,"r6c-warehouse");
+                jdbc.update("INSERT INTO flowora_sales_delivery_line(id,organization_id,delivery_id,sales_order_line_id,item_id,quantity,unit_cost) VALUES (?,?,?,?,?,2,8)",stockLine,org,stock,orderLine,"r6c-item");
+            }
+            var source=new InvoiceSourceCreate(purchase?"PURCHASE_RECEIPT_LINE":"SALES_DELIVERY_LINE",stock,stockLine,n("2"),n("19"));
+            var originalLine=new InvoiceLineCreate("r6c-item","R6C FX source",n("2"),n("10"),n("5"),n("10"),null,null,List.of(source));
+            var draft=run(()->documents.createInvoice(actor,key(),new InvoiceCreate(purchase?"SUPPLIER_INVOICE":"SALES_INVOICE",party,null,null,date,date,date,date,"EUR",n("1.3"),List.of(originalLine))));
+            var posted=run(()->documents.postInvoice(actor,draft.id(),0));
+            assertThat(posted.baseTotalAmount()).isEqualByComparingTo("27.17");
+            String originalAccount=posted.lines().getFirst().reversalAccountCode();
+            assertThat(originalAccount).isEqualTo(purchase?"ACCRUED_PAYABLE":"REVENUE");
+            var creditSource=new InvoiceSourceCreate("ORIGINAL_INVOICE_LINE",posted.id(),posted.lines().getFirst().id(),n("1"),n("9.5"));
+            var creditLine=new InvoiceLineCreate("r6c-item","R6C FX credit",n("1"),n("10"),n("5"),n("10"),originalAccount,null,List.of(creditSource));
+            var credit=run(()->documents.createInvoice(actor,key(),new InvoiceCreate(purchase?"SUPPLIER_CREDIT":"CUSTOMER_CREDIT",party,null,posted.id(),date,date,date,posted.exchangeRateDate(),posted.currencyCode(),posted.exchangeRate(),List.of(creditLine))));
+            var postedCredit=run(()->documents.postInvoice(actor,credit.id(),0));
+            assertThat(postedCredit.baseTotalAmount()).isEqualByComparingTo("13.585");
+            assertThat(documents.invoice(org,posted.id()).creditedAmount()).isEqualByComparingTo("10.45");
+            assertThat(documents.invoice(org,posted.id()).lines().getFirst().creditedQuantity()).isEqualByComparingTo("1");
+            assertThat(documents.stockInvoiceSources(org).stream().filter(row->row.sourceLineId().equals(stockLine)).findFirst().orElseThrow().remainingQuantity()).isEqualByComparingTo("1");
+            assertThat(jdbc.queryForObject("SELECT SUM(base_debit-base_credit) FROM flowora_journal_line WHERE organization_id=? AND account_code=?",BigDecimal.class,org,purchase?"PAYABLE":"RECEIVABLE")).isEqualByComparingTo(purchase?"-13.585":"13.585");
+        }
+    }
     @Test void roundingMismatchIsRejectedBeforeAnyJournalOrInvoicePosting() {
         var invoice=run(()->documents.createInvoice(actor,key(),input("SALES_INVOICE",customer,"0.5",List.of(line("0.0001",List.of()),line("0.0001",List.of())))));
         assertThatThrownBy(()->run(()->documents.postInvoice(actor,invoice.id(),0))).isInstanceOf(PlatformApiException.class);

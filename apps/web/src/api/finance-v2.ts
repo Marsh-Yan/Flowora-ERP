@@ -15,7 +15,7 @@ export interface FinanceInvoice {
 
 export interface FinanceInvoiceDetail extends FinanceInvoice {
   matchExceptionApprovedBy?: string; matchExceptionReason?: string
-  exchangeRate?: number; originalInvoiceId?: string; projectId?: string
+  exchangeRate?: number; exchangeRateDate?: string; baseCurrencyCode?: string; originalInvoiceId?: string; projectId?: string
   lines: Array<{ id: string; lineNo: number; description: string; quantity: number; unitPrice: number; discountRate?: number; taxRate: number; creditedQuantity?: number; itemId?: string; accountCode?: string; reversalAccountCode?: string; projectId?: string; matchQuantityVariance: number; matchPriceVarianceRate: number; matchTaxVariance: number; sources: Array<{ sourceType: string; sourceId: string; sourceLineId?: string; quantity: number; amount: number }> }>
 }
 export async function getFinanceInvoice(id: string) {
