@@ -36,6 +36,6 @@ SQL 四单均 POSTED，原发票 credited_amount 分别 13.2/9.5 USD，原行 cr
 
 首次完整 CI 的业务四项通过，但实际 Compose 镜像检查阻塞：API 基础镜像中未使用的 Pebble、MySQL gosu 与 Prometheus 两个程序的 Go 标准库需补丁，Prometheus x/net 需 0.60.0。原检查覆盖及失败门禁保留，没有新增排除项。
 
-MySQL 同一 gosu 源码改用 Go 1.27.2 编译。API 固定官方 Temurin 25.0.4.1_1-jre-noble（Ubuntu 24.04），保持 Java 25、CA/字体库及 curl，以免浮动 OS 别名引入无业务用途的旧 Go 服务管理程序。Prometheus 仍为 3.15.0，固定官方源码 commit 5241a27fe3c6983549fccc32f6e65917408c63cd 及已发布 UI 资产的 SHA256，使用 Go 1.27.2/x/net 0.60.0 编译 prometheus 和 promtool，包含 builtinassets，沿用上游 nobody、入口、配置及数据卷。未将旧二进制作为修复结果交付。
+MySQL 同一 gosu 源码改用 Go 1.27.2 编译。API 固定官方 Temurin 25.0.4.1_1-jre-noble（Ubuntu 24.04），保持 Java 25、CA/字体库及 curl，以免浮动 OS 别名引入无业务用途的旧 Go 服务管理程序。Prometheus 仍为 3.15.0，固定官方源码 commit 5241a27fe3c6983549fccc32f6e65917408c63cd 及已发布 UI 资产的 SHA256，使用 Go 1.27.2/x/net 0.60.0 编译 prometheus 和 promtool，包含 builtinassets 并保留上游符号表供现有实际二进制分析，沿用上游 nobody、入口、配置及数据卷。未将旧二进制作为修复结果交付。
 
 依据：[Go 官方补丁发布记录](https://go.dev/doc/devel/release)、[Temurin 官方镜像标签](https://github.com/docker-library/official-images/blob/master/library/eclipse-temurin)、[Prometheus 3.15.0 官方发布](https://github.com/prometheus/prometheus/releases/tag/v3.15.0)及其源码构建配置。最终以最新提交完整 CI 的实际镜像、规则测试、启动/健康和重启结果核实兼容性；Windows 本机未执行 Docker 镜像构建。
