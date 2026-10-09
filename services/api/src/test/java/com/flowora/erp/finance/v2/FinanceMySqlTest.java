@@ -355,6 +355,8 @@ class FinanceMySqlTest {
     @Test void refundSourceBoundsReplayAndAllocationRemainConsistent() {
         var original=run(()->documents.createPayment(actor,key(),new PaymentCreate("RECEIPT",customer,null,date,date,date,"EUR",n("1.3"),n("100"),"original")));
         run(()->documents.postPayment(actor,original.id(),0));
+        assertThatThrownBy(()->run(()->documents.createPayment(actor,key(),new PaymentCreate("CUSTOMER_REFUND",customer,null,date,date,date,"EUR",n("1.3"),n("0.00001"),"overprecision",original.id()))))
+                .isInstanceOf(PlatformApiException.class).extracting("code").isEqualTo("REFUND_AMOUNT_PRECISION");
         String request=key();
         var refund=run(()->documents.createPayment(actor,request,new PaymentCreate("CUSTOMER_REFUND",customer,null,date,date,date,"EUR",n("1.3"),n("40"),"refund",original.id())));
         assertThatThrownBy(()->run(()->documents.createPayment(actor,request,new PaymentCreate("CUSTOMER_REFUND",customer,null,date,date,date,"EUR",n("1.3"),n("41"),"refund",original.id()))))

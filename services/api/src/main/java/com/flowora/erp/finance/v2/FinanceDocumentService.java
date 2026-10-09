@@ -257,6 +257,8 @@ public class FinanceDocumentService {
         ledger.lockOrganizationFinance(actor.organizationId());
         String type = upper(body.paymentType());
         if (!PAYMENT_TYPES.contains(type)) throw conflict("INVALID_PAYMENT_TYPE", Map.of("paymentType", type));
+        if (type.endsWith("REFUND") && body.amount().stripTrailingZeros().scale() > 4)
+            throw conflict("REFUND_AMOUNT_PRECISION", Map.of());
         String key = requiredKey(requestId);
         List<String> existing = jdbc.query("SELECT id FROM flowora_payment_v2 WHERE organization_id=? AND request_id=?",
                 (rs, row) -> rs.getString(1), actor.organizationId(), key);
