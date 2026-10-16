@@ -97,8 +97,15 @@ public final class FinanceV2Dtos {
             @NotBlank @Size(min = 3, max = 3) String currencyCode,
             @NotNull @Positive BigDecimal exchangeRate,
             @NotNull @Positive BigDecimal amount,
-            @Size(max = 160) String reference
+            @Size(max = 160) String reference,
+            String originalPaymentId
     ) {
+        public PaymentCreate(String paymentType, String partyId, String bankAccountId,
+                             LocalDate businessDate, LocalDate accountingDate, LocalDate exchangeRateDate,
+                             String currencyCode, BigDecimal exchangeRate, BigDecimal amount, String reference) {
+            this(paymentType, partyId, bankAccountId, businessDate, accountingDate, exchangeRateDate,
+                    currencyCode, exchangeRate, amount, reference, null);
+        }
     }
 
     public record AllocationCreate(@NotBlank String invoiceId, @NotNull @Positive BigDecimal amount) {
@@ -118,7 +125,7 @@ public final class FinanceV2Dtos {
                               LocalDate exchangeRateDate, String currencyCode, String baseCurrencyCode,
                               BigDecimal exchangeRate, BigDecimal amount, BigDecimal baseAmount,
                               BigDecimal allocatedAmount, String reference, String reversalOfId,
-                              LocalDateTime postedAt, long version, List<AllocationView> allocations) {
+                              LocalDateTime postedAt, long version, String originalPaymentId, List<AllocationView> allocations) {
     }
 
     public record JournalLineView(int lineNo, String accountCode, String description,
