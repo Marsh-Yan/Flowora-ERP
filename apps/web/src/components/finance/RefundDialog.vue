@@ -58,14 +58,14 @@ async function save(){
   busy.value=true;uncertain.value=false
   try {await createFinancePayment(body,key);if(token === generation){form.amount=0;form.confirmed=false}}
   catch{if(token === generation)uncertain.value=true}
-  finally{if(token === generation){await load();emit('changed')}busy.value=false}
+  finally{if(token === generation){const refresh=generation+1;await load();if(generation === refresh)emit('changed')}busy.value=false}
 }
 async function post(){
   if(busy.value || !ready.value || !canPost.value || !draft.value || !form.postConfirmed)return
   const row=draft.value,token=generation;busy.value=true;uncertain.value=false
   try{await postFinancePayment(row);if(token === generation){form.draft='';form.postConfirmed=false}}
   catch{if(token === generation)uncertain.value=true}
-  finally{if(token === generation){await load();emit('changed')}busy.value=false}
+  finally{if(token === generation){const refresh=generation+1;await load();if(generation === refresh)emit('changed')}busy.value=false}
 }
 </script>
 <template>
