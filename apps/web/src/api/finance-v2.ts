@@ -29,6 +29,7 @@ export async function approveFinanceMatchException(id: string, reason: string) {
 
 export interface FinancePayment {
   id: string; number: string; paymentType: string; partyType: string; partyId: string; bankAccountId?: string; status: string
+  originalPaymentId?: string; exchangeRate?: number; exchangeRateDate?: string; baseCurrencyCode?: string;
   allocationStatus: string; accountingDate: string; currencyCode: string; amount: number; allocatedAmount: number; version: number; allocations: FinanceAllocation[]
 }
 
@@ -44,7 +45,7 @@ export interface InvoiceInput {
 }
 
 export interface PaymentInput {
-  paymentType: 'RECEIPT' | 'PAYMENT'; partyId: string; bankAccountId?: string; businessDate: string
+  paymentType: 'RECEIPT' | 'PAYMENT' | 'CUSTOMER_REFUND' | 'SUPPLIER_REFUND'; originalPaymentId?: string; partyId: string; bankAccountId?: string; businessDate: string
   accountingDate: string; exchangeRateDate: string; currencyCode: string; exchangeRate: number; amount: number; reference?: string
 }
 

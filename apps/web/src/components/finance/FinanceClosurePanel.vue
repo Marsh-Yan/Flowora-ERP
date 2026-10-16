@@ -14,6 +14,7 @@ import BankStatementDialog from './BankStatementDialog.vue'
 import BankReconciliationDialog from './BankReconciliationDialog.vue'
 import StockInvoiceDialog from './StockInvoiceDialog.vue'
 import CreditNoteDialog from './CreditNoteDialog.vue'
+import RefundDialog from './RefundDialog.vue'
 import CurrencyRevaluationDialog from './CurrencyRevaluationDialog.vue'
 import ForeignDocumentDialog from './ForeignDocumentDialog.vue'
 import MatchExceptionDialog from './MatchExceptionDialog.vue'
@@ -39,6 +40,7 @@ const suppliers = ref<MasterDataRecord[]>([])
 const invoiceVisible = ref(false)
 const stockInvoiceVisible = ref(false)
 const creditVisible = ref(false), revaluationVisible = ref(false)
+const refundVisible = ref(false)
 const foreignVisible = ref(false)
 const matchVisible = ref(false), matchInvoiceId = ref('')
 function openMatch(row: FinanceInvoice) {
@@ -173,12 +175,14 @@ onMounted(load)
     <el-button v-if="auth.hasPermission('finance:view')" :disabled="loading || saving || !!postingId" @click="revaluationVisible = true">{{ t('finance.revaluation.open') }}</el-button>
     <el-button v-if="auth.hasPermission('finance:view') && auth.hasPermission('finance:invoice')" :disabled="loading || saving || !!postingId" @click="creditVisible = true">{{ t('finance.creditNote.open') }}</el-button>
     <el-button v-if="auth.hasPermission('finance:view') && auth.hasPermission('master:view') && (auth.hasPermission('finance:invoice') || auth.hasPermission('finance:create'))" :disabled="loading || saving || !!postingId" @click="foreignVisible = true">{{ t('finance.foreign.open') }}</el-button>
+    <el-button v-if="auth.hasPermission('finance:view')" :disabled="loading || saving || !!postingId" @click="refundVisible = true">{{ t('finance.refund.title') }}</el-button>
     <el-tabs>
       <el-tab-pane :label="t('finance.m4.invoices')"><el-table :data="invoices" size="small"><el-table-column prop="number" :label="t('finance.number')" /><el-table-column prop="documentType" :label="t('finance.m4.type')" /><el-table-column prop="accountingDate" :label="t('finance.entryDate')" /><el-table-column :label="t('finance.amount')"><template #default="{ row }">{{ money(row.totalAmount) }} {{ row.currencyCode }}</template></el-table-column><el-table-column :label="t('finance.statusLabel')"><template #default="{ row }"><el-tag :type="statusType(row.status)">{{ row.status }}</el-tag></template></el-table-column><el-table-column :label="t('finance.actions')"><template #default="{ row }"><el-button v-if="auth.hasPermission('finance:view') && row.documentType === 'SUPPLIER_INVOICE' && ['EXCEPTION', 'APPROVED_EXCEPTION'].includes(row.matchStatus)" link type="primary" :disabled="loading || !!postingId" @click="openMatch(row)">{{ t('finance.matchException.open') }}</el-button><el-button v-if="auth.hasPermission('finance:post') && row.status === 'DRAFT'" link type="primary" :disabled="!!postingId || loading || row.matchStatus === 'EXCEPTION'" :loading="postingId === row.id" @click="postInvoice(row)">{{ t('finance.m4.post') }}</el-button></template></el-table-column></el-table></el-tab-pane>
       <el-tab-pane :label="t('finance.m4.payments')"><el-table :data="payments" size="small"><el-table-column prop="number" :label="t('finance.number')" /><el-table-column prop="paymentType" :label="t('finance.m4.type')" /><el-table-column prop="accountingDate" :label="t('finance.entryDate')" /><el-table-column :label="t('finance.amount')"><template #default="{ row }">{{ money(row.amount) }} {{ row.currencyCode }}</template></el-table-column><el-table-column :label="t('finance.statusLabel')"><template #default="{ row }"><el-tag :type="statusType(row.status)">{{ row.status }}</el-tag></template></el-table-column><el-table-column :label="t('finance.actions')"><template #default="{ row }"><el-button v-if="auth.hasPermission('finance:post') && row.status === 'DRAFT'" link type="primary" :disabled="!!postingId || loading" :loading="postingId === row.id" @click="postPayment(row)">{{ t('finance.m4.post') }}</el-button><el-button v-if="auth.hasPermission('finance:view') && auth.hasPermission('finance:allocate') && row.status === 'POSTED' && ['RECEIPT', 'PAYMENT'].includes(row.paymentType)" link type="primary" :disabled="loading || !!postingId" @click="openAllocation(row)">{{ t('finance.allocation.manage') }}</el-button></template></el-table-column></el-table></el-tab-pane>
       <el-tab-pane :label="t('finance.m4.bank')"><el-table :data="statements" size="small"><el-table-column :label="t('finance.bankEntry.account')"><template #default="{ row }">{{ bankName(row.bankAccountId) }}</template></el-table-column><el-table-column prop="transactionDate" :label="t('finance.entryDate')" /><el-table-column prop="externalReference" :label="t('finance.m4.reference')" /><el-table-column prop="counterparty" :label="t('finance.m4.counterparty')" /><el-table-column :label="t('finance.amount')"><template #default="{ row }">{{ money(row.amount) }} {{ row.currencyCode }}</template></el-table-column><el-table-column prop="reconciliationStatus" :label="t('finance.statusLabel')" /></el-table></el-tab-pane>
     </el-tabs>
   </el-card>
+  <RefundDialog v-model="refundVisible" @changed="allocationChanged" />
   <ForeignDocumentDialog v-model="foreignVisible" @changed="allocationChanged" />
   <CurrencyRevaluationDialog v-model="revaluationVisible" @changed="allocationChanged" />
   <CreditNoteDialog v-model="creditVisible" @changed="allocationChanged" />
