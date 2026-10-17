@@ -15,6 +15,7 @@ const failed = ref(false)
 const actionFailed = ref(false)
 const payment = ref<FinancePayment | null>(null)
 const invoices = ref<FinanceInvoice[]>([])
+const allPayments = ref<FinancePayment[]>([])
 const form = reactive({ invoiceId: '', amount: 0 })
 const reversal = ref<FinanceAllocation | null>(null)
 const reason = ref('')
@@ -22,7 +23,15 @@ const reversalKey = ref('')
 let loadVersion = 0
 const canManage = computed(() => auth.hasPermission('finance:view') && auth.hasPermission('finance:allocate'))
 const remaining = (total: number, allocated: number, credited = 0) => Math.max(0, Math.round((total - allocated - credited) * 10000) / 10000)
-const paymentRemaining = computed(() => payment.value ? remaining(payment.value.amount, payment.value.allocatedAmount) : 0)
+const paymentRemaining = computed(() => {
+  const row = payment.value
+  if (!row || !Number.isFinite(row.amount) || !Number.isFinite(row.allocatedAmount)) return 0
+  const active = allPayments.value.filter(r => ['CUSTOMER_REFUND','SUPPLIER_REFUND'].includes(r.paymentType) && ['DRAFT','POSTED'].includes(r.status))
+  if (active.some(r => !r.originalPaymentId && r.partyType === row.partyType && r.partyId === row.partyId && r.currencyCode === row.currencyCode)) return 0
+  const linked = active.filter(r => r.originalPaymentId === row.id)
+  if (linked.some(r => !Number.isFinite(r.amount) || r.amount < 0)) return 0
+  return remaining(row.amount,row.allocatedAmount,linked.reduce((sum,r)=>sum+r.amount,0))
+})
 const candidates = computed(() => invoices.value.filter(row => payment.value && row.status === 'POSTED' && row.partyType === payment.value.partyType && row.partyId === payment.value.partyId && row.currencyCode === payment.value.currencyCode && row.documentType === (payment.value.paymentType === 'RECEIPT' ? 'SALES_INVOICE' : 'SUPPLIER_INVOICE') && remaining(row.totalAmount, row.allocatedAmount, row.creditedAmount) > 0))
 const selected = computed(() => candidates.value.find(row => row.id === form.invoiceId))
 const maximum = computed(() => selected.value ? Math.min(paymentRemaining.value, remaining(selected.value.totalAmount, selected.value.allocatedAmount, selected.value.creditedAmount)) : 0)
@@ -36,12 +45,13 @@ function close() { if (!busy.value) emit('update:modelValue', false) }
 
 async function load() {
   const version = ++loadVersion
-  if (!props.modelValue || !canManage.value || !props.paymentId) { payment.value = null; invoices.value = []; loading.value = false; return }
+  if (!props.modelValue || !canManage.value || !props.paymentId) { payment.value = null; invoices.value = []; allPayments.value = []; loading.value = false; return }
   const organizationId = auth.user?.organizationId
   loading.value = true; failed.value = false
   try {
     const [paymentRows, invoiceRows] = await Promise.all([listFinancePayments(), listFinanceInvoices()])
     if (version !== loadVersion || organizationId !== auth.user?.organizationId) return
+    allPayments.value = paymentRows
     payment.value = paymentRows.find(row => row.id === props.paymentId) ?? null
     invoices.value = invoiceRows
     if (!payment.value) failed.value = true
@@ -93,7 +103,7 @@ async function reverse() {
       <el-form v-if="ready && !reversal" class="allocation-form" label-position="top" :disabled="busy">
         <p>{{ t('finance.allocation.allDates') }}</p>
         <el-form-item :label="t('finance.allocation.invoice')"><el-select v-model="form.invoiceId" class="full-width" @change="selectInvoice"><el-option v-for="row in candidates" :key="row.id" :value="row.id" :label="`${row.number} · ${money(remaining(row.totalAmount, row.allocatedAmount, row.creditedAmount))} ${row.currencyCode}`" /></el-select></el-form-item>
-        <el-form-item :label="t('finance.allocation.amount')"><el-input-number v-model="form.amount" :min="0" :max="maximum" :precision="4" class="full-width" /></el-form-item>
+        <el-form-item :label="t('finance.allocation.amount')"><el-input-number :key="`${busy}:${maximum}`" v-model="form.amount" :min="0" :max="maximum" :precision="4" class="full-width" /></el-form-item>
         <el-button type="primary" :loading="busy" :disabled="busy || !valid" @click="allocate">{{ t('finance.allocation.apply') }}</el-button>
         <p v-if="!candidates.length || paymentRemaining === 0">{{ t('finance.allocation.empty') }}</p>
       </el-form>

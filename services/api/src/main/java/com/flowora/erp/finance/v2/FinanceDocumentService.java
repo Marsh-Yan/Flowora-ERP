@@ -871,13 +871,26 @@ public class FinanceDocumentService {
     private void applyCredit(String organizationId, InvoiceView credit) {
         InvoiceView original = invoiceForUpdate(organizationId, credit.originalInvoiceId());
         ledger.requireNoActiveRevaluation(organizationId, original.id());
-        BigDecimal remaining = original.totalAmount().subtract(original.creditedAmount());
-        if (credit.totalAmount().compareTo(remaining) > 0) throw conflict("CREDIT_EXCEEDS_REMAINING", Map.of("remaining", remaining));
+        // Allocation and credit posting share the organization finance lock. Inspect
+        // current allocation rows as well as the header before consuming the remainder.
+        var amounts = jdbc.query("""
+                SELECT amount FROM flowora_payment_allocation
+                WHERE organization_id=? AND invoice_id=? AND status='ACTIVE' FOR UPDATE
+                """, (rs, row) -> rs.getBigDecimal("amount"), organizationId, original.id());
+        BigDecimal activeAllocated = amounts.stream().reduce(BigDecimal.ZERO, BigDecimal::add);
+        if (!"POSTED".equals(original.status()) || original.allocatedAmount().signum() < 0
+                || original.creditedAmount().signum() < 0
+                || original.allocatedAmount().compareTo(activeAllocated) != 0)
+            throw conflict("CREDIT_SETTLEMENT_STATE_CONFLICT", Map.of());
+        BigDecimal remaining = original.totalAmount().subtract(original.creditedAmount()).subtract(activeAllocated);
+        if (credit.totalAmount().compareTo(remaining) > 0)
+            throw conflict(activeAllocated.signum() > 0 ? "CREDIT_REQUIRES_ALLOCATION_RELEASE" : "CREDIT_EXCEEDS_REMAINING", Map.of("remaining", remaining));
         jdbc.update("""
                 UPDATE flowora_finance_invoice SET
+                settlement_status=CASE WHEN allocated_amount+credited_amount+?=total_amount THEN 'PAID' ELSE 'PARTIAL' END,
                 credit_status=CASE WHEN credited_amount+?=total_amount THEN 'FULL' ELSE 'PARTIAL' END,credited_amount=credited_amount+?,
                 version_no=version_no+1 WHERE id=? AND organization_id=?
-                """, credit.totalAmount(), credit.totalAmount(), original.id(), organizationId);
+                """, credit.totalAmount(), credit.totalAmount(), credit.totalAmount(), original.id(), organizationId);
         for (InvoiceLineView line : credit.lines()) {
             for (InvoiceSourceView source : line.sources()) {
                 if (!"ORIGINAL_INVOICE_LINE".equals(source.sourceType()) || source.sourceLineId() == null) continue;

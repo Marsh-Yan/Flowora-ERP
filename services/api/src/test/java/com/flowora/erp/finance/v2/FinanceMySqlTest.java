@@ -765,6 +765,117 @@ class FinanceMySqlTest {
             else {assertThat(results).containsExactlyInAnyOrder("PAYMENT_HAS_ACTIVE_REFUNDS","DRAFT");assertThat(current.paymentCorrection()).isNull();}
         } finally {pool.shutdownNow();}
     }
+    InvoiceView refundInvoice(boolean purchase) {
+        var draft=run(()->documents.createInvoice(actor,key(),input(purchase?"SUPPLIER_INVOICE":"SALES_INVOICE",purchase?supplier:customer,"1.2",List.of(line("100",List.of())))));
+        return run(()->documents.postInvoice(actor,draft.id(),0));
+    }
+    InvoiceView creditFor(InvoiceView original,String amount) {
+        var row=original.lines().getFirst();BigDecimal quantity=n(amount).divide(n("100"));
+        var source=new InvoiceSourceCreate("ORIGINAL_INVOICE_LINE",original.id(),row.id(),quantity,n(amount));
+        var line=new InvoiceLineCreate(null,"Returned invoiced quantity",quantity,n("100"),n("0"),n("0"),row.reversalAccountCode(),null,List.of(source));
+        return run(()->documents.createInvoice(actor,key(),new InvoiceCreate(original.partyType().equals("CUSTOMER")?"CUSTOMER_CREDIT":"SUPPLIER_CREDIT",original.partyId(),null,original.id(),date,date,date,date,"EUR",n("1.2"),List.of(line))));
+    }
+    @Test void fullyPaidInvoiceCannotBeCreditedUntilAllocationIsExplicitlyReversedBothSides() {
+        for(boolean purchase:List.of(false,true)) {
+            var invoice=refundInvoice(purchase);var payment=originalRefundPayment(purchase,null);
+            var allocation=run(()->documents.allocate(actor,payment.id(),new AllocationCreate(invoice.id(),n("100"))));
+            var credit=creditFor(invoice,"30");
+            int before=ledger.journals(org,date,date).size();
+            assertThatThrownBy(()->run(()->documents.postInvoice(actor,credit.id(),0)))
+                    .isInstanceOf(PlatformApiException.class).extracting("code").isEqualTo("CREDIT_REQUIRES_ALLOCATION_RELEASE");
+            assertThat(documents.invoice(org,credit.id()).status()).isEqualTo("DRAFT");
+            assertThat(documents.invoice(org,invoice.id()).creditedAmount()).isEqualByComparingTo("0");
+            assertThat(documents.invoice(org,invoice.id()).lines().getFirst().creditedQuantity()).isEqualByComparingTo("0");
+            assertThat(ledger.journals(org,date,date)).hasSize(before);
+            assertThatThrownBy(()->exchangeRefund(payment,"30","1.4")).isInstanceOf(PlatformApiException.class);
+            run(()->documents.reverseAllocation(actor,allocation.id(),key(),new AllocationReverse("Paid invoice return")));
+            assertThat(documents.invoice(org,invoice.id()).settlementStatus()).isEqualTo("UNPAID");
+            run(()->documents.postInvoice(actor,credit.id(),0));
+            assertThat(documents.invoice(org,invoice.id()).settlementStatus()).isEqualTo("PARTIAL");
+            assertThat(documents.invoice(org,invoice.id()).creditedAmount()).isEqualByComparingTo("30");
+        }
+    }
+    @Test void partiallyReturnedPaidInvoiceRetainsSeventyAllocatedAndRefundsThirtyWithExactFxBothSides() {
+        for(boolean purchase:List.of(false,true)) {
+            var invoice=refundInvoice(purchase);var payment=originalRefundPayment(purchase,null);
+            var allocation=run(()->documents.allocate(actor,payment.id(),new AllocationCreate(invoice.id(),n("100"))));
+            String reversalKey=key();var reason=new AllocationReverse("Return thirty and retain seventy");
+            run(()->documents.reverseAllocation(actor,allocation.id(),reversalKey,reason));
+            run(()->documents.reverseAllocation(actor,allocation.id(),reversalKey,reason));
+            run(()->documents.allocate(actor,payment.id(),new AllocationCreate(invoice.id(),n("70"))));
+            var credit=creditFor(invoice,"30");run(()->documents.postInvoice(actor,credit.id(),0));
+            var settled=documents.invoice(org,invoice.id());
+            assertThat(settled.allocatedAmount()).isEqualByComparingTo("70");assertThat(settled.creditedAmount()).isEqualByComparingTo("30");
+            assertThat(settled.settlementStatus()).isEqualTo("PAID");assertThat(settled.lines().getFirst().creditedQuantity()).isEqualByComparingTo("0.3");
+            var refund=exchangeRefund(payment,"30","1.4");
+            assertThat(refund.refundSourceBaseAmount()).isEqualByComparingTo("39");
+            var posted=run(()->documents.postPayment(actor,refund.id(),0));
+            assertThat(posted.baseAmount()).isEqualByComparingTo("42");assertThat(posted.realizedExchangeDifference()).isEqualByComparingTo("3");
+            assertThat(accountNet(purchase?"PAYABLE":"RECEIVABLE",payment.partyId())).isEqualByComparingTo("0");
+            assertThat(accountNet("CASH",payment.partyId())).isEqualByComparingTo(purchase?"-88":"88");
+            assertThat(accountNet(purchase?"EXPENSE":"REVENUE",payment.partyId())).isEqualByComparingTo(purchase?"84":"-84");
+            assertThat(accountNet("FX_GAIN",payment.partyId()).add(accountNet("FX_LOSS",payment.partyId()))).isEqualByComparingTo(purchase?"4":"-4");
+            assertThat(documents.payment(org,payment.id()).allocatedAmount()).isEqualByComparingTo("70");
+            assertThat(documents.payment(org,payment.id()).status()).isEqualTo("POSTED");
+            assertThatThrownBy(()->exchangeRefund(payment,"0.0001","1.4")).isInstanceOf(PlatformApiException.class);
+            assertThatThrownBy(()->run(()->documents.allocate(actor,payment.id(),new AllocationCreate(invoice.id(),n("1"))))).isInstanceOf(PlatformApiException.class);
+            for(var journal:ledger.journals(org,date,date))assertThat(journal.totalDebit()).isEqualByComparingTo(journal.totalCredit());
+        }
+    }
+    @Test void fullPaidInvoiceCreditAndRefundCloseControlBalancesAtBothSettlementRateDirections() {
+        for(boolean purchase:List.of(false,true))for(String rate:List.of("1.1","1.4")) {
+            var invoice=refundInvoice(purchase);var payment=originalRefundPayment(purchase,null);
+            BigDecimal beforeCash=accountNet("CASH",payment.partyId());
+            var allocation=run(()->documents.allocate(actor,payment.id(),new AllocationCreate(invoice.id(),n("100"))));
+            run(()->documents.reverseAllocation(actor,allocation.id(),key(),new AllocationReverse("Full financial return")));
+            var credit=creditFor(invoice,"100");run(()->documents.postInvoice(actor,credit.id(),0));
+            assertThat(documents.invoice(org,invoice.id()).settlementStatus()).isEqualTo("PAID");
+            assertThat(documents.invoice(org,invoice.id()).creditedAmount()).isEqualByComparingTo("100");
+            var refund=exchangeRefund(payment,"100",rate);run(()->documents.postPayment(actor,refund.id(),0));
+            assertThat(accountNet(purchase?"PAYABLE":"RECEIVABLE",payment.partyId())).isEqualByComparingTo("0");
+            BigDecimal refundBase=n(rate).multiply(n("100"));
+            // beforeCash already includes this original payment's 130 base units.
+            assertThat(accountNet("CASH",payment.partyId())).isEqualByComparingTo(purchase?beforeCash.add(refundBase):beforeCash.subtract(refundBase));
+            assertThat(accountNet(purchase?"EXPENSE":"REVENUE",payment.partyId())).isEqualByComparingTo("0");
+            assertThat(documents.payment(org,payment.id()).allocatedAmount()).isEqualByComparingTo("0");
+        }
+    }
+    @Test void creditChecksActualActiveAllocationsAndRejectsInconsistentHeaderWithoutPartialPosting() {
+        var invoice=refundInvoice(false);var payment=originalRefundPayment(false,null);
+        run(()->documents.allocate(actor,payment.id(),new AllocationCreate(invoice.id(),n("80"))));
+        var credit=creditFor(invoice,"30");
+        assertThatThrownBy(()->run(()->documents.postInvoice(actor,credit.id(),0))).isInstanceOf(PlatformApiException.class).extracting("code").isEqualTo("CREDIT_REQUIRES_ALLOCATION_RELEASE");
+        // Disposable legacy fixture: header lost its allocation total but actual active rows remain.
+        jdbc.update("UPDATE flowora_finance_invoice SET allocated_amount=0 WHERE organization_id=? AND id=?",org,invoice.id());
+        assertThatThrownBy(()->run(()->documents.postInvoice(actor,credit.id(),0))).isInstanceOf(PlatformApiException.class).extracting("code").isEqualTo("CREDIT_SETTLEMENT_STATE_CONFLICT");
+        assertThat(documents.invoice(org,credit.id()).status()).isEqualTo("DRAFT");
+        assertThat(documents.invoice(org,invoice.id()).creditedAmount()).isEqualByComparingTo("0");
+        assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM flowora_journal_entry WHERE organization_id=? AND source_id=?",Integer.class,org,credit.id())).isZero();
+    }
+    @Test void concurrentCreditAndAllocationCannotExceedInvoiceAmount() throws Exception {
+        var invoice=refundInvoice(false);var payment=originalRefundPayment(false,null);var credit=creditFor(invoice,"60");
+        var barrier=new java.util.concurrent.CyclicBarrier(2);var pool=java.util.concurrent.Executors.newFixedThreadPool(2);
+        try {
+            var creditPost=pool.submit(()->{barrier.await(10,java.util.concurrent.TimeUnit.SECONDS);try{return run(()->documents.postInvoice(actor,credit.id(),0)).status();}catch(PlatformApiException ex){return ex.code();}});
+            var allocate=pool.submit(()->{barrier.await(10,java.util.concurrent.TimeUnit.SECONDS);try{return run(()->documents.allocate(actor,payment.id(),new AllocationCreate(invoice.id(),n("60")))).status();}catch(PlatformApiException ex){return ex.code();}});
+            var results=List.of(creditPost.get(20,java.util.concurrent.TimeUnit.SECONDS),allocate.get(20,java.util.concurrent.TimeUnit.SECONDS));
+            var current=documents.invoice(org,invoice.id());
+            assertThat(current.allocatedAmount().add(current.creditedAmount())).isEqualByComparingTo("60");
+            if(documents.invoice(org,credit.id()).status().equals("POSTED"))assertThat(results).containsExactlyInAnyOrder("POSTED","ALLOCATION_EXCEEDS_REMAINING");
+            else assertThat(results).containsExactlyInAnyOrder("CREDIT_REQUIRES_ALLOCATION_RELEASE","ACTIVE");
+        } finally {pool.shutdownNow();}
+    }
+    @Test void closedPeriodCreditLeavesReleasedAllocationAndAllCreditBalancesUnchanged() {
+        var invoice=refundInvoice(false);var payment=originalRefundPayment(false,null);
+        var allocation=run(()->documents.allocate(actor,payment.id(),new AllocationCreate(invoice.id(),n("100"))));
+        run(()->documents.reverseAllocation(actor,allocation.id(),key(),new AllocationReverse("Release before closing period")));
+        var credit=creditFor(invoice,"100");int count=ledger.journals(org,date,date).size();
+        jdbc.update("UPDATE flowora_accounting_period SET status='CLOSED' WHERE organization_id=?",org);
+        assertThatThrownBy(()->run(()->documents.postInvoice(actor,credit.id(),0))).isInstanceOf(PlatformApiException.class);
+        assertThat(documents.invoice(org,credit.id()).status()).isEqualTo("DRAFT");
+        var original=documents.invoice(org,invoice.id());assertThat(original.allocatedAmount()).isEqualByComparingTo("0");assertThat(original.creditedAmount()).isEqualByComparingTo("0");assertThat(original.settlementStatus()).isEqualTo("UNPAID");
+        assertThat(original.lines().getFirst().creditedQuantity()).isEqualByComparingTo("0");assertThat(ledger.journals(org,date,date)).hasSize(count);
+    }
     AllocationView allocate() {
         var invoice=run(()->documents.createInvoice(actor,key(),input("SALES_INVOICE",customer,"1",List.of(line("100",List.of())))));
         run(()->documents.postInvoice(actor,invoice.id(),0));
