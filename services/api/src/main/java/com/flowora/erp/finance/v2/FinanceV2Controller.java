@@ -96,6 +96,20 @@ public class FinanceV2Controller {
         return response(documents.postPayment(principal(authentication), id, version), request);
     }
 
+    @PostMapping("/payments/{id}/cancel-refund")
+    @PreAuthorize("@floworaAuthorization.hasOrganizationPermission(authentication, 'finance:create')")
+    public ApiResponse<PaymentView> cancelRefund(@PathVariable String id, @RequestHeader("Idempotency-Key") String key,
+            @Valid @RequestBody RefundCorrection body, Authentication authentication, HttpServletRequest request) {
+        return response(documents.correctRefund(principal(authentication), id, key, body, false), request);
+    }
+
+    @PostMapping("/payments/{id}/reverse-refund")
+    @PreAuthorize("@floworaAuthorization.hasOrganizationPermission(authentication, 'finance:post')")
+    public ApiResponse<PaymentView> reverseRefund(@PathVariable String id, @RequestHeader("Idempotency-Key") String key,
+            @Valid @RequestBody RefundCorrection body, Authentication authentication, HttpServletRequest request) {
+        return response(documents.correctRefund(principal(authentication), id, key, body, true), request);
+    }
+
     @PostMapping("/payments/{id}/allocations")
     @PreAuthorize("@floworaAuthorization.hasOrganizationPermission(authentication, 'finance:allocate')")
     public ApiResponse<AllocationView> allocate(@PathVariable String id,

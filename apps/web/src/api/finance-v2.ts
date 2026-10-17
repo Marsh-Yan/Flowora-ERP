@@ -29,6 +29,7 @@ export async function approveFinanceMatchException(id: string, reason: string) {
 
 export interface FinancePayment {
   id: string; number: string; paymentType: string; partyType: string; partyId: string; bankAccountId?: string; status: string
+  correction?: { action: 'CANCEL' | 'REVERSE'; reason: string; actorUserId: string; accountingDate: string; journalEntryId?: string; createdAt: string };
   originalPaymentId?: string; exchangeRate?: number; exchangeRateDate?: string; baseCurrencyCode?: string;
   allocationStatus: string; accountingDate: string; currencyCode: string; amount: number; allocatedAmount: number; version: number; allocations: FinanceAllocation[]
 }
@@ -159,5 +160,10 @@ export async function createCurrencyRevaluation(payload: RevaluationInput, key: 
 }
 export async function reverseCurrencyRevaluation(id: string, accountingDate: string, reason: string, key: string) {
   const response = await apiClient.post<ApiEnvelope<unknown>>(`/v2/finance/revaluations/${id}/reverse`, { reason }, { params: { accountingDate }, headers: { 'Idempotency-Key': key } })
+  return response.data.data
+}
+
+export async function correctFinanceRefund(id: string, action: 'cancel' | 'reverse', body: {version: number; accountingDate: string; reason: string}, key: string) {
+  const response = await apiClient.post<ApiEnvelope<FinancePayment>>(`/v2/finance/payments/${id}/${action}-refund`,body,{headers:{'Idempotency-Key':key}})
   return response.data.data
 }

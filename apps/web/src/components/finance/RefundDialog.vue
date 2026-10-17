@@ -2,14 +2,14 @@
 import { computed, onBeforeUnmount, reactive, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useAuthStore } from '@/stores/auth'
-import { createFinancePayment, listFinancePayments, listFinanceBankAccounts, postFinancePayment, type FinancePayment, type FinanceBankAccount, type PaymentInput } from '@/api/finance-v2'
+import { correctFinanceRefund, createFinancePayment, listFinancePayments, listFinanceBankAccounts, postFinancePayment, type FinancePayment, type FinanceBankAccount, type PaymentInput } from '@/api/finance-v2'
 const props = defineProps<{ modelValue: boolean }>()
 const emit = defineEmits<{ 'update:modelValue': [value: boolean]; changed: [] }>()
 const auth = useAuthStore(), { t } = useI18n()
 const rows = ref<FinancePayment[]>([]), banks = ref<FinanceBankAccount[]>([])
 const loading = ref(false), busy = ref(false), failed = ref(false), uncertain = ref(false)
-const form = reactive({ source: '', bank: '', amount: 0, reference: '', confirmed: false, draft: '', postConfirmed: false })
-let generation = 0, key = '', fingerprint = ''
+const form = reactive({ source: '', bank: '', amount: 0, reference: '', confirmed: false, draft: '', postConfirmed: false, correction: '', reason: '', correctionConfirmed: false })
+let generation = 0, key = '', fingerprint = '', correctionKey = '', correctionFingerprint = ''
 const today = () => { const d=new Date(); return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}` }
 const canView = computed(() => auth.hasPermission('finance:view'))
 const canCreate = computed(() => canView.value && auth.hasPermission('finance:create'))
@@ -30,6 +30,9 @@ const matchingBanks = computed(() => banks.value.filter(r => r.currencyCode === 
 const payload = computed<PaymentInput | null>(() => selected.value ? {paymentType:selected.value.paymentType === 'RECEIPT' ? 'CUSTOMER_REFUND' : 'SUPPLIER_REFUND', originalPaymentId:selected.value.id, partyId:selected.value.partyId, bankAccountId:form.bank || undefined,businessDate:today(),accountingDate:today(),exchangeRateDate:selected.value.exchangeRateDate!,currencyCode:selected.value.currencyCode,exchangeRate:selected.value.exchangeRate!,amount:form.amount,reference:form.reference.trim()} : null)
 const ready = computed(() => props.modelValue && !loading.value && !failed.value && canView.value)
 const valid = computed(() => ready.value && canCreate.value && !!selected.value && !!payload.value && Number.isFinite(form.amount) && form.amount > 0 && Number(form.amount.toFixed(4)) === form.amount && form.reference.trim().length <= 160 && (!form.bank || matchingBanks.value.some(r => r.id === form.bank)) && (form.amount <= remaining(selected.value!) || (uncertain.value && JSON.stringify(payload.value) === fingerprint)) && form.confirmed)
+const correctionCandidates = computed(() => refunds.value.filter(r => (r.status === 'DRAFT' && canCreate.value) || (r.status === 'POSTED' && canPost.value && !!r.originalPaymentId)))
+const correction = computed(() => correctionCandidates.value.find(r => r.id === form.correction))
+watch(() => [form.correction,form.reason], () => {form.correctionConfirmed=false})
 const draft = computed(() => refunds.value.find(r => r.id === form.draft && r.status === 'DRAFT' && !!r.originalPaymentId))
 watch(() => form.source, () => { form.amount=0; form.bank=''; form.confirmed=false })
 watch(() => [form.amount,form.bank,form.reference], () => { form.confirmed=false })
@@ -48,7 +51,7 @@ async function load() {
   } catch { if(token === generation) {failed.value=true;rows.value=[];banks.value=[]} }
   finally {if(token === generation)loading.value=false}
 }
-watch(() => [props.modelValue,auth.user?.organizationId,canView.value,canCreate.value,canPost.value], () => { Object.assign(form,{source:'',bank:'',amount:0,reference:'',confirmed:false,draft:'',postConfirmed:false});key='';fingerprint='';uncertain.value=false;void load() }, {immediate:true})
+watch(() => [props.modelValue,auth.user?.organizationId,canView.value,canCreate.value,canPost.value], () => { Object.assign(form,{source:'',bank:'',amount:0,reference:'',confirmed:false,draft:'',postConfirmed:false,correction:'',reason:'',correctionConfirmed:false});key='';fingerprint='';correctionKey='';correctionFingerprint='';uncertain.value=false;void load() }, {immediate:true})
 onBeforeUnmount(() => {generation++})
 function close(){if(!busy.value)emit('update:modelValue',false)}
 async function save(){
@@ -64,6 +67,16 @@ async function post(){
   if(busy.value || !ready.value || !canPost.value || !draft.value || !form.postConfirmed)return
   const row=draft.value,token=generation;busy.value=true;uncertain.value=false
   try{await postFinancePayment(row);if(token === generation){form.draft='';form.postConfirmed=false}}
+  catch{if(token === generation)uncertain.value=true}
+  finally{if(token === generation){const refresh=generation+1;await load();if(generation === refresh)emit('changed')}busy.value=false}
+}
+async function correct(){
+  if(busy.value || !ready.value || !correction.value || !form.correctionConfirmed || !form.reason.trim() || form.reason.trim().length > 500 || correction.value.accountingDate > today())return
+  const row=correction.value, action=row.status === 'DRAFT' ? 'cancel' : 'reverse',body={version:row.version,accountingDate:today(),reason:form.reason.trim()},token=generation
+  const next=JSON.stringify({id:row.id,action,...body})
+  if(next !== correctionFingerprint){correctionFingerprint=next;correctionKey=globalThis.crypto.randomUUID()}
+  busy.value=true;uncertain.value=false
+  try{await correctFinanceRefund(row.id,action,body,correctionKey);if(token === generation){form.correction='';form.reason='';form.correctionConfirmed=false}}
   catch{if(token === generation)uncertain.value=true}
   finally{if(token === generation){const refresh=generation+1;await load();if(generation === refresh)emit('changed')}busy.value=false}
 }
@@ -85,13 +98,21 @@ async function post(){
     </el-form>
     <div v-if="ready">
       <p>{{ t('finance.refund.history') }}</p>
-      <table class="refund-history"><thead><tr><th>{{ t('finance.number') }}</th><th>{{ t('finance.refund.source') }}</th><th>{{ t('finance.amount') }}</th><th>{{ t('finance.statusLabel') }}</th></tr></thead><tbody><tr v-for="row in refunds" :key="row.id"><td>{{ row.number }}</td><td>{{ rows.find(r => r.id === row.originalPaymentId)?.number ?? row.originalPaymentId ?? '—' }}</td><td>{{ row.amount }} {{ row.currencyCode }}</td><td>{{ row.status }}</td></tr></tbody></table>
+      <div class="history-scroll"><table class="refund-history"><thead><tr><th>{{ t('finance.number') }}</th><th>{{ t('finance.refund.source') }}</th><th>{{ t('finance.amount') }}</th><th>{{ t('finance.statusLabel') }}</th><th>{{ t('finance.refund.correctionHistory') }}</th></tr></thead><tbody><tr v-for="row in refunds" :key="row.id"><td>{{ row.number }}</td><td>{{ rows.find(r => r.id === row.originalPaymentId)?.number ?? row.originalPaymentId ?? '—' }}</td><td>{{ row.amount }} {{ row.currencyCode }}</td><td>{{ row.status }}</td><td v-if="row.correction">{{ row.correction.action }} · {{ row.correction.reason }} · {{ row.correction.accountingDate }} · {{ row.correction.actorUserId }}<br />{{ row.correction.journalEntryId }}</td><td v-else>—</td></tr></tbody></table></div>
       <el-form v-if="canPost" :key="busy ? 'post-pending' : 'post-ready'" :disabled="busy" label-position="top">
         <el-form-item :label="t('finance.refund.draft')"><el-select v-model="form.draft" class="full-width"><el-option v-for="row in refunds.filter(r => r.status === 'DRAFT' && !!r.originalPaymentId)" :key="row.id" :value="row.id" :label="`${row.number} · ${row.amount} ${row.currencyCode}`" /></el-select></el-form-item>
         <el-checkbox v-model="form.postConfirmed">{{ t('finance.refund.confirmPost') }}</el-checkbox><el-button :disabled="busy || !draft || !form.postConfirmed" :loading="busy" @click="post">{{ t('finance.refund.post') }}</el-button>
+      </el-form>
+      <el-form v-if="canCreate || canPost" :key="busy ? 'correction-pending' : 'correction-ready'" :disabled="busy" label-position="top">
+        <p>{{ t('finance.refund.correctionTerms') }}</p>
+        <el-form-item :label="t('finance.refund.correctionSelect')"><el-select v-model="form.correction" class="full-width"><el-option v-for="row in correctionCandidates" :key="row.id" :value="row.id" :label="`${row.number} · ${row.status} · ${row.amount} ${row.currencyCode}`" /></el-select></el-form-item>
+        <p v-if="correction">{{ t(correction.status === 'DRAFT' ? 'finance.refund.cancelAction' : 'finance.refund.reverseAction') }} · {{ today() }}</p>
+        <el-form-item :label="t('finance.refund.correctionReason')"><el-input v-model="form.reason" :maxlength="500" /></el-form-item>
+        <el-checkbox v-model="form.correctionConfirmed">{{ t('finance.refund.correctionConfirm') }}</el-checkbox>
+        <el-button :disabled="busy || !correction || !form.reason.trim() || form.reason.trim().length > 500 || !form.correctionConfirmed || correction.accountingDate > today()" :loading="busy" @click="correct">{{ t('finance.refund.correct') }}</el-button>
       </el-form>
     </div>
     <template #footer><el-button :disabled="busy" @click="close">{{ t('finance.bankEntry.close') }}</el-button></template>
   </el-dialog>
 </template>
-<style scoped>.refund-history{width:100%;font-size:12px;border-collapse:collapse;margin:12px 0}.refund-history th,.refund-history td{text-align:left;padding:8px;border-bottom:1px solid var(--el-border-color);overflow-wrap:anywhere}.full-width{width:100%}</style>
+<style scoped>.refund-history{width:100%;font-size:12px;border-collapse:collapse;margin:12px 0}.refund-history th,.refund-history td{text-align:left;padding:8px;border-bottom:1px solid var(--el-border-color);overflow-wrap:anywhere}.refund-history th:nth-child(-n+4),.refund-history td:nth-child(-n+4){white-space:nowrap}.refund-history td:last-child{min-width:200px}.history-scroll{overflow-x:auto}.full-width{width:100%}</style>

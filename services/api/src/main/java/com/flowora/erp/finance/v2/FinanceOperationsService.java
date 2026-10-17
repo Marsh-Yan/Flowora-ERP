@@ -116,6 +116,7 @@ public class FinanceOperationsService {
 
     @Transactional
     public ReconciliationView reconcile(FloworaPrincipal actor, String requestId, ReconciliationCreate body) {
+        ledger.lockOrganizationFinance(actor.organizationId());
         requireBank(actor.organizationId(), body.bankAccountId());
         List<String> existing = jdbc.query("SELECT id FROM flowora_bank_reconciliation WHERE organization_id=? AND request_id=?",
                 (rs, row) -> rs.getString(1), actor.organizationId(), required(requestId));
@@ -183,6 +184,7 @@ public class FinanceOperationsService {
 
     @Transactional
     public ReconciliationView reverseReconciliation(FloworaPrincipal actor, String id, String reason) {
+        ledger.lockOrganizationFinance(actor.organizationId());
         ReconciliationView view = reconciliationForUpdate(actor.organizationId(), id);
         if (!"CONFIRMED".equals(view.status())) throw conflict("RECONCILIATION_NOT_CONFIRMED", Map.of());
         jdbc.update("""
