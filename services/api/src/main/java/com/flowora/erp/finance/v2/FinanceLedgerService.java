@@ -84,7 +84,24 @@ public class FinanceLedgerService {
     @Transactional
     public JournalView reverse(String organizationId, String actorUserId, String journalId,
                                LocalDate accountingDate, String reason, String requestId) {
+        return reverseInternal(organizationId, actorUserId, journalId, accountingDate, reason, requestId, false);
+    }
+
+    JournalView reverseRefundJournal(String organizationId, String actorUserId, String journalId,
+                                    LocalDate accountingDate, String reason, String requestId) {
+        return reverseInternal(organizationId, actorUserId, journalId, accountingDate, reason, requestId, true);
+    }
+
+    private JournalView reverseInternal(String organizationId, String actorUserId, String journalId,
+                                       LocalDate accountingDate, String reason, String requestId, boolean refundAction) {
         JournalView original = journalForUpdate(organizationId, journalId);
+        boolean refundJournal = List.of("CUSTOMER_REFUND", "SUPPLIER_REFUND").contains(original.sourceType());
+        boolean refundReversal = original.reversalOfId() != null && jdbc.queryForObject("""
+                SELECT COUNT(*) FROM flowora_journal_entry WHERE organization_id=? AND id=?
+                AND source_type IN ('CUSTOMER_REFUND','SUPPLIER_REFUND')
+                """, Integer.class, organizationId, original.reversalOfId()) > 0;
+        if ((!refundAction && (refundJournal || refundReversal)) || (refundAction && !refundJournal))
+            throw conflict("REFUND_REQUIRES_BUSINESS_REVERSAL", Map.of());
         List<String> replay = jdbc.query("SELECT id FROM flowora_journal_entry WHERE organization_id=? AND request_id=?",
                 (rs, row) -> rs.getString(1), organizationId, requestId);
         if (!replay.isEmpty()) {

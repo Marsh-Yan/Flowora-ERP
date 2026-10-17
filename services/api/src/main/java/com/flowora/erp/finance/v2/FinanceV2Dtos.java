@@ -6,6 +6,7 @@ import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotEmpty;
 import jakarta.validation.constraints.NotNull;
 import jakarta.validation.constraints.Positive;
+import jakarta.validation.constraints.PositiveOrZero;
 import jakarta.validation.constraints.Size;
 
 import java.math.BigDecimal;
@@ -119,13 +120,18 @@ public final class FinanceV2Dtos {
                                  String status, LocalDateTime allocatedAt, LocalDateTime reversedAt) {
     }
 
+    public record RefundCorrection(@PositiveOrZero long version, @NotNull LocalDate accountingDate,
+                                   @NotBlank @Size(max = 500) String reason) {}
+    public record RefundCorrectionView(String action, String reason, String actorUserId, LocalDate accountingDate,
+                                       String journalEntryId, LocalDateTime createdAt) {}
+
     public record PaymentView(String id, String number, String paymentType, String partyType,
                               String partyId, String bankAccountId, String status,
                               String allocationStatus, LocalDate businessDate, LocalDate accountingDate,
                               LocalDate exchangeRateDate, String currencyCode, String baseCurrencyCode,
                               BigDecimal exchangeRate, BigDecimal amount, BigDecimal baseAmount,
                               BigDecimal allocatedAmount, String reference, String reversalOfId,
-                              LocalDateTime postedAt, long version, String originalPaymentId, List<AllocationView> allocations) {
+                              LocalDateTime postedAt, long version, String originalPaymentId, RefundCorrectionView correction, List<AllocationView> allocations) {
     }
 
     public record JournalLineView(int lineNo, String accountCode, String description,

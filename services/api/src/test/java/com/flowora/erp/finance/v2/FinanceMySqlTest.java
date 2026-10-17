@@ -45,7 +45,7 @@ class FinanceMySqlTest {
     @AfterEach void cleanup() {
         jdbc.update("UPDATE flowora_journal_entry SET reversal_of_id=NULL WHERE organization_id=?",org);
         jdbc.update("UPDATE flowora_finance_invoice SET original_invoice_id=NULL WHERE organization_id=?",org);
-        for(String table:List.of("flowora_currency_revaluation_line","flowora_currency_revaluation","flowora_bank_reconciliation_link","flowora_bank_reconciliation","flowora_bank_statement_line","flowora_allocation_reversal","flowora_payment_allocation","flowora_payment_v2","flowora_bank_account","flowora_finance_invoice_source","flowora_finance_invoice_line","flowora_finance_invoice","flowora_journal_line","flowora_journal_entry","flowora_accounting_period","flowora_posting_mapping","flowora_finance_setting","flowora_sales_delivery_line","flowora_sales_delivery","flowora_sales_order_line","flowora_sales_order","flowora_purchase_receipt_line","flowora_purchase_receipt","flowora_purchase_order_line","flowora_purchase_order","flowora_supplier","flowora_customer"))
+        for(String table:List.of("flowora_refund_correction","flowora_currency_revaluation_line","flowora_currency_revaluation","flowora_bank_reconciliation_link","flowora_bank_reconciliation","flowora_bank_statement_line","flowora_allocation_reversal","flowora_payment_allocation","flowora_payment_v2","flowora_bank_account","flowora_finance_invoice_source","flowora_finance_invoice_line","flowora_finance_invoice","flowora_journal_line","flowora_journal_entry","flowora_accounting_period","flowora_posting_mapping","flowora_finance_setting","flowora_sales_delivery_line","flowora_sales_delivery","flowora_sales_order_line","flowora_sales_order","flowora_purchase_receipt_line","flowora_purchase_receipt","flowora_purchase_order_line","flowora_purchase_order","flowora_supplier","flowora_customer"))
             jdbc.update("DELETE FROM "+table+" WHERE organization_id=?",org);
         jdbc.update("DELETE FROM flowora_organization WHERE id=?",org);
     }
@@ -380,6 +380,85 @@ class FinanceMySqlTest {
                 .isInstanceOf(PlatformApiException.class).extracting("code").isEqualTo("REFUND_HISTORY_REQUIRES_RECONCILIATION");
         assertThatThrownBy(()->run(()->documents.allocate(actor,original.id(),new AllocationCreate(invoice.id(),n("10")))))
                 .isInstanceOf(PlatformApiException.class).extracting("code").isEqualTo("REFUND_HISTORY_REQUIRES_RECONCILIATION");
+    }
+    PaymentView originalRefundPayment(boolean purchase, String bank) {
+        var row=run(()->documents.createPayment(actor,key(),new PaymentCreate(purchase?"PAYMENT":"RECEIPT",purchase?supplier:customer,bank,date,date,date,"EUR",n("1.3"),n("100"),"refund correction source")));
+        return run(()->documents.postPayment(actor,row.id(),0));
+    }
+    PaymentView correctionDraft(PaymentView original, String amount) {
+        return run(()->documents.createPayment(actor,key(),new PaymentCreate(original.paymentType().equals("RECEIPT")?"CUSTOMER_REFUND":"SUPPLIER_REFUND",original.partyId(),original.bankAccountId(),date,date,date,"EUR",n("1.3"),n(amount),"correction draft",original.id())));
+    }
+    @Test void cancelledRefundDraftReleasesBalanceAndKeepsImmutableReasonBothSides() {
+        for(boolean purchase:List.of(false,true)) {
+            var original=originalRefundPayment(purchase,null); var draft=correctionDraft(original,"100");
+            String request=key();var body=new RefundCorrection(0,date,"Cancel incorrect draft");
+            var cancelled=run(()->documents.correctRefund(actor,draft.id(),request,body,false));
+            assertThat(cancelled.status()).isEqualTo("CANCELLED");
+            assertThat(cancelled.correction().reason()).isEqualTo("Cancel incorrect draft");
+            assertThat(cancelled.correction().actorUserId()).isEqualTo(actor.userId());
+            assertThat(cancelled.correction().journalEntryId()).isNull();
+            assertThat(run(()->documents.correctRefund(actor,draft.id(),request,body,false)).version()).isEqualTo(1);
+            assertThatThrownBy(()->run(()->documents.correctRefund(actor,draft.id(),request,new RefundCorrection(0,date,"changed"),false)))
+                    .isInstanceOf(PlatformApiException.class).extracting("code").isEqualTo("IDEMPOTENCY_KEY_REUSED");
+            assertThat(correctionDraft(original,"100").status()).isEqualTo("DRAFT");
+            assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM flowora_journal_entry WHERE organization_id=? AND source_id=?",Integer.class,org,draft.id())).isZero();
+        }
+    }
+    @Test void refundBusinessReversalRestoresCashAndCapacityBothSidesWithoutDeletingJournals() {
+        for(boolean purchase:List.of(false,true)) {
+            var original=originalRefundPayment(purchase,null);var draft=correctionDraft(original,"40");
+            var posted=run(()->documents.postPayment(actor,draft.id(),0));
+            String journal=jdbc.queryForObject("SELECT id FROM flowora_journal_entry WHERE organization_id=? AND source_id=?",String.class,org,posted.id());
+            assertThatThrownBy(()->run(()->ledger.reverse(org,actor.userId(),journal,date,"use business correction",key())))
+                    .isInstanceOf(PlatformApiException.class).extracting("code").isEqualTo("REFUND_REQUIRES_BUSINESS_REVERSAL");
+            String request=key();var body=new RefundCorrection(posted.version(),date,"Reverse incorrect refund");
+            var reversed=run(()->documents.correctRefund(actor,posted.id(),request,body,true));
+            assertThat(reversed.status()).isEqualTo("REVERSED");
+            assertThat(reversed.correction().action()).isEqualTo("REVERSE");
+            assertThat(run(()->documents.correctRefund(actor,posted.id(),request,body,true)).version()).isEqualTo(reversed.version());
+            assertThat(ledger.journal(org,journal).status()).isEqualTo("REVERSED");
+            var reversal=ledger.journal(org,reversed.correction().journalEntryId());
+            assertThat(reversal.reversalOfId()).isEqualTo(journal);
+            assertThat(reversal.exchangeRate()).isEqualByComparingTo("1.3");
+            assertThatThrownBy(()->run(()->ledger.reverse(org,actor.userId(),reversal.id(),date,"do not reverse correction alone",key())))
+                    .isInstanceOf(PlatformApiException.class).extracting("code").isEqualTo("REFUND_REQUIRES_BUSINESS_REVERSAL");
+            assertThat(jdbc.queryForObject("SELECT SUM(base_debit-base_credit) FROM flowora_journal_line WHERE organization_id=? AND account_code='CASH' AND party_id=?",BigDecimal.class,org,original.partyId())).isEqualByComparingTo(purchase?"-130":"130");
+            assertThat(correctionDraft(original,"100").status()).isEqualTo("DRAFT");
+            for(var row:ledger.journals(org,date,date))assertThat(row.totalDebit()).isEqualByComparingTo(row.totalCredit());
+        }
+    }
+    @Test void refundReversalRequiresOpenPeriodAndReleasedBankReconciliation() {
+        String bank=key();jdbc.update("INSERT INTO flowora_bank_account(id,organization_id,code,name,bank_name,account_number_masked,currency_code,ledger_account_code) VALUES (?,?,?,'Refund bank','Synthetic','****0000','EUR','CASH')",bank,org,bank);
+        var original=originalRefundPayment(false,bank);var draft=correctionDraft(original,"40");var posted=run(()->documents.postPayment(actor,draft.id(),0));
+        var ops=new FinanceOperationsService(jdbc,ledger);
+        var lines=run(()->ops.importStatements(actor,new StatementImport(bank,List.of(new StatementLineCreate(date,null,n("-40"),"EUR","refund-bank",null,null)))));
+        var match=run(()->ops.reconcile(actor,key(),new ReconciliationCreate(bank,List.of(new ReconciliationLinkCreate(lines.getFirst().id(),posted.id(),n("40"))))));
+        var body=new RefundCorrection(posted.version(),date,"Reverse after bank correction");
+        assertThatThrownBy(()->run(()->documents.correctRefund(actor,posted.id(),key(),body,true)))
+                .isInstanceOf(PlatformApiException.class).extracting("code").isEqualTo("REFUND_RECONCILIATION_MUST_BE_REVERSED");
+        run(()->ops.reverseReconciliation(actor,match.id(),"Release incorrect match"));
+        jdbc.update("UPDATE flowora_accounting_period SET status='CLOSED' WHERE organization_id=?",org);
+        assertThatThrownBy(()->run(()->documents.correctRefund(actor,posted.id(),key(),body,true))).isInstanceOf(PlatformApiException.class);
+        assertThat(documents.payment(org,posted.id()).status()).isEqualTo("POSTED");
+        assertThat(documents.payment(org,posted.id()).correction()).isNull();
+        jdbc.update("UPDATE flowora_accounting_period SET status='OPEN' WHERE organization_id=?",org);
+        assertThat(run(()->documents.correctRefund(actor,posted.id(),key(),body,true)).status()).isEqualTo("REVERSED");
+        assertThat(ops.reconciliations(org,bank).stream().filter(row->row.id().equals(match.id())).findFirst().orElseThrow().status()).isEqualTo("REVERSED");
+    }
+    @Test void simultaneousRefundPostAndCancelHaveExactlyOneConsistentOutcome() throws Exception {
+        var original=originalRefundPayment(false,null);var draft=correctionDraft(original,"40");
+        var barrier=new java.util.concurrent.CyclicBarrier(2);var pool=java.util.concurrent.Executors.newFixedThreadPool(2);
+        try {
+            var post=pool.submit(()->{barrier.await(10,java.util.concurrent.TimeUnit.SECONDS);try{return run(()->documents.postPayment(actor,draft.id(),0)).status();}catch(PlatformApiException ex){return ex.code();}});
+            var cancel=pool.submit(()->{barrier.await(10,java.util.concurrent.TimeUnit.SECONDS);try{return run(()->documents.correctRefund(actor,draft.id(),key(),new RefundCorrection(0,date,"Concurrent cancellation"),false)).status();}catch(PlatformApiException ex){return ex.code();}});
+            var results=List.of(post.get(15,java.util.concurrent.TimeUnit.SECONDS),cancel.get(15,java.util.concurrent.TimeUnit.SECONDS));
+            var result=documents.payment(org,draft.id());
+            if(result.status().equals("CANCELLED")) {
+                assertThat(results).containsExactlyInAnyOrder("CANCELLED","PAYMENT_STATE_CONFLICT");
+                assertThat(result.correction()).isNotNull();
+                assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM flowora_journal_entry WHERE organization_id=? AND source_id=?",Integer.class,org,draft.id())).isZero();
+            } else {assertThat(results).containsExactlyInAnyOrder("POSTED","REFUND_CORRECTION_STATE_CONFLICT");assertThat(result.correction()).isNull();}
+        } finally {pool.shutdownNow();}
     }
     AllocationView allocate() {
         var invoice=run(()->documents.createInvoice(actor,key(),input("SALES_INVOICE",customer,"1",List.of(line("100",List.of())))));
