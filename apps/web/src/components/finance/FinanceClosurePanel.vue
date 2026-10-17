@@ -56,6 +56,12 @@ function openAllocation(row: FinancePayment) {
   allocationPaymentId.value = row.id
   allocationVisible.value = true
 }
+function managePaidInvoiceAllocation(paymentId: string) {
+  if (!auth.hasPermission('finance:view') || !auth.hasPermission('finance:allocate') || loading.value || saving.value || postingId.value) return
+  creditVisible.value = false
+  allocationPaymentId.value = paymentId
+  allocationVisible.value = true
+}
 function allocationChanged() { emit('posted'); void load() }
 const localDate = (value: Date) => `${value.getFullYear()}-${String(value.getMonth() + 1).padStart(2, '0')}-${String(value.getDate()).padStart(2, '0')}`
 const today = () => localDate(new Date())
@@ -188,7 +194,7 @@ onMounted(load)
   <RefundDialog v-model="refundVisible" @changed="allocationChanged" />
   <ForeignDocumentDialog v-model="foreignVisible" @changed="allocationChanged" />
   <CurrencyRevaluationDialog v-model="revaluationVisible" @changed="allocationChanged" />
-  <CreditNoteDialog v-model="creditVisible" @changed="allocationChanged" />
+  <CreditNoteDialog v-model="creditVisible" @changed="allocationChanged" @manage-allocation="managePaidInvoiceAllocation" />
   <StockInvoiceDialog v-model="stockInvoiceVisible" @changed="allocationChanged" />
   <BankReconciliationDialog v-model="reconciliationVisible" @changed="allocationChanged" />
   <BankStatementDialog v-model="statementVisible" @changed="allocationChanged" />

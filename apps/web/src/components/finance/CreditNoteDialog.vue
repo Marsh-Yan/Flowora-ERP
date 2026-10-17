@@ -4,12 +4,13 @@ import { ElMessage } from 'element-plus'
 import { useI18n } from 'vue-i18n'
 import { useAuthStore } from '@/stores/auth'
 import { getOrganizationSettings } from '@/api/master-data'
-import { createFinanceInvoice, getFinanceInvoice, listFinanceInvoices, type FinanceInvoice, type FinanceInvoiceDetail, type InvoiceInput } from '@/api/finance-v2'
+import { createFinanceInvoice, getFinanceInvoice, listFinanceInvoices, listFinancePayments, type FinancePayment, type FinanceInvoice, type FinanceInvoiceDetail, type InvoiceInput } from '@/api/finance-v2'
 
 const props = defineProps<{ modelValue: boolean }>()
-const emit = defineEmits<{ 'update:modelValue': [value: boolean]; changed: [] }>()
+const emit = defineEmits<{ 'update:modelValue': [value: boolean]; changed: []; 'manage-allocation': [paymentId: string] }>()
 const auth = useAuthStore(), { t, locale } = useI18n()
 const rows = ref<FinanceInvoice[]>([]), currency = ref(''), originalId = ref(''), lineId = ref('')
+const payments = ref<FinancePayment[]>([])
 const detail = ref<FinanceInvoiceDetail | null>(null), quantity = ref(1)
 const loading = ref(false), reading = ref(false), busy = ref(false), failed = ref(false), uncertain = ref(false)
 let generation = 0, detailGeneration = 0, requestKey = '', fingerprint = ''
@@ -17,6 +18,16 @@ const allowed = computed(() => auth.hasPermission('finance:view') && auth.hasPer
 const openAmount = (row: FinanceInvoice) => row.totalAmount - row.allocatedAmount - row.creditedAmount
 const eligible = (row: FinanceInvoice) => row.status === 'POSTED' && ['SALES_INVOICE', 'SUPPLIER_INVOICE'].includes(row.documentType) && /^[A-Z]{3}$/.test(row.currencyCode) && Number.isFinite(openAmount(row)) && openAmount(row) > 0
 const candidates = computed(() => rows.value.filter(eligible))
+const paidInvoices = computed(() => rows.value.filter(row => row.status === 'POSTED' && ['SALES_INVOICE','SUPPLIER_INVOICE'].includes(row.documentType) && row.allocatedAmount > 0))
+const paidLinks = computed(() => paidInvoices.value.flatMap(invoice => payments.value.filter(payment => payment.status === 'POSTED' && payment.paymentType === (invoice.documentType === 'SALES_INVOICE' ? 'RECEIPT' : 'PAYMENT') && payment.partyType === invoice.partyType && payment.partyId === invoice.partyId && payment.currencyCode === invoice.currencyCode).flatMap(payment => {
+  const active = payment.allocations.filter(allocation => allocation.status === 'ACTIVE' && allocation.invoiceId === invoice.id)
+  return active.length ? [{invoice,payment,amount:active.reduce((sum,a)=>sum+a.amount,0)}] : []
+})))
+function manageAllocation(id: string) {
+  if (busy.value || loading.value || reading.value || failed.value || !allowed.value || !auth.hasPermission('finance:allocate') || !paidLinks.value.some(row=>row.payment.id===id)) return
+  emit('update:modelValue',false); emit('manage-allocation',id)
+}
+
 const ready = computed(() => props.modelValue && allowed.value && !loading.value && !reading.value && !failed.value && !!currency.value)
 const lines = computed(() => detail.value?.lines.filter(row => Number.isFinite(row.creditedQuantity) && row.quantity > (row.creditedQuantity ?? 0) && Number.isFinite(row.discountRate) && row.discountRate! >= 0 && row.discountRate! <= 100 && row.unitPrice > 0 && row.taxRate >= 0 && row.taxRate <= 100 && !!row.reversalAccountCode) ?? [])
 const line = computed(() => lines.value.find(row => row.id === lineId.value))
@@ -41,12 +52,12 @@ watch(originalId, readOriginal)
 async function load() {
   const token = ++generation
   ++detailGeneration; detail.value = null; lineId.value = ''; reading.value = false
-  if (!props.modelValue || !allowed.value) { rows.value = []; currency.value = ''; loading.value = false; return }
+  if (!props.modelValue || !allowed.value) { rows.value = []; payments.value = []; currency.value = ''; loading.value = false; return }
   loading.value = true; failed.value = false
   try {
-    const [invoices, settings] = await Promise.all([listFinanceInvoices(), getOrganizationSettings()])
+    const [invoices, paymentRows, settings] = await Promise.all([listFinanceInvoices(), listFinancePayments(), getOrganizationSettings()])
     if (token !== generation) return
-    rows.value = invoices; currency.value = settings.baseCurrencyCode
+    rows.value = invoices; payments.value = paymentRows; currency.value = settings.baseCurrencyCode
     if (!candidates.value.some(row => row.id === originalId.value)) originalId.value = ''
     await readOriginal()
   } catch { if (token === generation) { failed.value = true; rows.value = []; currency.value = '' } }
@@ -71,6 +82,16 @@ async function save() {
 <template>
   <el-dialog :model-value="modelValue" :title="t('finance.creditNote.title')" width="min(640px, calc(100vw - 32px))" destroy-on-close :show-close="!busy" :close-on-click-modal="!busy" :close-on-press-escape="!busy" @update:model-value="close">
     <p>{{ t('finance.creditNote.terms') }}</p>
+    <p>{{ t('finance.creditNote.paidSteps') }}</p>
+    <section v-if="!loading && !failed && allowed && paidInvoices.length" class="paid-invoice-help">
+      <h3>{{ t('finance.creditNote.paidTitle') }}</h3>
+      <p v-for="row in paidInvoices" :key="row.id">{{ row.number }} · {{ t('finance.creditNote.allocated') }} {{ money(row.allocatedAmount) }} {{ row.currencyCode }}</p>
+      <div v-for="row in paidLinks" :key="`${row.invoice.id}:${row.payment.id}`">
+        <span>{{ row.invoice.number }} → {{ row.payment.number }} · {{ money(row.amount) }} {{ row.invoice.currencyCode }}</span>
+        <el-button v-if="auth.hasPermission('finance:allocate')" :disabled="busy || reading" @click="manageAllocation(row.payment.id)">{{ t('finance.creditNote.managePaid') }}</el-button>
+      </div>
+      <p>{{ t('finance.creditNote.paidNote') }}</p>
+    </section>
     <el-alert v-if="failed" :title="t('finance.creditNote.loadFailed')" type="error" :closable="false" />
     <el-alert v-if="uncertain" :title="t('finance.creditNote.failed')" type="error" :closable="false" />
     <el-button :disabled="loading || reading || busy" @click="load">{{ t('finance.m4.retry') }}</el-button>
@@ -85,3 +106,7 @@ async function save() {
     <template #footer><el-button :disabled="busy" @click="close">{{ t('finance.bankEntry.close') }}</el-button><el-button type="primary" :loading="busy" :disabled="busy || !valid" @click="save">{{ t('projects.save') }}</el-button></template>
   </el-dialog>
 </template>
+
+<style scoped>
+.paid-invoice-help{padding:12px 16px;margin:12px 0;border:1px solid var(--el-border-color);border-radius:8px}.paid-invoice-help h3{margin:0 0 8px}.paid-invoice-help div{display:flex;align-items:center;justify-content:space-between;gap:12px;margin:8px 0}
+</style>
