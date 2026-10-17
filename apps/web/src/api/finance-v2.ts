@@ -29,6 +29,7 @@ export async function approveFinanceMatchException(id: string, reason: string) {
 
 export interface FinancePayment {
   id: string; number: string; paymentType: string; partyType: string; partyId: string; bankAccountId?: string; status: string
+  sourceRecovery?: { originalPaymentId: string; refundJournalEntryId: string; originalJournalEntryId: string; reason: string; actorUserId: string; createdAt: string };
   correction?: { action: 'CANCEL' | 'REVERSE'; reason: string; actorUserId: string; accountingDate: string; journalEntryId?: string; exchangeJournalEntryId?: string; createdAt: string };
   refundSourceBaseAmount?: number; realizedExchangeDifference?: number; refundExchangeJournalId?: string; originalPaymentId?: string; exchangeRate?: number; exchangeRateDate?: string; baseCurrencyCode?: string;
   allocationStatus: string; accountingDate: string; currencyCode: string; amount: number; allocatedAmount: number; version: number; allocations: FinanceAllocation[]
@@ -166,4 +167,9 @@ export async function reverseCurrencyRevaluation(id: string, accountingDate: str
 export async function correctFinanceRefund(id: string, action: 'cancel' | 'reverse', body: {version: number; accountingDate: string; reason: string}, key: string) {
   const response = await apiClient.post<ApiEnvelope<FinancePayment>>(`/v2/finance/payments/${id}/${action}-refund`,body,{headers:{'Idempotency-Key':key}})
   return response.data.data
+}
+
+export async function recoverFinanceRefundSource(id: string, body: {originalPaymentId: string; version: number; originalVersion: number; reason: string}, key: string) {
+  const { data } = await apiClient.post<ApiEnvelope<FinancePayment>>(`/v2/finance/payments/${id}/recover-refund-source`, body, {headers: {'Idempotency-Key': key}})
+  return data.data
 }

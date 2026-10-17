@@ -45,7 +45,7 @@ class FinanceMySqlTest {
     @AfterEach void cleanup() {
         jdbc.update("UPDATE flowora_journal_entry SET reversal_of_id=NULL WHERE organization_id=?",org);
         jdbc.update("UPDATE flowora_finance_invoice SET original_invoice_id=NULL WHERE organization_id=?",org);
-        for(String table:List.of("flowora_refund_correction","flowora_currency_revaluation_line","flowora_currency_revaluation","flowora_bank_reconciliation_link","flowora_bank_reconciliation","flowora_bank_statement_line","flowora_allocation_reversal","flowora_payment_allocation","flowora_payment_v2","flowora_bank_account","flowora_finance_invoice_source","flowora_finance_invoice_line","flowora_finance_invoice","flowora_journal_line","flowora_journal_entry","flowora_accounting_period","flowora_posting_mapping","flowora_finance_setting","flowora_sales_delivery_line","flowora_sales_delivery","flowora_sales_order_line","flowora_sales_order","flowora_purchase_receipt_line","flowora_purchase_receipt","flowora_purchase_order_line","flowora_purchase_order","flowora_supplier","flowora_customer"))
+        for(String table:List.of("flowora_refund_source_recovery","flowora_refund_correction","flowora_currency_revaluation_line","flowora_currency_revaluation","flowora_bank_reconciliation_link","flowora_bank_reconciliation","flowora_bank_statement_line","flowora_allocation_reversal","flowora_payment_allocation","flowora_payment_v2","flowora_bank_account","flowora_finance_invoice_source","flowora_finance_invoice_line","flowora_finance_invoice","flowora_journal_line","flowora_journal_entry","flowora_accounting_period","flowora_posting_mapping","flowora_finance_setting","flowora_sales_delivery_line","flowora_sales_delivery","flowora_sales_order_line","flowora_sales_order","flowora_purchase_receipt_line","flowora_purchase_receipt","flowora_purchase_order_line","flowora_purchase_order","flowora_supplier","flowora_customer"))
             jdbc.update("DELETE FROM "+table+" WHERE organization_id=?",org);
         jdbc.update("DELETE FROM flowora_organization WHERE id=?",org);
     }
@@ -381,6 +381,110 @@ class FinanceMySqlTest {
         assertThatThrownBy(()->run(()->documents.allocate(actor,original.id(),new AllocationCreate(invoice.id(),n("10")))))
                 .isInstanceOf(PlatformApiException.class).extracting("code").isEqualTo("REFUND_HISTORY_REQUIRES_RECONCILIATION");
     }
+    PaymentView historicalRefund(PaymentView source, String amount) {
+        var draft=correctionDraft(source,amount);var posted=run(()->documents.postPayment(actor,draft.id(),0));
+        // Explicit disposable migration fixture: old refunds predate source/basis columns.
+        jdbc.update("UPDATE flowora_payment_v2 SET original_payment_id=NULL,refund_source_base_amount=NULL WHERE organization_id=? AND id=?",org,posted.id());
+        return documents.payment(org,posted.id());
+    }
+    RefundSourceRecovery recoveryInput(PaymentView refund, PaymentView source, String reason) {
+        return new RefundSourceRecovery(source.id(),refund.version(),source.version(),reason);
+    }
+    @Test void explicitHistoricalRecoveryRetainsActualJournalsAndReasonBothSidesEvenInClosedPeriod() {
+        for(boolean purchase:List.of(false,true)) {
+            var source=originalRefundPayment(purchase,null);var refund=historicalRefund(source,"40");source=documents.payment(org,source.id());
+            int journalCount=ledger.journals(org,date,date).size();
+            var before=ledger.journals(org,date,date);
+            jdbc.update("UPDATE flowora_accounting_period SET status='CLOSED' WHERE organization_id=?",org);
+            var input=recoveryInput(refund,source,"Checked original remittance evidence");String request=key();
+            var restored=run(()->documents.recoverRefundSource(actor,refund.id(),request,input));
+            assertThat(restored.originalPaymentId()).isEqualTo(source.id());assertThat(restored.refundSourceBaseAmount()).isEqualByComparingTo("52");
+            assertThat(restored.realizedExchangeDifference()).isEqualByComparingTo("0");
+            assertThat(restored.sourceRecovery().reason()).isEqualTo(input.reason());assertThat(restored.sourceRecovery().actorUserId()).isEqualTo(actor.userId());
+            assertThat(restored.version()).isEqualTo(refund.version()+1);
+            assertThat(documents.payment(org,source.id()).version()).isEqualTo(source.version()+1);
+            assertThat(ledger.journals(org,date,date)).isEqualTo(before);assertThat(ledger.journals(org,date,date)).hasSize(journalCount);
+            assertThat(run(()->documents.recoverRefundSource(actor,refund.id(),request,input)).version()).isEqualTo(restored.version());
+            assertThatThrownBy(()->run(()->documents.recoverRefundSource(actor,refund.id(),request,new RefundSourceRecovery(input.originalPaymentId(),input.version(),input.originalVersion(),"Different reason"))))
+                    .isInstanceOf(PlatformApiException.class).extracting("code").isEqualTo("IDEMPOTENCY_KEY_REUSED");
+            assertThatThrownBy(()->run(()->documents.recoverRefundSource(actor,refund.id(),key(),input)))
+                    .isInstanceOf(PlatformApiException.class).extracting("code").isEqualTo("REFUND_RECOVERY_STATE_CONFLICT");
+            jdbc.update("UPDATE flowora_accounting_period SET status='OPEN' WHERE organization_id=?",org);
+            assertThat(correctionDraft(documents.payment(org,source.id()),"60").status()).isEqualTo("DRAFT");
+        }
+    }
+    @Test void historicalRecoveryChecksExistingTransactionAndCarryingReservationsWithoutMutatingJournals() {
+        var source=originalRefundPayment(false,null);var reserved=correctionDraft(source,"80");
+        var other=originalRefundPayment(false,null);var refund=historicalRefund(other,"30");
+        var body=recoveryInput(refund,documents.payment(org,source.id()),"Source selected after checking records");
+        assertThatThrownBy(()->run(()->documents.recoverRefundSource(actor,refund.id(),key(),body)))
+                .isInstanceOf(PlatformApiException.class).extracting("code").isEqualTo("REFUND_EXCEEDS_REMAINING");
+        assertThat(documents.payment(org,refund.id()).originalPaymentId()).isNull();assertThat(documents.payment(org,refund.id()).sourceRecovery()).isNull();
+        run(()->documents.correctRefund(actor,reserved.id(),key(),new RefundCorrection(0,date,"Release incorrect reservation"),false));
+        var restored=run(()->documents.recoverRefundSource(actor,refund.id(),key(),body));
+        assertThat(restored.originalPaymentId()).isEqualTo(source.id());
+    }
+    @Test void historicalRecoveryRejectsRateMismatchAndMissingOrInconsistentActualJournal() {
+        var source=originalRefundPayment(false,null);
+        var other=run(()->documents.createPayment(actor,key(),new PaymentCreate("RECEIPT",customer,null,date,date,date,"EUR",n("1.4"),n("100"),"Other original")));
+        var otherPosted=run(()->documents.postPayment(actor,other.id(),0));
+        var refund=historicalRefund(source,"40");
+        assertThatThrownBy(()->run(()->documents.recoverRefundSource(actor,refund.id(),key(),recoveryInput(refund,otherPosted,"Different rate is not safe historical reconciliation"))))
+                .isInstanceOf(PlatformApiException.class).extracting("code").isEqualTo("REFUND_RECOVERY_SOURCE_MISMATCH");
+        var body=recoveryInput(refund,documents.payment(org,source.id()),"Actual evidence required");
+        String journal=jdbc.queryForObject("SELECT id FROM flowora_journal_entry WHERE organization_id=? AND source_type='CUSTOMER_REFUND' AND source_id=?",String.class,org,refund.id());
+        jdbc.update("UPDATE flowora_journal_entry SET source_id=? WHERE organization_id=? AND id=?",key(),org,journal);
+        assertThatThrownBy(()->run(()->documents.recoverRefundSource(actor,refund.id(),key(),body))).isInstanceOf(PlatformApiException.class).extracting("code").isEqualTo("REFUND_RECOVERY_JOURNAL_MISMATCH");
+        jdbc.update("UPDATE flowora_journal_entry SET source_id=?,total_debit=41 WHERE organization_id=? AND id=?",refund.id(),org,journal);
+        assertThatThrownBy(()->run(()->documents.recoverRefundSource(actor,refund.id(),key(),body))).isInstanceOf(PlatformApiException.class).extracting("code").isEqualTo("REFUND_RECOVERY_JOURNAL_MISMATCH");
+        assertThat(documents.payment(org,refund.id()).sourceRecovery()).isNull();
+    }
+    @Test void unresolvedHistoryContinuesBlockingUntilEveryRefundIsExplicitlyRecovered() {
+        var source=originalRefundPayment(false,null);
+        var a=correctionDraft(source,"40");run(()->documents.postPayment(actor,a.id(),0));
+        var b=correctionDraft(source,"30");run(()->documents.postPayment(actor,b.id(),0));
+        jdbc.update("UPDATE flowora_payment_v2 SET original_payment_id=NULL,refund_source_base_amount=NULL WHERE organization_id=? AND id IN (?,?)",org,a.id(),b.id());
+        var first=documents.payment(org,a.id());var second=documents.payment(org,b.id());
+        assertThatThrownBy(()->correctionDraft(source,"10")).isInstanceOf(PlatformApiException.class).extracting("code").isEqualTo("REFUND_HISTORY_REQUIRES_RECONCILIATION");
+        run(()->documents.recoverRefundSource(actor,first.id(),key(),recoveryInput(first,documents.payment(org,source.id()),"First checked source")));
+        assertThatThrownBy(()->correctionDraft(source,"10")).isInstanceOf(PlatformApiException.class).extracting("code").isEqualTo("REFUND_HISTORY_REQUIRES_RECONCILIATION");
+        run(()->documents.recoverRefundSource(actor,second.id(),key(),recoveryInput(second,documents.payment(org,source.id()),"Second checked source")));
+        assertThat(correctionDraft(source,"30").status()).isEqualTo("DRAFT");
+        var restored=documents.payment(org,first.id());
+        var reversed=run(()->documents.correctRefund(actor,restored.id(),key(),new RefundCorrection(restored.version(),date,"Normal reversal after source recovery"),true));
+        assertThat(reversed.sourceRecovery().reason()).isEqualTo("First checked source");assertThat(reversed.correction()).isNotNull();
+    }
+    @Test void recoveryChecksCurrentJournalStatusAfterAnotherTransactionReversesTheSource() {
+        var source=originalRefundPayment(false,null);var refund=historicalRefund(source,"40");
+        var input=recoveryInput(refund,documents.payment(org,source.id()),"Must use current journal evidence");
+        String journal=jdbc.queryForObject("SELECT id FROM flowora_journal_entry WHERE organization_id=? AND source_type='RECEIPT' AND source_id=?",String.class,org,source.id());
+        var pool=java.util.concurrent.Executors.newSingleThreadExecutor();
+        try {
+            assertThatThrownBy(()->run(()->{
+                documents.payment(org,source.id()); // Establish an earlier consistent-read snapshot.
+                try {pool.submit(()->run(()->ledger.reverse(org,actor.userId(),journal,date,"Concurrent source correction",key()))).get(20,java.util.concurrent.TimeUnit.SECONDS);}
+                catch(Exception ex){throw new IllegalStateException(ex);}
+                return documents.recoverRefundSource(actor,refund.id(),key(),input);
+            })).isInstanceOf(PlatformApiException.class).extracting("code").isEqualTo("REFUND_RECOVERY_JOURNAL_MISMATCH");
+            assertThat(documents.payment(org,refund.id()).originalPaymentId()).isNull();
+            assertThat(documents.payment(org,refund.id()).sourceRecovery()).isNull();
+        } finally {pool.shutdownNow();}
+    }
+    @Test void concurrentHistoricalRecoveryToOneOriginalRequiresFreshVersionAndCannotOverReserve() throws Exception {
+        var source=originalRefundPayment(false,null);var other=originalRefundPayment(false,null);
+        var a=correctionDraft(source,"60");run(()->documents.postPayment(actor,a.id(),0));
+        var b=correctionDraft(other,"60");run(()->documents.postPayment(actor,b.id(),0));
+        jdbc.update("UPDATE flowora_payment_v2 SET original_payment_id=NULL,refund_source_base_amount=NULL WHERE organization_id=? AND id IN (?,?)",org,a.id(),b.id());
+        var first=documents.payment(org,a.id());var second=documents.payment(org,b.id());var original=documents.payment(org,source.id());
+        var pool=java.util.concurrent.Executors.newFixedThreadPool(2);var barrier=new java.util.concurrent.CyclicBarrier(2);
+        try {
+            var one=pool.submit(()->{barrier.await(10,java.util.concurrent.TimeUnit.SECONDS);try{run(()->documents.recoverRefundSource(actor,first.id(),key(),recoveryInput(first,original,"Checked first history")));return "RECOVERED";}catch(PlatformApiException ex){return ex.code();}});
+            var two=pool.submit(()->{barrier.await(10,java.util.concurrent.TimeUnit.SECONDS);try{run(()->documents.recoverRefundSource(actor,second.id(),key(),recoveryInput(second,original,"Checked second history")));return "RECOVERED";}catch(PlatformApiException ex){return ex.code();}});
+            assertThat(List.of(one.get(20,java.util.concurrent.TimeUnit.SECONDS),two.get(20,java.util.concurrent.TimeUnit.SECONDS))).containsExactlyInAnyOrder("RECOVERED","REFUND_RECOVERY_SOURCE_MISMATCH");
+            assertThat(jdbc.queryForObject("SELECT SUM(amount) FROM flowora_payment_v2 WHERE organization_id=? AND original_payment_id=?",BigDecimal.class,org,source.id())).isEqualByComparingTo("60");
+        }finally{pool.shutdownNow();}
+    }
+
     BigDecimal accountNet(String account, String party) {
         return jdbc.queryForObject("SELECT COALESCE(SUM(base_debit-base_credit),0) FROM flowora_journal_line WHERE organization_id=? AND account_code=? AND party_id=?",BigDecimal.class,org,account,party);
     }
