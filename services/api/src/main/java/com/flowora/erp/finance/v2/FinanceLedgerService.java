@@ -95,10 +95,10 @@ public class FinanceLedgerService {
     private JournalView reverseInternal(String organizationId, String actorUserId, String journalId,
                                        LocalDate accountingDate, String reason, String requestId, boolean refundAction) {
         JournalView original = journalForUpdate(organizationId, journalId);
-        boolean refundJournal = List.of("CUSTOMER_REFUND", "SUPPLIER_REFUND").contains(original.sourceType());
+        boolean refundJournal = List.of("CUSTOMER_REFUND", "SUPPLIER_REFUND", "REFUND_EXCHANGE").contains(original.sourceType());
         boolean refundReversal = original.reversalOfId() != null && jdbc.queryForObject("""
                 SELECT COUNT(*) FROM flowora_journal_entry WHERE organization_id=? AND id=?
-                AND source_type IN ('CUSTOMER_REFUND','SUPPLIER_REFUND')
+                AND source_type IN ('CUSTOMER_REFUND','SUPPLIER_REFUND','REFUND_EXCHANGE')
                 """, Integer.class, organizationId, original.reversalOfId()) > 0;
         if ((!refundAction && (refundJournal || refundReversal)) || (refundAction && !refundJournal))
             throw conflict("REFUND_REQUIRES_BUSINESS_REVERSAL", Map.of());

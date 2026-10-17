@@ -281,10 +281,12 @@ public class FinanceDocumentService {
         requireParty(actor.organizationId(), partyType, body.partyId());
         if (body.bankAccountId() != null) requireBank(actor.organizationId(), body.bankAccountId(), body.currencyCode());
         String baseCurrency = ledger.baseCurrency(actor.organizationId());
+        BigDecimal sourceBase = null;
         if (type.endsWith("REFUND")) {
             requireRefundBasis(actor.organizationId(), type, body.partyId(), body.originalPaymentId(),
                     body.currencyCode(), baseCurrency, body.exchangeRate(), body.exchangeRateDate(), body.accountingDate());
             requireRefundCapacity(actor.organizationId(), body.originalPaymentId(), null, body.amount());
+            sourceBase = refundSourceBase(actor.organizationId(), body.originalPaymentId(), body.amount());
         } else if (nullable(body.originalPaymentId()) != null) {
             throw conflict("PAYMENT_SOURCE_NOT_APPLICABLE", Map.of());
         }
@@ -299,6 +301,7 @@ public class FinanceDocumentService {
                 partyType, body.partyId(), nullable(body.bankAccountId()), body.businessDate(), body.accountingDate(),
                 body.exchangeRateDate(), upper(body.currencyCode()), baseCurrency, body.exchangeRate(), body.amount(),
                 FinancePostingPolicy.base(body.amount(), body.exchangeRate()), actor.userId(), key, clean(body.reference()), nullable(body.originalPaymentId()));
+        if (sourceBase != null) jdbc.update("UPDATE flowora_payment_v2 SET refund_source_base_amount=? WHERE organization_id=? AND id=?", sourceBase, actor.organizationId(), id);
         return payment(actor.organizationId(), id);
     }
 
@@ -326,6 +329,10 @@ public class FinanceDocumentService {
                 payment.businessDate(), payment.accountingDate(), payment.exchangeRateDate(), payment.currencyCode(),
                 payment.baseCurrencyCode(), payment.exchangeRate(), payment.paymentType() + " " + payment.number(),
                 "payment-post:" + payment.id(), lines);
+        if (payment.realizedExchangeDifference() != null && payment.realizedExchangeDifference().signum() != 0) {
+            String exchangeJournal = postRefundExchange(actor, payment, control).id();
+            jdbc.update("UPDATE flowora_payment_v2 SET refund_exchange_journal_id=? WHERE organization_id=? AND id=?", exchangeJournal, actor.organizationId(), payment.id());
+        }
         jdbc.update("""
                 UPDATE flowora_payment_v2 SET status='POSTED',posted_at=CURRENT_TIMESTAMP,posted_by=?,version_no=version_no+1
                 WHERE id=? AND organization_id=? AND status='DRAFT' AND version_no=?
@@ -419,7 +426,7 @@ public class FinanceDocumentService {
         List<PaymentView> values = jdbc.query("""
                 SELECT id,number,payment_type,party_type,party_id,bank_account_id,status,allocation_status,business_date,
                        accounting_date,exchange_rate_date,currency_code,base_currency_code,exchange_rate,amount,
-                       base_amount,allocated_amount,reference,reversal_of_id,posted_at,version_no,original_payment_id
+                       base_amount,allocated_amount,reference,reversal_of_id,posted_at,version_no,original_payment_id,refund_source_base_amount,refund_exchange_journal_id
                 FROM flowora_payment_v2 WHERE organization_id=? AND id=?
                 """, (rs, row) -> new PaymentView(rs.getString("id"), rs.getString("number"),
                 rs.getString("payment_type"), rs.getString("party_type"), rs.getString("party_id"),
@@ -429,6 +436,7 @@ public class FinanceDocumentService {
                 rs.getString("base_currency_code"), rs.getBigDecimal("exchange_rate"), rs.getBigDecimal("amount"),
                 rs.getBigDecimal("base_amount"), rs.getBigDecimal("allocated_amount"), rs.getString("reference"),
                 rs.getString("reversal_of_id"), timestamp(rs.getTimestamp("posted_at")), rs.getLong("version_no"), rs.getString("original_payment_id"),
+                rs.getBigDecimal("refund_source_base_amount"), rs.getBigDecimal("refund_source_base_amount") == null ? null : rs.getBigDecimal("base_amount").subtract(rs.getBigDecimal("refund_source_base_amount")), rs.getString("refund_exchange_journal_id"),
                 refundCorrection(organizationId, rs.getString("id")), allocations(organizationId, rs.getString("id"))), organizationId, id);
         if (values.isEmpty()) throw notFound("payment", id);
         return values.getFirst();
@@ -436,11 +444,11 @@ public class FinanceDocumentService {
 
     public RefundCorrectionView refundCorrection(String organizationId, String paymentId) {
         var rows = jdbc.query("""
-                SELECT action,reason,actor_user_id,accounting_date,journal_entry_id,created_at
+                SELECT action,reason,actor_user_id,accounting_date,journal_entry_id,exchange_journal_entry_id,created_at
                 FROM flowora_refund_correction WHERE organization_id=? AND payment_id=?
                 """, (rs, row) -> new RefundCorrectionView(rs.getString("action"), rs.getString("reason"),
                 rs.getString("actor_user_id"), rs.getDate("accounting_date").toLocalDate(),
-                rs.getString("journal_entry_id"), timestamp(rs.getTimestamp("created_at"))), organizationId, paymentId);
+                rs.getString("journal_entry_id"), rs.getString("exchange_journal_entry_id"), timestamp(rs.getTimestamp("created_at"))), organizationId, paymentId);
         return rows.isEmpty() ? null : rows.getFirst();
     }
 
@@ -475,7 +483,7 @@ public class FinanceDocumentService {
                 WHERE l.organization_id=? AND l.payment_id=? AND h.status='CONFIRMED'
                 """, Integer.class, actor.organizationId(), paymentId);
         if (matches != null && matches > 0) throw conflict("REFUND_RECONCILIATION_MUST_BE_REVERSED", Map.of());
-        String reversalJournalId = null;
+        String reversalJournalId = null, exchangeReversalId = null;
         var journals = jdbc.query("""
                 SELECT id FROM flowora_journal_entry WHERE organization_id=? AND source_type=? AND source_id=?
                 """, (rs, row) -> rs.getString(1), actor.organizationId(), refund.paymentType(), paymentId);
@@ -484,13 +492,18 @@ public class FinanceDocumentService {
             if (journals.size() != 1) throw conflict("REFUND_JOURNAL_MISSING", Map.of());
             reversalJournalId = ledger.reverseRefundJournal(actor.organizationId(), actor.userId(), journals.getFirst(),
                     body.accountingDate(), reason, "refund-reverse:" + paymentId).id();
+            if (refund.realizedExchangeDifference() != null && refund.realizedExchangeDifference().signum() != 0) {
+                if (refund.refundExchangeJournalId() == null) throw conflict("REFUND_EXCHANGE_JOURNAL_MISSING", Map.of());
+                exchangeReversalId = ledger.reverseRefundJournal(actor.organizationId(), actor.userId(), refund.refundExchangeJournalId(),
+                        body.accountingDate(), reason, "refund-fx-reverse:" + paymentId).id();
+            }
         } else if (!journals.isEmpty()) throw conflict("REFUND_DRAFT_HAS_JOURNAL", Map.of());
         jdbc.update("""
                 INSERT INTO flowora_refund_correction
-                (id,organization_id,payment_id,action,reason,actor_user_id,accounting_date,journal_entry_id,source_version,request_id)
-                VALUES (?,?,?,?,?,?,?,?,?,?)
+                (id,organization_id,payment_id,action,reason,actor_user_id,accounting_date,journal_entry_id,exchange_journal_entry_id,source_version,request_id)
+                VALUES (?,?,?,?,?,?,?,?,?,?,?)
                 """, UUID.randomUUID().toString(), actor.organizationId(), paymentId, action, reason, actor.userId(),
-                body.accountingDate(), reversalJournalId, body.version(), key);
+                body.accountingDate(), reversalJournalId, exchangeReversalId, body.version(), key);
         jdbc.update("UPDATE flowora_payment_v2 SET status=?,version_no=version_no+1 WHERE organization_id=? AND id=?",
                 reverse ? "REVERSED" : "CANCELLED", actor.organizationId(), paymentId);
         return payment(actor.organizationId(), paymentId);
@@ -506,11 +519,50 @@ public class FinanceDocumentService {
         String expected = "CUSTOMER_REFUND".equals(type) ? "RECEIPT" : "PAYMENT";
         if (!expected.equals(original.paymentType()) || !"POSTED".equals(original.status())
                 || !partyId.equals(original.partyId()) || !upper(currency).equals(original.currencyCode())
-                || !baseCurrency.equals(original.baseCurrencyCode()) || rate.compareTo(original.exchangeRate()) != 0
-                || !rateDate.equals(original.exchangeRateDate()) || accountingDate.isBefore(original.accountingDate())) {
+                || !baseCurrency.equals(original.baseCurrencyCode())
+                || rate == null || rate.signum() <= 0 || rate.stripTrailingZeros().scale() > 8
+                || (upper(currency).equals(baseCurrency) && (rate.compareTo(BigDecimal.ONE) != 0 || original.exchangeRate().compareTo(BigDecimal.ONE) != 0))
+                || rateDate.isBefore(original.exchangeRateDate()) || rateDate.isAfter(accountingDate)
+                || accountingDate.isBefore(original.accountingDate())) {
             throw conflict("REFUND_SOURCE_MISMATCH", Map.of());
         }
         return original;
+    }
+
+    // Reserve the source's carrying value along with its transaction amount. The final
+    // refund takes the exact residual, including four-decimal translation rounding.
+    private BigDecimal refundSourceBase(String organizationId, String originalId, BigDecimal amount) {
+        PaymentView original = paymentForUpdate(organizationId, originalId);
+        BigDecimal used = jdbc.queryForObject("""
+                SELECT COALESCE(SUM(COALESCE(refund_source_base_amount,base_amount)),0)
+                FROM flowora_payment_v2 WHERE organization_id=? AND original_payment_id=?
+                AND payment_type IN ('CUSTOMER_REFUND','SUPPLIER_REFUND') AND status IN ('DRAFT','POSTED')
+                """, BigDecimal.class, organizationId, originalId);
+        BigDecimal allocated = jdbc.queryForObject("""
+                SELECT COALESCE(SUM(base_amount),0) FROM flowora_payment_allocation
+                WHERE organization_id=? AND payment_id=? AND status='ACTIVE'
+                """, BigDecimal.class, organizationId, originalId);
+        BigDecimal available = original.baseAmount().subtract(used).subtract(allocated);
+        BigDecimal result = amount.compareTo(refundRemaining(organizationId, original)) == 0
+                ? available : FinancePostingPolicy.base(amount, original.exchangeRate());
+        if (result.signum() < 0 || result.compareTo(available) > 0) throw conflict("REFUND_BOOK_VALUE_CONFLICT", Map.of());
+        return result;
+    }
+
+    private FinanceV2Dtos.JournalView postRefundExchange(FloworaPrincipal actor, PaymentView refund, String control) {
+        BigDecimal difference = refund.realizedExchangeDifference(), amount = difference.abs();
+        boolean supplier = "SUPPLIER_REFUND".equals(refund.paymentType());
+        boolean gain = supplier == (difference.signum() > 0);
+        String fx = ledger.mapping(actor.organizationId(), gain ? "FX_GAIN" : "FX_LOSS");
+        // Base currency only: do not divide then multiply the difference by an FX rate.
+        List<PostingLine> lines = gain
+                ? List.of(PostingLine.debit(control, "Refund carrying-value adjustment", amount, null, refund.partyType(), refund.partyId(), null),
+                          PostingLine.credit(fx, "Refund exchange gain", amount, null, refund.partyType(), refund.partyId(), null))
+                : List.of(PostingLine.debit(fx, "Refund exchange loss", amount, null, refund.partyType(), refund.partyId(), null),
+                          PostingLine.credit(control, "Refund carrying-value adjustment", amount, null, refund.partyType(), refund.partyId(), null));
+        return ledger.post(actor.organizationId(), actor.userId(), "REFUND_EXCHANGE", refund.id(), null,
+                refund.businessDate(), refund.accountingDate(), refund.exchangeRateDate(), refund.baseCurrencyCode(),
+                refund.baseCurrencyCode(), BigDecimal.ONE, "Refund exchange difference " + refund.number(), "refund-fx:" + refund.id(), lines);
     }
 
     private void requireNoUnlinkedRefunds(String organizationId, PaymentView original) {

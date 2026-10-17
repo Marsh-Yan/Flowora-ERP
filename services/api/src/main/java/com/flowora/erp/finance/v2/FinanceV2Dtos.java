@@ -123,7 +123,7 @@ public final class FinanceV2Dtos {
     public record RefundCorrection(@PositiveOrZero long version, @NotNull LocalDate accountingDate,
                                    @NotBlank @Size(max = 500) String reason) {}
     public record RefundCorrectionView(String action, String reason, String actorUserId, LocalDate accountingDate,
-                                       String journalEntryId, LocalDateTime createdAt) {}
+                                       String journalEntryId, String exchangeJournalEntryId, LocalDateTime createdAt) {}
 
     public record PaymentView(String id, String number, String paymentType, String partyType,
                               String partyId, String bankAccountId, String status,
@@ -131,7 +131,7 @@ public final class FinanceV2Dtos {
                               LocalDate exchangeRateDate, String currencyCode, String baseCurrencyCode,
                               BigDecimal exchangeRate, BigDecimal amount, BigDecimal baseAmount,
                               BigDecimal allocatedAmount, String reference, String reversalOfId,
-                              LocalDateTime postedAt, long version, String originalPaymentId, RefundCorrectionView correction, List<AllocationView> allocations) {
+                              LocalDateTime postedAt, long version, String originalPaymentId, BigDecimal refundSourceBaseAmount, BigDecimal realizedExchangeDifference, String refundExchangeJournalId, RefundCorrectionView correction, List<AllocationView> allocations) {
     }
 
     public record JournalLineView(int lineNo, String accountCode, String description,
