@@ -454,6 +454,17 @@ class FinanceMySqlTest {
         var reversed=run(()->documents.correctRefund(actor,restored.id(),key(),new RefundCorrection(restored.version(),date,"Normal reversal after source recovery"),true));
         assertThat(reversed.sourceRecovery().reason()).isEqualTo("First checked source");assertThat(reversed.correction()).isNotNull();
     }
+    @Test void legacyPartyClassificationMustMatchTheReceiptAndRefundDirection() {
+        var source=originalRefundPayment(false,null);var refund=historicalRefund(source,"40");
+        var input=recoveryInput(refund,documents.payment(org,source.id()),"Classification must agree with document direction");
+        assertThatThrownBy(()->run(()->{
+            // Disposable legacy-import fixture: internally matching but incorrectly classified rows.
+            jdbc.update("UPDATE flowora_payment_v2 SET party_type='SUPPLIER' WHERE organization_id=? AND id IN (?,?)",org,source.id(),refund.id());
+            jdbc.update("UPDATE flowora_journal_line SET party_type='SUPPLIER' WHERE organization_id=?",org);
+            return documents.recoverRefundSource(actor,refund.id(),key(),input);
+        })).isInstanceOf(PlatformApiException.class).extracting("code").isEqualTo("REFUND_RECOVERY_SOURCE_MISMATCH");
+        assertThat(documents.payment(org,refund.id()).sourceRecovery()).isNull();
+    }
     @Test void recoveryChecksCurrentJournalStatusAfterAnotherTransactionReversesTheSource() {
         var source=originalRefundPayment(false,null);var refund=historicalRefund(source,"40");
         var input=recoveryInput(refund,documents.payment(org,source.id()),"Must use current journal evidence");

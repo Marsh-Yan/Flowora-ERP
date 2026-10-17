@@ -482,6 +482,8 @@ public class FinanceDocumentService {
         PaymentView original = paymentForUpdate(actor.organizationId(), body.originalPaymentId());
         String expected = "CUSTOMER_REFUND".equals(refund.paymentType()) ? "RECEIPT" : "PAYMENT";
         if (!expected.equals(original.paymentType()) || !"POSTED".equals(original.status()) || original.version() != body.originalVersion()
+                || !("CUSTOMER_REFUND".equals(refund.paymentType()) ? "CUSTOMER" : "SUPPLIER").equals(refund.partyType())
+                || original.originalPaymentId() != null || original.reversalOfId() != null || refund.reversalOfId() != null
                 || !refund.partyType().equals(original.partyType()) || !refund.partyId().equals(original.partyId())
                 || !refund.currencyCode().equals(original.currencyCode()) || !refund.baseCurrencyCode().equals(original.baseCurrencyCode())
                 || !refund.baseCurrencyCode().equals(ledger.baseCurrency(actor.organizationId()))
