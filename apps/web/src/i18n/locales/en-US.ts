@@ -412,6 +412,7 @@ export default {
     },
   },
   finance: {
+    refund: {"title": "Refund management", "terms": "Reference a posted receipt or payment. Keep its currency, accounting rate and rate date; accounting date is today. Drafts reserve unallocated balance immediately. Save first, then confirm posting separately. Release required allocations before refunding settled funds; credit notes do not return cash automatically. Different-rate refunds, reversals and draft cancellation are not supported yet. Reconcile unlinked historical refunds first.", "source": "Original payment", "basis": "Refundable {amount} {currency}; 1 {currency} = {rate} {base}; rate date {date}", "confirmDraft": "Confirm source, amount and account; reserve balance with this draft", "save": "Save refund draft", "history": "Refund history across all dates", "draft": "Draft refund to post", "confirmPost": "Confirm the selected refund cash/bank and control entries", "post": "Confirm refund posting", "loadFailed": "Unable to load complete refunds and accounts. Reload.", "uncertain": "Outcome uncertain. Review refreshed history; explicitly retry identical draft contents rather than creating duplicates."},
     eyebrow: 'Finance operations',
     title: 'Finance center',
     subtitle: 'Review balanced journals, accounting periods, financial statements and settlement aging.',
