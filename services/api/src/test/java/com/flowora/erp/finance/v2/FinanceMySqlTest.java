@@ -363,7 +363,7 @@ class FinanceMySqlTest {
                 .isInstanceOf(PlatformApiException.class).extracting("code").isEqualTo("IDEMPOTENCY_KEY_REUSED");
         assertThatThrownBy(()->run(()->documents.createPayment(actor,key(),new PaymentCreate("CUSTOMER_REFUND",customer,null,date,date,date,"EUR",n("1.3"),n("61"),"too much",original.id()))))
                 .isInstanceOf(PlatformApiException.class).extracting("code").isEqualTo("REFUND_EXCEEDS_REMAINING");
-        assertThatThrownBy(()->run(()->documents.createPayment(actor,key(),new PaymentCreate("CUSTOMER_REFUND",customer,null,date,date,date,"EUR",n("1.4"),n("10"),"different rate",original.id()))))
+        assertThatThrownBy(()->run(()->documents.createPayment(actor,key(),new PaymentCreate("CUSTOMER_REFUND",customer,null,date,date,date.plusDays(1),"EUR",n("1.4"),n("10"),"rate date after accounting",original.id()))))
                 .isInstanceOf(PlatformApiException.class).extracting("code").isEqualTo("REFUND_SOURCE_MISMATCH");
         var invoice=run(()->documents.createInvoice(actor,key(),input("SALES_INVOICE",customer,"1.3",List.of(line("100",List.of())))));
         run(()->documents.postInvoice(actor,invoice.id(),0));
@@ -381,6 +381,93 @@ class FinanceMySqlTest {
         assertThatThrownBy(()->run(()->documents.allocate(actor,original.id(),new AllocationCreate(invoice.id(),n("10")))))
                 .isInstanceOf(PlatformApiException.class).extracting("code").isEqualTo("REFUND_HISTORY_REQUIRES_RECONCILIATION");
     }
+    BigDecimal accountNet(String account, String party) {
+        return jdbc.queryForObject("SELECT COALESCE(SUM(base_debit-base_credit),0) FROM flowora_journal_line WHERE organization_id=? AND account_code=? AND party_id=?",BigDecimal.class,org,account,party);
+    }
+    PaymentView exchangeRefund(PaymentView original, String amount, String rate) {
+        return run(()->documents.createPayment(actor,key(),new PaymentCreate(original.paymentType().equals("PAYMENT")?"SUPPLIER_REFUND":"CUSTOMER_REFUND",original.partyId(),null,date,date,date,"EUR",n(rate),n(amount),"Exchange refund",original.id())));
+    }
+    @Test void differentRateRefundsClearOriginalCarryingValueAndRecognizeGainLossBothSides() {
+        for(boolean purchase:List.of(false,true)) {
+            var original=originalRefundPayment(purchase,null);
+            for(String rate:List.of("1.4","1.2")) {
+                var draft=exchangeRefund(original,"100",rate);
+                assertThat(draft.refundSourceBaseAmount()).isEqualByComparingTo("130");
+                assertThat(draft.realizedExchangeDifference()).isEqualByComparingTo(rate.equals("1.4")?"10":"-10");
+                var posted=run(()->documents.postPayment(actor,draft.id(),0));
+                var fx=ledger.journal(org,posted.refundExchangeJournalId());
+                assertThat(fx.sourceType()).isEqualTo("REFUND_EXCHANGE");assertThat(fx.currencyCode()).isEqualTo("USD");assertThat(fx.exchangeRate()).isEqualByComparingTo("1");
+                assertThat(accountNet(purchase?"PAYABLE":"RECEIVABLE",original.partyId())).isEqualByComparingTo("0");
+                boolean gain=purchase==rate.equals("1.4");
+                assertThat(accountNet(gain?"FX_GAIN":"FX_LOSS",original.partyId())).isEqualByComparingTo(gain?"-10":"10");
+                assertThatThrownBy(()->run(()->ledger.reverse(org,actor.userId(),fx.id(),date,"Business action required",key())))
+                        .isInstanceOf(PlatformApiException.class).extracting("code").isEqualTo("REFUND_REQUIRES_BUSINESS_REVERSAL");
+                String request=key();var correction=new RefundCorrection(posted.version(),date,"Reverse cash and exchange together");
+                var reversed=run(()->documents.correctRefund(actor,posted.id(),request,correction,true));
+                assertThat(ledger.journal(org,reversed.correction().exchangeJournalEntryId()).reversalOfId()).isEqualTo(fx.id());
+                assertThat(ledger.journal(org,fx.id()).status()).isEqualTo("REVERSED");
+                assertThat(run(()->documents.correctRefund(actor,posted.id(),request,correction,true)).correction().exchangeJournalEntryId()).isEqualTo(reversed.correction().exchangeJournalEntryId());
+                assertThat(accountNet("FX_GAIN",original.partyId())).isEqualByComparingTo("0");assertThat(accountNet("FX_LOSS",original.partyId())).isEqualByComparingTo("0");
+                assertThat(accountNet("CASH",original.partyId())).isEqualByComparingTo(purchase?"-130":"130");
+            }
+        }
+    }
+    @Test void allocatedSourceAndPartialExchangeRefundKeepRemainingInvoiceAtItsCarryingValueBothSides() {
+        for(boolean purchase:List.of(false,true)) {
+            var original=originalRefundPayment(purchase,null);
+            var invoice=run(()->documents.createInvoice(actor,key(),input(purchase?"SUPPLIER_INVOICE":"SALES_INVOICE",original.partyId(),"1.3",List.of(line("100",List.of())))));
+            run(()->documents.postInvoice(actor,invoice.id(),0));
+            run(()->documents.allocate(actor,original.id(),new AllocationCreate(invoice.id(),n("60"))));
+            var draft=exchangeRefund(original,"40","1.4");
+            assertThat(draft.refundSourceBaseAmount()).isEqualByComparingTo("52");
+            assertThat(draft.realizedExchangeDifference()).isEqualByComparingTo("4");
+            run(()->documents.postPayment(actor,draft.id(),0));
+            assertThat(accountNet(purchase?"PAYABLE":"RECEIVABLE",original.partyId())).isEqualByComparingTo(purchase?"-52":"52");
+            assertThat(documents.invoice(org,invoice.id()).allocatedAmount()).isEqualByComparingTo("60");
+            assertThatThrownBy(()->exchangeRefund(original,"0.0001","1.2")).isInstanceOf(PlatformApiException.class).extracting("code").isEqualTo("REFUND_EXCEEDS_REMAINING");
+        }
+    }
+    @Test void splitRefundsUseTheirSettlementRatesAndPreserveExactSourceRoundingResidual() {
+        var original=run(()->documents.createPayment(actor,key(),new PaymentCreate("RECEIPT",customer,null,date,date,date,"EUR",n("1.33333333"),n("0.0003"),"Rounding source")));
+        run(()->documents.postPayment(actor,original.id(),0));
+        BigDecimal carrying=BigDecimal.ZERO;
+        for(int i=0;i<3;i++) {
+            var draft=exchangeRefund(original,"0.0001",i==1?"1.8":"1.1");carrying=carrying.add(draft.refundSourceBaseAmount());
+            run(()->documents.postPayment(actor,draft.id(),0));
+        }
+        assertThat(carrying).isEqualByComparingTo(original.baseAmount());
+        assertThat(accountNet("RECEIVABLE",customer)).isEqualByComparingTo("0");
+        for(var row:ledger.journals(org,date,date)) {
+            assertThat(row.totalDebit()).isEqualByComparingTo(row.totalCredit());
+            assertThat(row.lines().stream().map(JournalLineView::baseDebit).reduce(BigDecimal.ZERO,BigDecimal::add)).isEqualByComparingTo(row.lines().stream().map(JournalLineView::baseCredit).reduce(BigDecimal.ZERO,BigDecimal::add));
+        }
+    }
+    @Test void exchangePostingAndReversalRollBackBothJournalsOnMissingMappingOrClosedPeriod() {
+        var original=originalRefundPayment(false,null);var draft=exchangeRefund(original,"40","1.4");
+        jdbc.update("UPDATE flowora_posting_mapping SET active=FALSE WHERE organization_id=? AND semantic_code='FX_LOSS'",org);
+        assertThatThrownBy(()->run(()->documents.postPayment(actor,draft.id(),0))).isInstanceOf(PlatformApiException.class);
+        assertThat(documents.payment(org,draft.id()).status()).isEqualTo("DRAFT");
+        assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM flowora_journal_entry WHERE organization_id=? AND source_id=?",Integer.class,org,draft.id())).isZero();
+        jdbc.update("UPDATE flowora_posting_mapping SET active=TRUE WHERE organization_id=? AND semantic_code='FX_LOSS'",org);
+        var posted=run(()->documents.postPayment(actor,draft.id(),0));
+        jdbc.update("UPDATE flowora_accounting_period SET status='CLOSED' WHERE organization_id=?",org);
+        assertThatThrownBy(()->run(()->documents.correctRefund(actor,posted.id(),key(),new RefundCorrection(posted.version(),date,"Closed period"),true))).isInstanceOf(PlatformApiException.class);
+        assertThat(documents.payment(org,posted.id()).correction()).isNull();
+        assertThat(ledger.journal(org,posted.refundExchangeJournalId()).status()).isEqualTo("POSTED");
+        assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM flowora_journal_entry WHERE organization_id=? AND source_type='JOURNAL_REVERSAL'",Integer.class,org)).isZero();
+    }
+    @Test void changedRateReplayIsBoundToContentAndCancelledDraftReleasesCarryingReservation() {
+        var original=originalRefundPayment(false,null);String request=key();
+        var body=new PaymentCreate("CUSTOMER_REFUND",customer,null,date,date,date,"EUR",n("1.4"),n("40"),"Explicit rate",original.id());
+        var draft=run(()->documents.createPayment(actor,request,body));
+        assertThat(run(()->documents.createPayment(actor,request,body)).id()).isEqualTo(draft.id());
+        assertThatThrownBy(()->run(()->documents.createPayment(actor,request,new PaymentCreate("CUSTOMER_REFUND",customer,null,date,date,date,"EUR",n("1.2"),n("40"),"Explicit rate",original.id()))))
+                .isInstanceOf(PlatformApiException.class).extracting("code").isEqualTo("IDEMPOTENCY_KEY_REUSED");
+        run(()->documents.correctRefund(actor,draft.id(),key(),new RefundCorrection(0,date,"Cancel FX draft"),false));
+        assertThat(exchangeRefund(original,"100","1.2").refundSourceBaseAmount()).isEqualByComparingTo("130");
+        assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM flowora_journal_entry WHERE organization_id=? AND source_type='REFUND_EXCHANGE'",Integer.class,org)).isZero();
+    }
+
     PaymentView originalRefundPayment(boolean purchase, String bank) {
         var row=run(()->documents.createPayment(actor,key(),new PaymentCreate(purchase?"PAYMENT":"RECEIPT",purchase?supplier:customer,bank,date,date,date,"EUR",n("1.3"),n("100"),"refund correction source")));
         return run(()->documents.postPayment(actor,row.id(),0));

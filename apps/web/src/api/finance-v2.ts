@@ -29,8 +29,8 @@ export async function approveFinanceMatchException(id: string, reason: string) {
 
 export interface FinancePayment {
   id: string; number: string; paymentType: string; partyType: string; partyId: string; bankAccountId?: string; status: string
-  correction?: { action: 'CANCEL' | 'REVERSE'; reason: string; actorUserId: string; accountingDate: string; journalEntryId?: string; createdAt: string };
-  originalPaymentId?: string; exchangeRate?: number; exchangeRateDate?: string; baseCurrencyCode?: string;
+  correction?: { action: 'CANCEL' | 'REVERSE'; reason: string; actorUserId: string; accountingDate: string; journalEntryId?: string; exchangeJournalEntryId?: string; createdAt: string };
+  refundSourceBaseAmount?: number; realizedExchangeDifference?: number; refundExchangeJournalId?: string; originalPaymentId?: string; exchangeRate?: number; exchangeRateDate?: string; baseCurrencyCode?: string;
   allocationStatus: string; accountingDate: string; currencyCode: string; amount: number; allocatedAmount: number; version: number; allocations: FinanceAllocation[]
 }
 
