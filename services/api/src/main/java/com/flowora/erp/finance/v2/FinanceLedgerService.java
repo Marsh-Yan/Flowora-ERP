@@ -84,23 +84,36 @@ public class FinanceLedgerService {
     @Transactional
     public JournalView reverse(String organizationId, String actorUserId, String journalId,
                                LocalDate accountingDate, String reason, String requestId) {
-        return reverseInternal(organizationId, actorUserId, journalId, accountingDate, reason, requestId, false);
+        return reverseInternal(organizationId, actorUserId, journalId, accountingDate, reason, requestId, "GENERIC");
     }
 
     JournalView reverseRefundJournal(String organizationId, String actorUserId, String journalId,
                                     LocalDate accountingDate, String reason, String requestId) {
-        return reverseInternal(organizationId, actorUserId, journalId, accountingDate, reason, requestId, true);
+        return reverseInternal(organizationId, actorUserId, journalId, accountingDate, reason, requestId, "REFUND");
+    }
+
+    JournalView reversePaymentJournal(String organizationId, String actorUserId, String journalId,
+                                     LocalDate accountingDate, String reason, String requestId) {
+        return reverseInternal(organizationId, actorUserId, journalId, accountingDate, reason, requestId, "PAYMENT");
     }
 
     private JournalView reverseInternal(String organizationId, String actorUserId, String journalId,
-                                       LocalDate accountingDate, String reason, String requestId, boolean refundAction) {
+                                       LocalDate accountingDate, String reason, String requestId, String businessAction) {
         JournalView original = journalForUpdate(organizationId, journalId);
         boolean refundJournal = List.of("CUSTOMER_REFUND", "SUPPLIER_REFUND", "REFUND_EXCHANGE").contains(original.sourceType());
         boolean refundReversal = original.reversalOfId() != null && jdbc.queryForObject("""
                 SELECT COUNT(*) FROM flowora_journal_entry WHERE organization_id=? AND id=?
                 AND source_type IN ('CUSTOMER_REFUND','SUPPLIER_REFUND','REFUND_EXCHANGE')
                 """, Integer.class, organizationId, original.reversalOfId()) > 0;
-        if ((!refundAction && (refundJournal || refundReversal)) || (refundAction && !refundJournal))
+        boolean paymentJournal = List.of("RECEIPT", "PAYMENT").contains(original.sourceType());
+        boolean paymentReversal = original.reversalOfId() != null && jdbc.queryForObject("""
+                SELECT COUNT(*) FROM flowora_journal_entry WHERE organization_id=? AND id=?
+                AND source_type IN ('RECEIPT','PAYMENT')
+                """, Integer.class, organizationId, original.reversalOfId()) > 0;
+        if (("GENERIC".equals(businessAction) && (paymentJournal || paymentReversal))
+                || ("PAYMENT".equals(businessAction) && !paymentJournal))
+            throw conflict("PAYMENT_REQUIRES_BUSINESS_REVERSAL", Map.of());
+        if ((!"REFUND".equals(businessAction) && (refundJournal || refundReversal)) || ("REFUND".equals(businessAction) && !refundJournal))
             throw conflict("REFUND_REQUIRES_BUSINESS_REVERSAL", Map.of());
         List<String> replay = jdbc.query("SELECT id FROM flowora_journal_entry WHERE organization_id=? AND request_id=?",
                 (rs, row) -> rs.getString(1), organizationId, requestId);

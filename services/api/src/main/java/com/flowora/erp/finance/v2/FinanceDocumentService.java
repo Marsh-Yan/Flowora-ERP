@@ -16,6 +16,8 @@ import com.flowora.erp.finance.v2.FinanceV2Dtos.RefundSourceRecovery;
 import com.flowora.erp.finance.v2.FinanceV2Dtos.RefundSourceRecoveryView;
 import com.flowora.erp.finance.v2.FinanceV2Dtos.JournalView;
 import com.flowora.erp.finance.v2.FinanceV2Dtos.RefundCorrection;
+import com.flowora.erp.finance.v2.FinanceV2Dtos.PaymentCorrection;
+import com.flowora.erp.finance.v2.FinanceV2Dtos.PaymentCorrectionView;
 import com.flowora.erp.finance.v2.FinanceV2Dtos.RefundCorrectionView;
 import com.flowora.erp.identity.FloworaPrincipal;
 import com.flowora.erp.trade.v2.TradeAmountPolicy;
@@ -440,7 +442,7 @@ public class FinanceDocumentService {
                 rs.getBigDecimal("base_amount"), rs.getBigDecimal("allocated_amount"), rs.getString("reference"),
                 rs.getString("reversal_of_id"), timestamp(rs.getTimestamp("posted_at")), rs.getLong("version_no"), rs.getString("original_payment_id"),
                 rs.getBigDecimal("refund_source_base_amount"), rs.getBigDecimal("refund_source_base_amount") == null ? null : rs.getBigDecimal("base_amount").subtract(rs.getBigDecimal("refund_source_base_amount")), rs.getString("refund_exchange_journal_id"),
-                refundSourceRecovery(organizationId, rs.getString("id")), refundCorrection(organizationId, rs.getString("id")), allocations(organizationId, rs.getString("id"))), organizationId, id);
+                refundSourceRecovery(organizationId, rs.getString("id")), refundCorrection(organizationId, rs.getString("id")), paymentCorrection(organizationId, rs.getString("id")), allocations(organizationId, rs.getString("id"))), organizationId, id);
         if (values.isEmpty()) throw notFound("payment", id);
         return values.getFirst();
     }
@@ -549,6 +551,80 @@ public class FinanceDocumentService {
         if (!debit || !credit || journal.lines().getFirst().accountCode().equals(journal.lines().getLast().accountCode()))
             throw conflict("REFUND_RECOVERY_JOURNAL_MISMATCH", Map.of());
         return journal;
+    }
+
+    public PaymentCorrectionView paymentCorrection(String organizationId, String paymentId) {
+        var rows = jdbc.query("""
+                SELECT action,reason,actor_user_id,accounting_date,journal_entry_id,created_at
+                FROM flowora_payment_correction WHERE organization_id=? AND payment_id=?
+                """, (rs, row) -> new PaymentCorrectionView(rs.getString("action"), rs.getString("reason"),
+                rs.getString("actor_user_id"), rs.getDate("accounting_date").toLocalDate(),
+                rs.getString("journal_entry_id"), timestamp(rs.getTimestamp("created_at"))), organizationId, paymentId);
+        return rows.isEmpty() ? null : rows.getFirst();
+    }
+
+    @Transactional
+    public PaymentView correctPayment(FloworaPrincipal actor, String paymentId, String requestId,
+                                      PaymentCorrection body, boolean reverse) {
+        String org = actor.organizationId(), key = requiredKey(requestId), action = reverse ? "REVERSE" : "CANCEL";
+        ledger.lockOrganizationFinance(org);
+        PaymentView payment = paymentForUpdate(org, paymentId);
+        if (!Set.of("RECEIPT", "PAYMENT").contains(payment.paymentType()))
+            throw conflict("PAYMENT_CORRECTION_TYPE_MISMATCH", Map.of());
+        String reason = body.reason().trim();
+        var replay = jdbc.query("""
+                SELECT payment_id,action,reason,accounting_date,source_version FROM flowora_payment_correction
+                WHERE organization_id=? AND request_id=? FOR UPDATE
+                """, (rs, row) -> rs.getString("payment_id").equals(paymentId)
+                && rs.getString("action").equals(action) && rs.getString("reason").equals(reason)
+                && rs.getDate("accounting_date").toLocalDate().equals(body.accountingDate())
+                && rs.getLong("source_version") == body.version(), org, key);
+        if (!replay.isEmpty()) {
+            if (!replay.getFirst()) throw conflict("IDEMPOTENCY_KEY_REUSED", Map.of());
+            return payment;
+        }
+        var current = jdbc.queryForMap("SELECT status,version_no FROM flowora_payment_v2 WHERE organization_id=? AND id=? FOR UPDATE", org, paymentId);
+        if (!(reverse ? "POSTED" : "DRAFT").equals(current.get("status"))
+                || ((Number) current.get("version_no")).longValue() != body.version()
+                || payment.version() != body.version()) throw conflict("PAYMENT_CORRECTION_STATE_CONFLICT", Map.of());
+        if (reason.isEmpty() || reason.length() > 500) throw conflict("PAYMENT_CORRECTION_REASON_REQUIRED", Map.of());
+        if (body.accountingDate().isBefore(payment.accountingDate())) throw conflict("PAYMENT_CORRECTION_DATE_INVALID", Map.of());
+        if (payment.originalPaymentId() != null || payment.reversalOfId() != null
+                || !payment.partyType().equals("RECEIPT".equals(payment.paymentType()) ? "CUSTOMER" : "SUPPLIER"))
+            throw conflict("PAYMENT_CORRECTION_TYPE_MISMATCH", Map.of());
+        // Locking reads deliberately inspect current dependent rows, even after an earlier snapshot.
+        var allocations = jdbc.query("SELECT id FROM flowora_payment_allocation WHERE organization_id=? AND payment_id=? AND status='ACTIVE' FOR UPDATE",
+                (rs,row)->rs.getString(1), org, paymentId);
+        if (payment.allocatedAmount().signum() != 0 || !allocations.isEmpty()) throw conflict("PAYMENT_HAS_ALLOCATIONS", Map.of());
+        var refunds = jdbc.query("""
+                SELECT id FROM flowora_payment_v2 WHERE organization_id=? AND status IN ('DRAFT','POSTED')
+                AND payment_type IN ('CUSTOMER_REFUND','SUPPLIER_REFUND')
+                AND (original_payment_id=? OR (original_payment_id IS NULL AND party_type=? AND party_id=? AND currency_code=?)) FOR UPDATE
+                """, (rs,row)->rs.getString(1), org, paymentId, payment.partyType(), payment.partyId(), payment.currencyCode());
+        if (!refunds.isEmpty()) throw conflict("PAYMENT_HAS_ACTIVE_REFUNDS", Map.of());
+        var matches = jdbc.query("""
+                SELECT l.id FROM flowora_bank_reconciliation_link l JOIN flowora_bank_reconciliation h
+                ON h.id=l.reconciliation_id AND h.organization_id=l.organization_id
+                WHERE l.organization_id=? AND l.payment_id=? AND h.status='CONFIRMED' FOR UPDATE
+                """, (rs,row)->rs.getString(1), org, paymentId);
+        if (!matches.isEmpty()) throw conflict("PAYMENT_RECONCILIATION_MUST_BE_REVERSED", Map.of());
+        String reversalId = null;
+        var journals = jdbc.query("SELECT id FROM flowora_journal_entry WHERE organization_id=? AND source_type=? AND source_id=? FOR UPDATE",
+                (rs,row)->rs.getString(1), org, payment.paymentType(), paymentId);
+        if (reverse) {
+            if (journals.size() != 1) throw conflict("PAYMENT_JOURNAL_MISMATCH", Map.of());
+            // Reuse the full amount, date, currency, party and actual-line consistency checks.
+            JournalView original = recoveryJournal(org, payment);
+            reversalId = ledger.reversePaymentJournal(org, actor.userId(), original.id(), body.accountingDate(), reason,
+                    "payment-reverse:" + paymentId).id();
+        } else if (!journals.isEmpty()) throw conflict("PAYMENT_DRAFT_HAS_JOURNAL", Map.of());
+        jdbc.update("""
+                INSERT INTO flowora_payment_correction(id,organization_id,payment_id,action,reason,actor_user_id,
+                accounting_date,journal_entry_id,source_version,request_id) VALUES (?,?,?,?,?,?,?,?,?,?)
+                """, UUID.randomUUID().toString(), org, paymentId, action, reason, actor.userId(), body.accountingDate(), reversalId, body.version(), key);
+        jdbc.update("UPDATE flowora_payment_v2 SET status=?,version_no=version_no+1 WHERE organization_id=? AND id=?",
+                reverse ? "REVERSED" : "CANCELLED", org, paymentId);
+        return payment(org, paymentId);
     }
 
     public RefundCorrectionView refundCorrection(String organizationId, String paymentId) {
