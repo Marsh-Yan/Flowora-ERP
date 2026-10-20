@@ -98,10 +98,15 @@ public class FinanceDocumentService {
     public InvoiceView createInvoice(FloworaPrincipal actor, String requestId, InvoiceCreate body) {
         String type = upper(body.documentType());
         if (!TYPES.contains(type)) throw conflict("INVALID_INVOICE_TYPE", Map.of("documentType", type));
+        if (type.endsWith("CREDIT")) ledger.lockOrganizationFinance(actor.organizationId());
         String key = requiredKey(requestId);
         List<String> existing = jdbc.query("SELECT id FROM flowora_finance_invoice WHERE organization_id=? AND request_id=?",
                 (rs, row) -> rs.getString(1), actor.organizationId(), key);
-        if (!existing.isEmpty()) return invoice(actor.organizationId(), existing.getFirst());
+        if (!existing.isEmpty()) {
+            InvoiceView replay = invoice(actor.organizationId(), existing.getFirst());
+            if (type.endsWith("CREDIT") || replay.documentType().endsWith("CREDIT")) requireCreditReplay(replay, body);
+            return replay;
+        }
         boolean sales = type.equals("SALES_INVOICE") || type.equals("CUSTOMER_CREDIT");
         boolean credit = type.endsWith("CREDIT");
         String partyType = sales ? "CUSTOMER" : "SUPPLIER";
@@ -110,7 +115,10 @@ public class FinanceDocumentService {
         if (credit && !original.partyId().equals(body.partyId())) throw conflict("CREDIT_PARTY_MISMATCH", Map.of());
         String baseCurrency = ledger.baseCurrency(actor.organizationId());
         String id = UUID.randomUUID().toString();
-        List<CalculatedLine> lines = calculateLines(actor.organizationId(), type, body.lines(), body.exchangeRate());
+        List<InvoiceLineCreate> inputs = credit ? requireCreditTerms(actor.organizationId(), type, body.partyId(), body.projectId(),
+                body.originalInvoiceId(), body.accountingDate(), body.exchangeRateDate(), upper(body.currencyCode()), baseCurrency,
+                body.exchangeRate(), body.lines()) : body.lines();
+        List<CalculatedLine> lines = calculateLines(actor.organizationId(), type, inputs, body.exchangeRate());
         BigDecimal net = sum(lines.stream().map(CalculatedLine::net).toList());
         BigDecimal tax = sum(lines.stream().map(CalculatedLine::tax).toList());
         BigDecimal total = sum(lines.stream().map(CalculatedLine::total).toList());
@@ -181,6 +189,12 @@ public class FinanceDocumentService {
         if (!"DRAFT".equals(invoice.status())) throw conflict("INVOICE_NOT_DRAFT", Map.of("status", invoice.status()));
         if ("EXCEPTION".equals(invoice.matchStatus())) throw conflict("MATCH_EXCEPTION_NOT_APPROVED", Map.of());
         requireSourceCapacity(actor.organizationId(), invoice);
+        if (invoice.documentType().endsWith("CREDIT")) {
+            requireCreditTerms(actor.organizationId(), invoice.documentType(), invoice.partyId(), invoice.projectId(), invoice.originalInvoiceId(),
+                    invoice.accountingDate(), invoice.exchangeRateDate(), invoice.currencyCode(), invoice.baseCurrencyCode(),
+                    invoice.exchangeRate(), creditInputs(invoice));
+            requireInvoiceAmounts(invoice);
+        }
         List<PostingLine> postings = invoicePostings(actor.organizationId(), invoice);
         ledger.post(actor.organizationId(), actor.userId(), invoice.documentType(), invoice.id(), null,
                 invoice.businessDate(), invoice.accountingDate(), invoice.exchangeRateDate(), invoice.currencyCode(),
@@ -844,6 +858,7 @@ public class FinanceDocumentService {
     private List<PostingLine> invoicePostings(String organizationId, InvoiceView invoice) {
         boolean sales = "CUSTOMER".equals(invoice.partyType());
         boolean credit = invoice.documentType().endsWith("CREDIT");
+        if (credit) return creditPostings(organizationId, invoice);
         String control = ledger.mapping(organizationId, sales ? "RECEIVABLE" : "PAYABLE");
         String tax = ledger.mapping(organizationId, sales ? "TAX_PAYABLE" : "TAX_RECEIVABLE");
         List<PostingLine> normal = new ArrayList<>();
@@ -863,9 +878,162 @@ public class FinanceDocumentService {
             }
             if (invoice.taxAmount().signum() > 0) normal.add(PostingLine.debit(tax, "Input tax", invoice.taxAmount(), invoice.projectId(), invoice.partyType(), invoice.partyId(), null));
         }
-        if (!credit) return normal;
-        return normal.stream().map(line -> new PostingLine(line.accountCode(), "Credit: " + line.description(),
-                line.credit(), line.debit(), line.projectId(), line.partyType(), line.partyId(), line.sourceLineId())).toList();
+        return normal;
+    }
+
+    private List<PostingLine> creditPostings(String org, InvoiceView credit) {
+        InvoiceView original = invoiceForUpdate(org, credit.originalInvoiceId());
+        JournalView actual = requireCreditOriginalJournal(org, original);
+        boolean sales = "CUSTOMER".equals(original.partyType());
+        String control = actual.lines().stream().filter(l -> l.sourceLineId() == null && (sales ? l.debit() : l.credit()).signum() > 0).findFirst().orElseThrow().accountCode();
+        List<PostingLine> result = new ArrayList<>();
+        result.add(sales ? PostingLine.credit(control, "Credit customer receivable", credit.totalAmount(), credit.projectId(), credit.partyType(), credit.partyId(), null)
+                : PostingLine.debit(control, "Credit supplier payable", credit.totalAmount(), credit.projectId(), credit.partyType(), credit.partyId(), null));
+        for (var line : credit.lines()) {
+            String sourceLine = line.sources().getFirst().sourceLineId();
+            String account = actual.lines().stream().filter(l -> sourceLine.equals(l.sourceLineId())).findFirst().orElseThrow().accountCode();
+            result.add(sales ? PostingLine.debit(account, "Credit: " + line.description(), line.netAmount(), line.projectId(), credit.partyType(), credit.partyId(), line.id())
+                    : PostingLine.credit(account, "Credit: " + line.description(), line.netAmount(), line.projectId(), credit.partyType(), credit.partyId(), line.id()));
+        }
+        if (credit.taxAmount().signum() > 0) {
+            String tax = actual.lines().stream().filter(l -> l.sourceLineId() == null && (sales ? l.credit() : l.debit()).signum() > 0).findFirst().orElseThrow().accountCode();
+            result.add(sales ? PostingLine.debit(tax, "Credit output tax", credit.taxAmount(), credit.projectId(), credit.partyType(), credit.partyId(), null)
+                    : PostingLine.credit(tax, "Credit input tax", credit.taxAmount(), credit.projectId(), credit.partyType(), credit.partyId(), null));
+        }
+        return result;
+    }
+
+    private static List<InvoiceLineCreate> creditInputs(InvoiceView invoice) {
+        return invoice.lines().stream().map(l -> new InvoiceLineCreate(l.itemId(), l.description(), l.quantity(), l.unitPrice(),
+                l.discountRate(), l.taxRate(), l.accountCode(), l.projectId(), l.sources().stream().map(source ->
+                new InvoiceSourceCreate(source.sourceType(), source.sourceId(), source.sourceLineId(), source.quantity(), source.amount())).toList())).toList();
+    }
+
+    private void requireCreditReplay(InvoiceView replay, InvoiceCreate body) {
+        boolean equal = replay.documentType().equals(upper(body.documentType())) && replay.partyId().equals(body.partyId())
+                && Objects.equals(replay.originalInvoiceId(), nullable(body.originalInvoiceId()))
+                && Objects.equals(replay.projectId(), nullable(body.projectId())) && replay.businessDate().equals(body.businessDate())
+                && replay.accountingDate().equals(body.accountingDate()) && replay.dueDate().equals(body.dueDate())
+                && replay.exchangeRateDate().equals(body.exchangeRateDate()) && replay.currencyCode().equals(upper(body.currencyCode()))
+                && replay.exchangeRate().compareTo(body.exchangeRate()) == 0 && replay.lines().size() == body.lines().size();
+        if (equal) for (int i = 0; i < body.lines().size(); i++) {
+            var actual = replay.lines().get(i); var input = body.lines().get(i);
+            equal &= Objects.equals(actual.itemId(), nullable(input.itemId())) && actual.description().equals(input.description().trim())
+                    && Objects.equals(actual.projectId(), nullable(input.projectId()))
+                    && (nullable(input.accountCode()) == null || Objects.equals(actual.accountCode(), nullable(input.accountCode())))
+                    && actual.quantity().compareTo(input.quantity()) == 0 && actual.unitPrice().compareTo(input.unitPrice()) == 0
+                    && actual.discountRate().compareTo(input.discountRate()) == 0 && actual.taxRate().compareTo(input.taxRate()) == 0
+                    && input.sources() != null && actual.sources().size() == input.sources().size();
+            if (equal) for (int j = 0; j < input.sources().size(); j++) {
+                var a = actual.sources().get(j); var b = input.sources().get(j);
+                equal &= a.sourceType().equals(upper(b.sourceType())) && a.sourceId().equals(b.sourceId())
+                        && Objects.equals(a.sourceLineId(), nullable(b.sourceLineId())) && a.quantity().compareTo(b.quantity()) == 0
+                        && a.amount().compareTo(b.amount()) == 0;
+            }
+        }
+        if (!equal) throw conflict("IDEMPOTENCY_KEY_REUSED", Map.of());
+    }
+
+    // Both creation and posting hold the organization finance lock. Drafts do not
+    // reserve source quantity; posting checks the latest original and actual journal again.
+    private List<InvoiceLineCreate> requireCreditTerms(String org, String type, String partyId, String projectId, String originalId,
+            LocalDate accountingDate, LocalDate rateDate, String currency, String baseCurrency, BigDecimal rate, List<InvoiceLineCreate> inputs) {
+        InvoiceView original = invoiceForUpdate(org, originalId);
+        String originalType = "CUSTOMER_CREDIT".equals(type) ? "SALES_INVOICE" : "SUPPLIER_INVOICE";
+        String partyType = "CUSTOMER_CREDIT".equals(type) ? "CUSTOMER" : "SUPPLIER";
+        if (!originalType.equals(original.documentType()) || !"POSTED".equals(original.status())
+                || !partyType.equals(original.partyType()) || !partyId.equals(original.partyId())
+                || !Objects.equals(nullable(projectId), original.projectId()) || !currency.equals(original.currencyCode())
+                || !baseCurrency.equals(original.baseCurrencyCode()) || !baseCurrency.equals(ledger.baseCurrency(org))
+                || original.exchangeRate().signum() <= 0 || original.exchangeRate().stripTrailingZeros().scale() > 8
+                || !original.currencyCode().matches("[A-Z]{3}") || !original.baseCurrencyCode().matches("[A-Z]{3}")
+                || (currency.equals(baseCurrency) && rate.compareTo(BigDecimal.ONE) != 0)
+                || original.exchangeRateDate().isAfter(original.accountingDate())
+                || rate.compareTo(original.exchangeRate()) != 0 || !rateDate.equals(original.exchangeRateDate())
+                || accountingDate.isBefore(original.accountingDate())) throw conflict("CREDIT_ORIGINAL_TERMS_MISMATCH", Map.of());
+        JournalView journal = requireCreditOriginalJournal(org, original);
+        var used = new java.util.HashMap<String, BigDecimal>();
+        List<InvoiceLineCreate> result = new ArrayList<>();
+        for (var input : inputs) {
+            if (input.sources() == null || input.sources().size() != 1) throw conflict("CREDIT_SINGLE_ORIGINAL_LINE_REQUIRED", Map.of());
+            var source = input.sources().getFirst();
+            var line = original.lines().stream().filter(l -> l.id().equals(source.sourceLineId())).findFirst().orElse(null);
+            if (!"ORIGINAL_INVOICE_LINE".equals(upper(source.sourceType())) || !original.id().equals(source.sourceId()) || line == null)
+                throw conflict("INVALID_INVOICE_SOURCE", Map.of());
+            if (input.quantity().signum() <= 0 || input.quantity().stripTrailingZeros().scale() > 4
+                    || input.quantity().compareTo(source.quantity()) != 0 || input.unitPrice().compareTo(line.unitPrice()) != 0
+                    || input.discountRate().compareTo(line.discountRate()) != 0 || input.taxRate().compareTo(line.taxRate()) != 0
+                    || !Objects.equals(nullable(input.itemId()), line.itemId()) || !Objects.equals(nullable(input.projectId()), line.projectId()))
+                throw conflict("CREDIT_ORIGINAL_LINE_TERMS_MISMATCH", Map.of());
+            var amounts = TradeAmountPolicy.calculate(input.quantity(), line.unitPrice(), line.discountRate(), line.taxRate());
+            if (source.amount().compareTo(amounts.net()) != 0) throw conflict("CREDIT_SOURCE_AMOUNT_MISMATCH", Map.of());
+            BigDecimal cumulative = used.merge(line.id(), input.quantity(), BigDecimal::add);
+            if (cumulative.compareTo(line.quantity().subtract(line.creditedQuantity())) > 0)
+                throw conflict("CREDIT_QUANTITY_EXCEEDS_REMAINING", Map.of());
+            String account = journal.lines().stream().filter(l -> line.id().equals(l.sourceLineId())).findFirst().orElseThrow().accountCode();
+            if (nullable(input.accountCode()) != null && !account.equals(nullable(input.accountCode())))
+                throw conflict("CREDIT_ORIGINAL_ACCOUNT_MISMATCH", Map.of());
+            result.add(new InvoiceLineCreate(line.itemId(), input.description(), input.quantity(), line.unitPrice(), line.discountRate(),
+                    line.taxRate(), account, line.projectId(), List.of(source)));
+        }
+        return result;
+    }
+
+    private void requireInvoiceAmounts(InvoiceView invoice) {
+        BigDecimal net = BigDecimal.ZERO, tax = BigDecimal.ZERO, total = BigDecimal.ZERO;
+        for (var line : invoice.lines()) {
+            var amounts = TradeAmountPolicy.calculate(line.quantity(), line.unitPrice(), line.discountRate(), line.taxRate());
+            if (line.netAmount().compareTo(amounts.net()) != 0 || line.taxAmount().compareTo(amounts.tax()) != 0
+                    || line.totalAmount().compareTo(amounts.gross()) != 0
+                    || line.baseTotalAmount().compareTo(FinancePostingPolicy.base(amounts.gross(), invoice.exchangeRate())) != 0)
+                throw conflict("CREDIT_INVOICE_AMOUNTS_MISMATCH", Map.of());
+            net = net.add(amounts.net()); tax = tax.add(amounts.tax()); total = total.add(amounts.gross());
+        }
+        if (invoice.netAmount().compareTo(net) != 0 || invoice.taxAmount().compareTo(tax) != 0 || invoice.totalAmount().compareTo(total) != 0
+                || invoice.baseTotalAmount().compareTo(FinancePostingPolicy.base(total, invoice.exchangeRate())) != 0)
+            throw conflict("CREDIT_INVOICE_AMOUNTS_MISMATCH", Map.of());
+    }
+
+    private JournalView requireCreditOriginalJournal(String org, InvoiceView original) {
+        var entries = jdbc.query("SELECT id,status FROM flowora_journal_entry WHERE organization_id=? AND source_type=? AND source_id=? FOR UPDATE",
+                (rs,row)->new String[]{rs.getString("id"),rs.getString("status")}, org, original.documentType(), original.id());
+        if (entries.size() != 1 || !"POSTED".equals(entries.getFirst()[1])) throw conflict("CREDIT_ORIGINAL_JOURNAL_MISMATCH", Map.of());
+        var journal = ledger.journal(org, entries.getFirst()[0]);
+        requireInvoiceAmounts(original);
+        if (!"POSTED".equals(journal.status()) || journal.reversalOfId() != null
+                || !journal.businessDate().equals(original.businessDate()) || !journal.accountingDate().equals(original.accountingDate())
+                || !journal.exchangeRateDate().equals(original.exchangeRateDate()) || !journal.currencyCode().equals(original.currencyCode())
+                || !journal.baseCurrencyCode().equals(original.baseCurrencyCode()) || journal.exchangeRate().compareTo(original.exchangeRate()) != 0
+                || journal.totalDebit().compareTo(original.totalAmount()) != 0 || journal.totalCredit().compareTo(original.totalAmount()) != 0
+                || journal.lines().size() != original.lines().size() + 1 + (original.taxAmount().signum() > 0 ? 1 : 0)
+                || !jdbc.query("SELECT id FROM flowora_journal_entry WHERE organization_id=? AND reversal_of_id=? FOR UPDATE", (rs,row)->rs.getString(1), org, journal.id()).isEmpty())
+            throw conflict("CREDIT_ORIGINAL_JOURNAL_MISMATCH", Map.of());
+        boolean sales = "CUSTOMER".equals(original.partyType());
+        BigDecimal debit = BigDecimal.ZERO, credit = BigDecimal.ZERO, baseDebit = BigDecimal.ZERO, baseCredit = BigDecimal.ZERO;
+        for (var entry : journal.lines()) {
+            if (!original.partyId().equals(entry.partyId()) || !original.partyType().equals(entry.partyType())
+                    || !original.currencyCode().equals(entry.currencyCode())
+                    || entry.baseDebit().compareTo(FinancePostingPolicy.base(entry.debit(), original.exchangeRate())) != 0
+                    || entry.baseCredit().compareTo(FinancePostingPolicy.base(entry.credit(), original.exchangeRate())) != 0)
+                throw conflict("CREDIT_ORIGINAL_JOURNAL_MISMATCH", Map.of());
+            debit = debit.add(entry.debit()); credit = credit.add(entry.credit()); baseDebit = baseDebit.add(entry.baseDebit()); baseCredit = baseCredit.add(entry.baseCredit());
+        }
+        if (debit.compareTo(original.totalAmount()) != 0 || credit.compareTo(debit) != 0 || baseDebit.compareTo(original.baseTotalAmount()) != 0 || baseCredit.compareTo(baseDebit) != 0)
+            throw conflict("CREDIT_ORIGINAL_JOURNAL_MISMATCH", Map.of());
+        for (var line : original.lines()) {
+            var actual = journal.lines().stream().filter(l -> line.id().equals(l.sourceLineId())).toList();
+            if (actual.size() != 1 || (sales ? actual.getFirst().credit() : actual.getFirst().debit()).compareTo(line.netAmount()) != 0
+                    || (sales ? actual.getFirst().debit() : actual.getFirst().credit()).signum() != 0
+                    || !Objects.equals(actual.getFirst().projectId(), line.projectId())
+                    || (line.accountCode() != null && !line.accountCode().equals(actual.getFirst().accountCode())))
+                throw conflict("CREDIT_ORIGINAL_JOURNAL_MISMATCH", Map.of());
+        }
+        var control = journal.lines().stream().filter(l -> l.sourceLineId() == null && (sales ? l.debit() : l.credit()).compareTo(original.totalAmount()) == 0 && (sales ? l.credit() : l.debit()).signum() == 0).toList();
+        var tax = journal.lines().stream().filter(l -> l.sourceLineId() == null && (sales ? l.credit() : l.debit()).compareTo(original.taxAmount()) == 0 && (sales ? l.debit() : l.credit()).signum() == 0).toList();
+        if (control.size() != 1 || !Objects.equals(control.getFirst().projectId(), original.projectId())
+                || (original.taxAmount().signum() > 0 && (tax.size() != 1 || !Objects.equals(tax.getFirst().projectId(), original.projectId()))))
+            throw conflict("CREDIT_ORIGINAL_JOURNAL_MISMATCH", Map.of());
+        return journal;
     }
 
     private void applyCredit(String organizationId, InvoiceView credit) {

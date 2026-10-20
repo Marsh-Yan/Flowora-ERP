@@ -24,7 +24,7 @@ const paidLinks = computed(() => paidInvoices.value.flatMap(invoice => payments.
   return active.length ? [{invoice,payment,amount:active.reduce((sum,a)=>sum+a.amount,0)}] : []
 })))
 function manageAllocation(id: string) {
-  if (busy.value || loading.value || reading.value || failed.value || !allowed.value || !auth.hasPermission('finance:allocate') || !paidLinks.value.some(row=>row.payment.id===id)) return
+  if (!props.modelValue || busy.value || loading.value || reading.value || failed.value || !allowed.value || !auth.hasPermission('finance:allocate') || !paidLinks.value.some(row=>row.payment.id===id)) return
   emit('update:modelValue',false); emit('manage-allocation',id)
 }
 
@@ -33,7 +33,12 @@ const lines = computed(() => detail.value?.lines.filter(row => Number.isFinite(r
 const line = computed(() => lines.value.find(row => row.id === lineId.value))
 const amount = computed(() => line.value ? Math.round(Math.round(quantity.value * line.value.unitPrice * (1 - line.value.discountRate! / 100) * 10000) * (1 + line.value.taxRate / 100)) / 10000 : 0)
 const remaining = computed(() => line.value ? line.value.quantity - line.value.creditedQuantity! : 0)
-const originalRateValid = computed(() => { const row = detail.value; if (!row || !Number.isFinite(row.exchangeRate) || row.exchangeRate! <= 0 || Number(row.exchangeRate!.toFixed(8)) !== row.exchangeRate) return false; if (row.currencyCode === currency.value) return row.exchangeRate === 1; const value = row.exchangeRateDate ?? '', d = new Date(`${value}T12:00:00`); return row.baseCurrencyCode === currency.value && /^\d{4}-\d{2}-\d{2}$/.test(value) && !Number.isNaN(d.getTime()) && `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}` === value && value <= date() })
+const originalRateValid = computed(() => {
+  const row=detail.value
+  if (!row || row.baseCurrencyCode !== currency.value || !Number.isFinite(row.exchangeRate) || row.exchangeRate! <= 0 || Number(row.exchangeRate!.toFixed(8)) !== row.exchangeRate || (row.currencyCode === currency.value && row.exchangeRate !== 1)) return false
+  const value=row.exchangeRateDate ?? '',d=new Date(`${value}T12:00:00`)
+  return /^\d{4}-\d{2}-\d{2}$/.test(value) && !Number.isNaN(d.getTime()) && `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}` === value && value <= row.accountingDate && row.accountingDate <= date()
+})
 const valid = computed(() => ready.value && detail.value && eligible(detail.value) && originalRateValid.value && line.value && Number.isFinite(quantity.value) && quantity.value > 0 && Number(quantity.value.toFixed(4)) === quantity.value && quantity.value <= remaining.value && amount.value > 0 && amount.value <= Math.round(openAmount(detail.value) * 10000) / 10000)
 const money = (n: number) => n.toLocaleString(locale.value, { maximumFractionDigits: 4 })
 const date = () => { const d = new Date(); return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}` }
@@ -82,6 +87,7 @@ async function save() {
 <template>
   <el-dialog :model-value="modelValue" :title="t('finance.creditNote.title')" width="min(640px, calc(100vw - 32px))" destroy-on-close :show-close="!busy" :close-on-click-modal="!busy" :close-on-press-escape="!busy" @update:model-value="close">
     <p>{{ t('finance.creditNote.terms') }}</p>
+    <p>{{ t('finance.creditNote.originalTerms') }}</p>
     <p>{{ t('finance.creditNote.paidSteps') }}</p>
     <section v-if="!loading && !failed && allowed && paidInvoices.length" class="paid-invoice-help">
       <h3>{{ t('finance.creditNote.paidTitle') }}</h3>
