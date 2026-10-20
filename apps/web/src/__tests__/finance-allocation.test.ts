@@ -6,6 +6,7 @@ import { createI18n } from 'vue-i18n'
 import { beforeEach, expect, it, vi } from 'vitest'
 import { useAuthStore } from '@/stores/auth'
 import Dialog from '@/components/finance/FinanceAllocationDialog.vue'
+import { ElForm, ElFormItem, ElInputNumber, ElInput } from 'element-plus'
 import en from '@/i18n/locales/en-US'
 import * as api from '@/api/finance-v2'
 vi.mock('@/api/finance-v2', () => ({ listFinanceInvoices: vi.fn(), listFinancePayments: vi.fn(), allocateFinancePayment: vi.fn(), reverseFinanceAllocation: vi.fn() }))
@@ -22,9 +23,9 @@ const column = defineComponent({ setup(_,{slots}) { const rows=inject<Ref<api.Fi
 const payment = (patch: Partial<api.FinancePayment> = {}): api.FinancePayment => ({ id:'payment',number:'RC-1',paymentType:'RECEIPT',partyType:'CUSTOMER',partyId:'customer',status:'POSTED',allocationStatus:'UNALLOCATED',accountingDate:'2026-10-05',currencyCode:'CNY',amount:30,allocatedAmount:0,version:1,allocations:[],...patch })
 const invoice = (patch: Partial<api.FinanceInvoice> = {}): api.FinanceInvoice => ({ id:'invoice',number:'SI-1',documentType:'SALES_INVOICE',partyType:'CUSTOMER',partyId:'customer',status:'POSTED',settlementStatus:'UNPAID',currencyCode:'CNY',totalAmount:30,allocatedAmount:0,creditedAmount:0,accountingDate:'2025-01-01',dueDate:'2025-02-01',matchStatus:'NOT_REQUIRED',version:1,...patch })
 const allocation = (patch: Partial<api.FinanceAllocation> = {}): api.FinanceAllocation => ({id:'allocation',paymentId:'payment',invoiceId:'invoice',amount:10,baseAmount:10,realizedExchangeDifference:0,status:'ACTIVE',allocatedAt:'2026-10-05T12:00:00',...patch})
-function render(permissions=['finance:view','finance:allocate'], scope: 'ALL' | 'SELF' = 'ALL') {
+function render(permissions=['finance:view','finance:allocate'], scope: 'ALL' | 'SELF' = 'ALL', realInputs=false) {
  const pinia=createPinia();useAuthStore(pinia).user={id:'u',username:'u',displayName:'u',organizationId:'o',organizationName:'o',departmentId:null,dataScope:scope,permissions,roles:['CUSTOM'],mustChangePassword:false}
- return mount(Dialog,{props:{modelValue:true,paymentId:'payment'},global:{plugins:[pinia,createI18n({legacy:false,locale:'en-US',messages:{'en-US':en}})],directives:{loading:{}},stubs:{ElDialog:dialog,ElButton:button,ElAlert:alert,ElForm:slot,ElFormItem:slot,ElSelect:select,ElOption:option,ElInputNumber:number,ElInput:text,ElTable:table,ElTableColumn:column}}})
+ return mount(Dialog,{props:{modelValue:true,paymentId:'payment'},global:{plugins:[pinia,createI18n({legacy:false,locale:'en-US',messages:{'en-US':en}})],directives:{loading:{}},components:{ElForm,ElFormItem,ElInputNumber,ElInput},stubs:{ElDialog:dialog,ElButton:button,ElAlert:alert,ElForm:realInputs?false:slot,ElFormItem:realInputs?false:slot,ElSelect:select,ElOption:option,ElInputNumber:realInputs?false:number,ElInput:realInputs?false:text,ElTable:table,ElTableColumn:column}}})
 }
 type Wrapper = ReturnType<typeof render>
 async function click(w:Wrapper,label:string) {await w.findAll('button').find(b=>b.text()===label)!.trigger('click');await flushPromises()}
@@ -44,3 +45,22 @@ it('blocks access without both permissions or with row-scoped finance permission
 it('blocks mutations when current documents fail to load and permits explicit reload',async()=>{vi.mocked(api.listFinanceInvoices).mockRejectedValueOnce(new Error('unavailable'));const w=render();await flushPromises();expect(w.text()).toContain('Unable to load current settlement data');expect(w.find('select').exists()).toBe(false);await click(w,'Reload');await choose(w);expect(w.find('input').attributes('max')).toBe('30')})
 it('retains reversed history but never offers reversal twice',async()=>{vi.mocked(api.listFinancePayments).mockResolvedValue([payment({allocations:[allocation({status:'REVERSED'})]})]);const w=render();await flushPromises();expect(w.text()).toContain('Reversed');expect(w.findAll('button').some(b=>b.text()==='Reverse allocation')).toBe(false)})
 it('rejects drafts and refunds and clears late reads after close',async()=>{for(const row of [payment({status:'DRAFT'}),payment({paymentType:'CUSTOMER_REFUND'})]){vi.mocked(api.listFinancePayments).mockResolvedValue([row]);const w=render();await flushPromises();expect(w.find('select').exists()).toBe(false);w.unmount()}let resolve!:(rows:api.FinancePayment[])=>void;vi.mocked(api.listFinancePayments).mockImplementationOnce(()=>new Promise(r=>{resolve=r}));const w=render();await w.setProps({modelValue:false});resolve([payment()]);await flushPromises();expect(w.text()).not.toContain('RC-1');expect(api.allocateFinancePayment).not.toHaveBeenCalled()})
+
+it('keeps real amount input accessible and editable when maximum changes and a busy reload ends',async()=>{
+ const w=render(['finance:view','finance:allocate'],'ALL',true);await flushPromises();await choose(w);
+ expect(w.find('input[type=number]').attributes('aria-valuemax')).toBe('30');expect(w.find('input[type=number]').attributes('aria-disabled')).not.toBe('true');
+ vi.mocked(api.allocateFinancePayment).mockImplementationOnce(async()=>{vi.mocked(api.listFinancePayments).mockResolvedValue([payment({allocatedAmount:20})]);vi.mocked(api.listFinanceInvoices).mockResolvedValue([invoice({allocatedAmount:20})]);return allocation({amount:20})});
+ await w.find('input[type=number]').setValue('20');await click(w,'Allocate');
+ expect(api.allocateFinancePayment).toHaveBeenCalledWith('payment','invoice',20);
+ expect(w.find('input[type=number]').attributes('aria-disabled')).not.toBe('true');await choose(w);
+ expect(w.find('input[type=number]').attributes('aria-valuemax')).toBe('10');expect(w.find('input[type=number]').attributes('aria-disabled')).not.toBe('true');expect(w.find('input[type=number]').attributes('disabled')).toBeUndefined();
+ await w.find('input[type=number]').setValue('7');expect((w.find('input[type=number]').element as HTMLInputElement).value).toBe('7.0000')
+})
+
+it('deducts posted and draft refunds from remaining allocation capacity and releases cancelled reservations',async()=>{
+ const original=payment({amount:100,allocatedAmount:70});const refund=payment({id:'refund',number:'CR-30',paymentType:'CUSTOMER_REFUND',originalPaymentId:'payment',amount:30,allocatedAmount:0,status:'POSTED'});
+ vi.mocked(api.listFinancePayments).mockResolvedValue([original,refund]);const w=render();await flushPromises();await choose(w);expect(w.text()).toContain('0.00');expect(w.find('input').attributes('max')).toBe('0');await click(w,'Allocate');expect(api.allocateFinancePayment).not.toHaveBeenCalled();
+ vi.mocked(api.listFinancePayments).mockResolvedValue([original,{...refund,status:'CANCELLED'}]);await click(w,'Reload');await choose(w);expect(w.find('input').attributes('max')).toBe('30');
+ vi.mocked(api.listFinancePayments).mockResolvedValue([original,{...refund,status:'DRAFT'}]);await click(w,'Reload');await choose(w);expect(w.find('input').attributes('max')).toBe('0');
+ vi.mocked(api.listFinancePayments).mockResolvedValue([original,{...refund,originalPaymentId:undefined,status:'POSTED'}]);await click(w,'Reload');await choose(w);expect(w.find('input').attributes('max')).toBe('0');expect(api.allocateFinancePayment).not.toHaveBeenCalled()
+})
