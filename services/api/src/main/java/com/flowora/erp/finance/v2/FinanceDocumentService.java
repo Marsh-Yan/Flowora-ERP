@@ -5,6 +5,8 @@ import com.flowora.erp.finance.v2.FinanceV2Dtos.AllocationCreate;
 import com.flowora.erp.finance.v2.FinanceV2Dtos.AllocationReverse;
 import com.flowora.erp.finance.v2.FinanceV2Dtos.AllocationView;
 import com.flowora.erp.finance.v2.FinanceV2Dtos.InvoiceCreate;
+import com.flowora.erp.finance.v2.FinanceV2Dtos.InvoiceCorrection;
+import com.flowora.erp.finance.v2.FinanceV2Dtos.InvoiceCorrectionView;
 import com.flowora.erp.finance.v2.FinanceV2Dtos.InvoiceLineCreate;
 import com.flowora.erp.finance.v2.FinanceV2Dtos.InvoiceLineView;
 import com.flowora.erp.finance.v2.FinanceV2Dtos.InvoiceSourceCreate;
@@ -237,7 +239,7 @@ public class FinanceDocumentService {
                 rs.getBigDecimal("net_amount"), rs.getBigDecimal("tax_amount"), rs.getBigDecimal("total_amount"),
                 rs.getBigDecimal("base_total_amount"), rs.getBigDecimal("allocated_amount"),
                 rs.getBigDecimal("credited_amount"), rs.getString("match_status"), rs.getString("match_exception_approved_by"), rs.getString("match_exception_reason"),
-                timestamp(rs.getTimestamp("posted_at")), rs.getLong("version_no"), List.of()), organizationId, id);
+                timestamp(rs.getTimestamp("posted_at")), rs.getLong("version_no"), null, List.of()), organizationId, id);
         if (values.isEmpty()) throw notFound("invoice", id);
         InvoiceView head = values.getFirst();
         List<InvoiceLineView> lines = jdbc.query("""
@@ -259,7 +261,7 @@ public class FinanceDocumentService {
                 head.businessDate(), head.accountingDate(), head.dueDate(), head.exchangeRateDate(), head.currencyCode(),
                 head.baseCurrencyCode(), head.exchangeRate(), head.netAmount(), head.taxAmount(), head.totalAmount(),
                 head.baseTotalAmount(), head.allocatedAmount(), head.creditedAmount(), head.matchStatus(), head.matchExceptionApprovedBy(), head.matchExceptionReason(), head.postedAt(),
-                head.version(), lines);
+                head.version(), invoiceCorrection(organizationId, id), lines);
     }
 
     private String reversalAccount(String organizationId, InvoiceView head, String lineId) {
@@ -565,6 +567,80 @@ public class FinanceDocumentService {
         if (!debit || !credit || journal.lines().getFirst().accountCode().equals(journal.lines().getLast().accountCode()))
             throw conflict("REFUND_RECOVERY_JOURNAL_MISMATCH", Map.of());
         return journal;
+    }
+
+    public InvoiceCorrectionView invoiceCorrection(String organizationId, String invoiceId) {
+        var rows = jdbc.query("""
+                SELECT action,reason,actor_user_id,accounting_date,journal_entry_id,created_at
+                FROM flowora_invoice_correction WHERE organization_id=? AND invoice_id=?
+                """, (rs,row)->new InvoiceCorrectionView(rs.getString("action"),rs.getString("reason"),
+                rs.getString("actor_user_id"),rs.getDate("accounting_date").toLocalDate(),
+                rs.getString("journal_entry_id"),timestamp(rs.getTimestamp("created_at"))),organizationId,invoiceId);
+        return rows.isEmpty()?null:rows.getFirst();
+    }
+
+    @Transactional
+    public InvoiceView correctInvoice(FloworaPrincipal actor, String invoiceId, String requestId,
+                                      InvoiceCorrection body, boolean reverse) {
+        String org=actor.organizationId(), key=requiredKey(requestId), action=reverse?"REVERSE":"CANCEL";
+        ledger.lockOrganizationFinance(org);
+        InvoiceView invoice=invoiceForUpdate(org,invoiceId);
+        boolean normal=Set.of("SALES_INVOICE","SUPPLIER_INVOICE").contains(invoice.documentType());
+        if ((!normal && (reverse || !Set.of("CUSTOMER_CREDIT","SUPPLIER_CREDIT").contains(invoice.documentType())))
+                || (normal && invoice.originalInvoiceId()!=null)) throw conflict("INVOICE_CORRECTION_TYPE_MISMATCH",Map.of());
+        String reason=body.reason().trim();
+        var replay=jdbc.query("""
+                SELECT invoice_id,action,reason,accounting_date,source_version FROM flowora_invoice_correction
+                WHERE organization_id=? AND request_id=? FOR UPDATE
+                """,(rs,row)->rs.getString("invoice_id").equals(invoiceId) && rs.getString("action").equals(action)
+                && rs.getString("reason").equals(reason) && rs.getDate("accounting_date").toLocalDate().equals(body.accountingDate())
+                && rs.getLong("source_version")==body.version(),org,key);
+        if(!replay.isEmpty()) {
+            if(!replay.getFirst())throw conflict("IDEMPOTENCY_KEY_REUSED",Map.of());
+            return invoice;
+        }
+        var current=jdbc.queryForMap("SELECT status,version_no FROM flowora_finance_invoice WHERE organization_id=? AND id=? FOR UPDATE",org,invoiceId);
+        if(!(reverse?"POSTED":"DRAFT").equals(current.get("status"))
+                || ((Number)current.get("version_no")).longValue()!=body.version() || invoice.version()!=body.version())
+            throw conflict("INVOICE_CORRECTION_STATE_CONFLICT",Map.of());
+        if(reason.isEmpty() || reason.length()>500)throw conflict("INVOICE_CORRECTION_REASON_REQUIRED",Map.of());
+        if(body.accountingDate().isBefore(invoice.accountingDate()))throw conflict("INVOICE_CORRECTION_DATE_INVALID",Map.of());
+        var allocations=jdbc.query("SELECT id FROM flowora_payment_allocation WHERE organization_id=? AND invoice_id=? AND status='ACTIVE' FOR UPDATE",
+                (rs,row)->rs.getString(1),org,invoiceId);
+        if(invoice.allocatedAmount().signum()!=0 || !allocations.isEmpty())throw conflict("INVOICE_HAS_ALLOCATIONS",Map.of());
+        var credits=jdbc.query("""
+                SELECT id FROM flowora_finance_invoice WHERE organization_id=? AND original_invoice_id=?
+                AND status IN ('DRAFT','POSTED') FOR UPDATE
+                """,(rs,row)->rs.getString(1),org,invoiceId);
+        if(invoice.creditedAmount().signum()!=0 || invoice.lines().stream().anyMatch(l->l.creditedQuantity().signum()!=0)
+                || !credits.isEmpty())throw conflict("INVOICE_HAS_ACTIVE_CREDITS",Map.of());
+        var revaluations=jdbc.query("""
+                SELECT l.id FROM flowora_currency_revaluation_line l
+                JOIN flowora_currency_revaluation r ON r.id=l.revaluation_id AND r.organization_id=l.organization_id
+                JOIN flowora_journal_entry e ON e.id=r.journal_entry_id AND e.organization_id=r.organization_id
+                WHERE l.organization_id=? AND l.source_id=? AND e.status='POSTED' FOR UPDATE
+                """,(rs,row)->rs.getString(1),org,invoiceId);
+        if(!revaluations.isEmpty())throw conflict("ACTIVE_REVALUATION_REQUIRES_REVERSAL",Map.of());
+        // Project invoices reserve billed_amount at draft creation. Keep that reservation until
+        // a dedicated project-billing correction can reconcile all project counters atomically.
+        if(invoice.lines().stream().flatMap(l->l.sources().stream()).anyMatch(s->"PROJECT_BILLING_BASIS".equals(s.sourceType())))
+            throw conflict("INVOICE_PROJECT_BILLING_REQUIRES_RELEASE",Map.of());
+        String reversalId=null;
+        if(reverse) {
+            JournalView original=requireCreditOriginalJournal(org,invoice);
+            reversalId=ledger.reverseInvoiceJournal(org,actor.userId(),original.id(),body.accountingDate(),reason,"invoice-reverse:"+invoiceId).id();
+        } else {
+            var journals=jdbc.query("SELECT id FROM flowora_journal_entry WHERE organization_id=? AND source_type=? AND source_id=? FOR UPDATE",
+                    (rs,row)->rs.getString(1),org,invoice.documentType(),invoiceId);
+            if(!journals.isEmpty())throw conflict("INVOICE_DRAFT_HAS_JOURNAL",Map.of());
+        }
+        jdbc.update("""
+                INSERT INTO flowora_invoice_correction(id,organization_id,invoice_id,action,reason,actor_user_id,
+                accounting_date,journal_entry_id,source_version,request_id) VALUES (?,?,?,?,?,?,?,?,?,?)
+                """,UUID.randomUUID().toString(),org,invoiceId,action,reason,actor.userId(),body.accountingDate(),reversalId,body.version(),key);
+        jdbc.update("UPDATE flowora_finance_invoice SET status=?,version_no=version_no+1 WHERE organization_id=? AND id=?",
+                reverse?"REVERSED":"CANCELLED",org,invoiceId);
+        return invoice(org,invoiceId);
     }
 
     public PaymentCorrectionView paymentCorrection(String organizationId, String paymentId) {

@@ -74,6 +74,20 @@ public class FinanceV2Controller {
         return response(documents.postInvoice(principal(authentication), id, version), request);
     }
 
+    @PostMapping("/invoices/{id}/cancel-invoice")
+    @PreAuthorize("@floworaAuthorization.hasOrganizationPermission(authentication, 'finance:invoice')")
+    public ApiResponse<InvoiceView> cancelInvoice(@PathVariable String id, @RequestHeader("Idempotency-Key") String key,
+            @Valid @RequestBody InvoiceCorrection body, Authentication authentication, HttpServletRequest request) {
+        return response(documents.correctInvoice(principal(authentication),id,key,body,false),request);
+    }
+
+    @PostMapping("/invoices/{id}/reverse-invoice")
+    @PreAuthorize("@floworaAuthorization.hasOrganizationPermission(authentication, 'finance:post')")
+    public ApiResponse<InvoiceView> reverseInvoice(@PathVariable String id, @RequestHeader("Idempotency-Key") String key,
+            @Valid @RequestBody InvoiceCorrection body, Authentication authentication, HttpServletRequest request) {
+        return response(documents.correctInvoice(principal(authentication),id,key,body,true),request);
+    }
+
     @PostMapping("/payments")
     @PreAuthorize("@floworaAuthorization.hasOrganizationPermission(authentication, 'finance:create')")
     public ApiResponse<PaymentView> createPayment(@RequestHeader("Idempotency-Key") String key,

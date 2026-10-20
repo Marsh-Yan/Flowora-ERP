@@ -10,6 +10,8 @@ export interface FinanceDashboard {
 export interface FinanceInvoice {
   id: string; number: string; documentType: string; partyType: string; partyId: string; projectId?: string
   status: string; settlementStatus: string; currencyCode: string; totalAmount: number; allocatedAmount: number; creditedAmount: number
+  correction?: {action: string; reason: string; actorUserId: string; accountingDate: string; journalEntryId?: string; createdAt: string}
+  originalInvoiceId?: string
   accountingDate: string; dueDate: string; matchStatus: string; version: number
 }
 
@@ -177,5 +179,10 @@ export async function recoverFinanceRefundSource(id: string, body: {originalPaym
 
 export async function correctFinancePayment(id: string, action: 'cancel' | 'reverse', body: {version: number; accountingDate: string; reason: string}, key: string) {
   const response = await apiClient.post<ApiEnvelope<FinancePayment>>(`/v2/finance/payments/${id}/${action}-payment`, body, {headers: {'Idempotency-Key': key}})
+  return response.data.data
+}
+
+export async function correctFinanceInvoice(id: string, action: 'cancel' | 'reverse', body: {version: number; accountingDate: string; reason: string}, key: string) {
+  const response = await apiClient.post<ApiEnvelope<FinanceInvoice>>(`/v2/finance/invoices/${id}/${action}-invoice`, body, {headers: {'Idempotency-Key': key}})
   return response.data.data
 }
