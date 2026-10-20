@@ -111,7 +111,7 @@ public class FinanceLedgerService {
                 AND source_type IN ('SALES_INVOICE','SUPPLIER_INVOICE','CUSTOMER_CREDIT','SUPPLIER_CREDIT')
                 """,Integer.class,organizationId,original.reversalOfId())>0;
         if ((!"INVOICE".equals(businessAction) && (invoiceJournal || invoiceReversal))
-                || ("INVOICE".equals(businessAction) && !List.of("SALES_INVOICE","SUPPLIER_INVOICE").contains(original.sourceType())))
+                || ("INVOICE".equals(businessAction) && !invoiceJournal))
             throw conflict("INVOICE_REQUIRES_BUSINESS_REVERSAL",Map.of());
         boolean refundJournal = List.of("CUSTOMER_REFUND", "SUPPLIER_REFUND", "REFUND_EXCHANGE").contains(original.sourceType());
         boolean refundReversal = original.reversalOfId() != null && jdbc.queryForObject("""

@@ -586,7 +586,7 @@ public class FinanceDocumentService {
         ledger.lockOrganizationFinance(org);
         InvoiceView invoice=invoiceForUpdate(org,invoiceId);
         boolean normal=Set.of("SALES_INVOICE","SUPPLIER_INVOICE").contains(invoice.documentType());
-        if ((!normal && (reverse || !Set.of("CUSTOMER_CREDIT","SUPPLIER_CREDIT").contains(invoice.documentType())))
+        if ((!normal && !Set.of("CUSTOMER_CREDIT","SUPPLIER_CREDIT").contains(invoice.documentType()))
                 || (normal && invoice.originalInvoiceId()!=null)) throw conflict("INVOICE_CORRECTION_TYPE_MISMATCH",Map.of());
         String reason=body.reason().trim();
         var replay=jdbc.query("""
@@ -627,7 +627,7 @@ public class FinanceDocumentService {
             throw conflict("INVOICE_PROJECT_BILLING_REQUIRES_RELEASE",Map.of());
         String reversalId=null;
         if(reverse) {
-            JournalView original=requireCreditOriginalJournal(org,invoice);
+            JournalView original=normal ? requireCreditOriginalJournal(org,invoice) : restoreCreditBasis(org,invoice);
             reversalId=ledger.reverseInvoiceJournal(org,actor.userId(),original.id(),body.accountingDate(),reason,"invoice-reverse:"+invoiceId).id();
         } else {
             var journals=jdbc.query("SELECT id FROM flowora_journal_entry WHERE organization_id=? AND source_type=? AND source_id=? FOR UPDATE",
@@ -1014,6 +1014,12 @@ public class FinanceDocumentService {
     // reserve source quantity; posting checks the latest original and actual journal again.
     private List<InvoiceLineCreate> requireCreditTerms(String org, String type, String partyId, String projectId, String originalId,
             LocalDate accountingDate, LocalDate rateDate, String currency, String baseCurrency, BigDecimal rate, List<InvoiceLineCreate> inputs) {
+        return requireCreditTerms(org,type,partyId,projectId,originalId,accountingDate,rateDate,currency,baseCurrency,rate,inputs,true);
+    }
+
+    private List<InvoiceLineCreate> requireCreditTerms(String org, String type, String partyId, String projectId, String originalId,
+            LocalDate accountingDate, LocalDate rateDate, String currency, String baseCurrency, BigDecimal rate,
+            List<InvoiceLineCreate> inputs, boolean reserveNewQuantity) {
         InvoiceView original = invoiceForUpdate(org, originalId);
         String originalType = "CUSTOMER_CREDIT".equals(type) ? "SALES_INVOICE" : "SUPPLIER_INVOICE";
         String partyType = "CUSTOMER_CREDIT".equals(type) ? "CUSTOMER" : "SUPPLIER";
@@ -1044,7 +1050,7 @@ public class FinanceDocumentService {
             var amounts = TradeAmountPolicy.calculate(input.quantity(), line.unitPrice(), line.discountRate(), line.taxRate());
             if (source.amount().compareTo(amounts.net()) != 0) throw conflict("CREDIT_SOURCE_AMOUNT_MISMATCH", Map.of());
             BigDecimal cumulative = used.merge(line.id(), input.quantity(), BigDecimal::add);
-            if (cumulative.compareTo(line.quantity().subtract(line.creditedQuantity())) > 0)
+            if (reserveNewQuantity && cumulative.compareTo(line.quantity().subtract(line.creditedQuantity())) > 0)
                 throw conflict("CREDIT_QUANTITY_EXCEEDS_REMAINING", Map.of());
             String account = journal.lines().stream().filter(l -> line.id().equals(l.sourceLineId())).findFirst().orElseThrow().accountCode();
             if (nullable(input.accountCode()) != null && !account.equals(nullable(input.accountCode())))
@@ -1112,6 +1118,112 @@ public class FinanceDocumentService {
         return journal;
     }
 
+    // The caller holds the organization finance lock and the selected credit lock.
+    // Reconcile every active credit before subtracting anything from the original.
+    private JournalView restoreCreditBasis(String org, InvoiceView credit) {
+        if (credit.originalInvoiceId()==null) throw conflict("CREDIT_ORIGINAL_TERMS_MISMATCH",Map.of());
+        InvoiceView original=invoiceForUpdate(org,credit.originalInvoiceId());
+        var current=jdbc.queryForMap("SELECT status,version_no FROM flowora_finance_invoice WHERE organization_id=? AND id=? FOR UPDATE",org,original.id());
+        if (!"POSTED".equals(current.get("status")) || !"POSTED".equals(original.status())
+                || ((Number)current.get("version_no")).longValue()!=original.version())
+            throw conflict("CREDIT_SETTLEMENT_STATE_CONFLICT",Map.of());
+        var revaluations=jdbc.query("""
+                SELECT l.id FROM flowora_currency_revaluation_line l
+                JOIN flowora_currency_revaluation r ON r.id=l.revaluation_id AND r.organization_id=l.organization_id
+                JOIN flowora_journal_entry e ON e.id=r.journal_entry_id AND e.organization_id=r.organization_id
+                WHERE l.organization_id=? AND l.source_id=? AND e.status='POSTED' FOR UPDATE
+                """,(rs,row)->rs.getString(1),org,original.id());
+        if(!revaluations.isEmpty())throw conflict("ACTIVE_REVALUATION_REQUIRES_REVERSAL",Map.of());
+        var active=jdbc.query("""
+                SELECT id,version_no FROM flowora_finance_invoice WHERE organization_id=? AND original_invoice_id=?
+                AND status='POSTED' ORDER BY id FOR UPDATE
+                """,(rs,row)->Map.entry(rs.getString("id"),rs.getLong("version_no")),org,original.id());
+        BigDecimal total=BigDecimal.ZERO;
+        var quantities=new java.util.HashMap<String,BigDecimal>();
+        JournalView selectedJournal=null;
+        for(var row:active) {
+            var posted=invoiceForUpdate(org,row.getKey());
+            if(posted.version()!=row.getValue() || !"POSTED".equals(posted.status())
+                    || !original.id().equals(posted.originalInvoiceId()) || !original.partyType().equals(posted.partyType())
+                    || !("CUSTOMER".equals(original.partyType())?"CUSTOMER_CREDIT":"SUPPLIER_CREDIT").equals(posted.documentType()))throw conflict("CREDIT_SETTLEMENT_STATE_CONFLICT",Map.of());
+            requireCreditTerms(org,posted.documentType(),posted.partyId(),posted.projectId(),original.id(),posted.accountingDate(),
+                    posted.exchangeRateDate(),posted.currencyCode(),posted.baseCurrencyCode(),posted.exchangeRate(),creditInputs(posted),false);
+            requireInvoiceAmounts(posted);
+            var journal=requirePostedCreditJournal(org,posted);
+            if(posted.id().equals(credit.id()))selectedJournal=journal;
+            total=total.add(posted.totalAmount());
+            for(var line:posted.lines()) {
+                var source=line.sources().getFirst();
+                quantities.merge(source.sourceLineId(),source.quantity(),BigDecimal::add);
+            }
+        }
+        var allocations=jdbc.query("SELECT amount FROM flowora_payment_allocation WHERE organization_id=? AND invoice_id=? AND status='ACTIVE' FOR UPDATE",
+                (rs,row)->rs.getBigDecimal(1),org,original.id());
+        BigDecimal allocated=allocations.stream().reduce(BigDecimal.ZERO,BigDecimal::add);
+        if(selectedJournal==null || original.creditedAmount().compareTo(total)!=0 || original.allocatedAmount().compareTo(allocated)!=0
+                || allocated.signum()<0 || allocated.add(total).compareTo(original.totalAmount())>0)
+            throw conflict("CREDIT_SETTLEMENT_STATE_CONFLICT",Map.of());
+        for(var line:original.lines()) {
+            BigDecimal used=quantities.getOrDefault(line.id(),BigDecimal.ZERO);
+            if(line.creditedQuantity().compareTo(used)!=0 || used.compareTo(line.quantity())>0)
+                throw conflict("CREDIT_SETTLEMENT_STATE_CONFLICT",Map.of());
+        }
+        var restored=new java.util.TreeMap<String,BigDecimal>();
+        for(var line:credit.lines()) {
+            var source=line.sources().getFirst();
+            restored.merge(source.sourceLineId(),source.quantity(),BigDecimal::add);
+        }
+        for(var row:restored.entrySet()) {
+            int changed=jdbc.update("""
+                    UPDATE flowora_finance_invoice_line SET credited_quantity=credited_quantity-?,version_no=version_no+1
+                    WHERE organization_id=? AND invoice_id=? AND id=? AND credited_quantity>=?
+                    """,row.getValue(),org,original.id(),row.getKey(),row.getValue());
+            if(changed!=1)throw conflict("CREDIT_SETTLEMENT_STATE_CONFLICT",Map.of());
+        }
+        BigDecimal remaining=total.subtract(credit.totalAmount());
+        int changed=jdbc.update("""
+                UPDATE flowora_finance_invoice SET credited_amount=?,credit_status=CASE WHEN ?=0 THEN 'NONE'
+                WHEN ?=total_amount THEN 'FULL' ELSE 'PARTIAL' END,
+                settlement_status=CASE WHEN allocated_amount+?=0 THEN 'UNPAID' WHEN allocated_amount+?=total_amount THEN 'PAID' ELSE 'PARTIAL' END,
+                version_no=version_no+1 WHERE organization_id=? AND id=? AND status='POSTED' AND version_no=?
+                """,remaining,remaining,remaining,remaining,remaining,org,original.id(),original.version());
+        if(changed!=1)throw conflict("CREDIT_SETTLEMENT_STATE_CONFLICT",Map.of());
+        // Restoring the original's invoiced quantity may consume quantity released by the credit.
+        // Check the resulting current total, including other invoices, under the stock source locks.
+        requireSourceCapacity(org,invoice(org,original.id()),false);
+        return selectedJournal;
+    }
+
+    private JournalView requirePostedCreditJournal(String org, InvoiceView credit) {
+        var entries=jdbc.query("SELECT id,status FROM flowora_journal_entry WHERE organization_id=? AND source_type=? AND source_id=? FOR UPDATE",
+                (rs,row)->new String[]{rs.getString("id"),rs.getString("status")},org,credit.documentType(),credit.id());
+        if(entries.size()!=1 || !"POSTED".equals(entries.getFirst()[1]))throw conflict("CREDIT_POSTED_JOURNAL_MISMATCH",Map.of());
+        var journal=ledger.journal(org,entries.getFirst()[0]);
+        var expected=creditPostings(org,credit);
+        if(!"POSTED".equals(journal.status()) || journal.reversalOfId()!=null || !journal.businessDate().equals(credit.businessDate())
+                || !journal.accountingDate().equals(credit.accountingDate()) || !journal.exchangeRateDate().equals(credit.exchangeRateDate())
+                || !journal.currencyCode().equals(credit.currencyCode()) || !journal.baseCurrencyCode().equals(credit.baseCurrencyCode())
+                || journal.exchangeRate().compareTo(credit.exchangeRate())!=0 || journal.totalDebit().compareTo(credit.totalAmount())!=0
+                || journal.totalCredit().compareTo(credit.totalAmount())!=0 || journal.lines().size()!=expected.size()
+                || !jdbc.query("SELECT id FROM flowora_journal_entry WHERE organization_id=? AND reversal_of_id=? FOR UPDATE",
+                    (rs,row)->rs.getString(1),org,journal.id()).isEmpty())throw conflict("CREDIT_POSTED_JOURNAL_MISMATCH",Map.of());
+        BigDecimal debit=BigDecimal.ZERO,cr=BigDecimal.ZERO,baseDebit=BigDecimal.ZERO,baseCredit=BigDecimal.ZERO;
+        for(int i=0;i<expected.size();i++) {
+            var actual=journal.lines().get(i);var wanted=expected.get(i);
+            if(actual.lineNo()!=i+1 || !actual.accountCode().equals(wanted.accountCode())
+                    || actual.debit().compareTo(wanted.debit())!=0 || actual.credit().compareTo(wanted.credit())!=0
+                    || actual.baseDebit().compareTo(FinancePostingPolicy.base(wanted.debit(),credit.exchangeRate()))!=0
+                    || actual.baseCredit().compareTo(FinancePostingPolicy.base(wanted.credit(),credit.exchangeRate()))!=0
+                    || !actual.currencyCode().equals(credit.currencyCode()) || !Objects.equals(actual.projectId(),wanted.projectId())
+                    || !Objects.equals(actual.partyType(),wanted.partyType()) || !Objects.equals(actual.partyId(),wanted.partyId())
+                    || !Objects.equals(actual.sourceLineId(),wanted.sourceLineId()))throw conflict("CREDIT_POSTED_JOURNAL_MISMATCH",Map.of());
+            debit=debit.add(actual.debit());cr=cr.add(actual.credit());baseDebit=baseDebit.add(actual.baseDebit());baseCredit=baseCredit.add(actual.baseCredit());
+        }
+        if(debit.compareTo(credit.totalAmount())!=0 || cr.compareTo(debit)!=0 || baseDebit.compareTo(credit.baseTotalAmount())!=0 || baseCredit.compareTo(baseDebit)!=0)
+            throw conflict("CREDIT_POSTED_JOURNAL_MISMATCH",Map.of());
+        return journal;
+    }
+
     private void applyCredit(String organizationId, InvoiceView credit) {
         InvoiceView original = invoiceForUpdate(organizationId, credit.originalInvoiceId());
         ledger.requireNoActiveRevaluation(organizationId, original.id());
@@ -1165,6 +1277,10 @@ public class FinanceDocumentService {
     }
 
     private void requireSourceCapacity(String organizationId, InvoiceView invoice) {
+        requireSourceCapacity(organizationId,invoice,true);
+    }
+
+    private void requireSourceCapacity(String organizationId, InvoiceView invoice, boolean postingNewInvoice) {
         if (invoice.documentType().endsWith("CREDIT")) return;
         Map<String, BigDecimal> quantities = new java.util.TreeMap<>();
         Map<String, InvoiceSourceView> references = new java.util.HashMap<>();
@@ -1180,6 +1296,8 @@ public class FinanceDocumentService {
         }
         for (var entry : quantities.entrySet()) {
             InvoiceSourceView source = references.get(entry.getKey());
+            if (!postingNewInvoice) validateSource(organizationId,invoice.documentType(),invoice.partyId(),null,
+                    new InvoiceSourceCreate(source.sourceType(),source.sourceId(),source.sourceLineId(),source.quantity(),source.amount()));
             boolean purchase = source.sourceType().equals("PURCHASE_RECEIPT_LINE");
             String table = purchase ? "flowora_purchase_receipt_line" : "flowora_sales_delivery_line";
             String quantity = purchase ? "accepted_quantity" : "quantity";
@@ -1194,8 +1312,9 @@ public class FinanceDocumentService {
                       AND i.status='POSTED' AND i.document_type=?
                     FOR UPDATE
                     """, BigDecimal.class, organizationId, source.sourceType(), source.sourceLineId(), invoice.documentType());
-            if (consumed.add(entry.getValue()).compareTo(capacity.getFirst()) > 0)
-                throw conflict("INVOICE_SOURCE_QUANTITY_EXCEEDED", Map.of("sourceLineId", source.sourceLineId()));
+            if (consumed.add(postingNewInvoice ? entry.getValue() : BigDecimal.ZERO).compareTo(capacity.getFirst()) > 0)
+                throw conflict(postingNewInvoice ? "INVOICE_SOURCE_QUANTITY_EXCEEDED" : "CREDIT_REVERSAL_SOURCE_CAPACITY_EXCEEDED",
+                        Map.of("sourceLineId", source.sourceLineId()));
         }
     }
 
