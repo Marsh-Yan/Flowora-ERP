@@ -3,7 +3,7 @@ import { computed, onBeforeUnmount, reactive, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useAuthStore } from '@/stores/auth'
 import { correctFinanceInvoice, listFinanceInvoices, type FinanceInvoice } from '@/api/finance-v2'
-const props=defineProps<{modelValue:boolean}>()
+const props=defineProps<{modelValue:boolean;projectId?:string}>()
 const emit=defineEmits<{'update:modelValue':[value:boolean];changed:[]}>()
 const auth=useAuthStore(),{t}=useI18n()
 const rows=ref<FinanceInvoice[]>([]),loading=ref(false),busy=ref(false),failed=ref(false),uncertain=ref(false)
@@ -31,11 +31,11 @@ async function load(){
   const token=++generation
   if(!props.modelValue || !canView.value){rows.value=[];loading.value=false;return}
   loading.value=true;failed.value=false
-  try{const value=await listFinanceInvoices();if(token===generation)rows.value=value}
+  try{const value=await listFinanceInvoices();if(token===generation)rows.value=props.projectId?value.filter(row=>row.projectId===props.projectId):value}
   catch{if(token===generation){failed.value=true;rows.value=[]}}
   finally{if(token===generation)loading.value=false}
 }
-watch(()=>[props.modelValue,auth.user?.organizationId,canView.value,canCreate.value,canPost.value],()=>{Object.assign(form,{id:'',date:today(),reason:'',confirmed:false});key='';fingerprint='';uncertain.value=false;load()},{immediate:true})
+watch(()=>[props.modelValue,props.projectId,auth.user?.organizationId,canView.value,canCreate.value,canPost.value],()=>{Object.assign(form,{id:'',date:today(),reason:'',confirmed:false});key='';fingerprint='';uncertain.value=false;load()},{immediate:true})
 onBeforeUnmount(()=>{generation++})
 function close(){if(!busy.value)emit('update:modelValue',false)}
 async function correct(){

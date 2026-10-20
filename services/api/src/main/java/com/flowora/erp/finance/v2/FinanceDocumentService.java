@@ -100,13 +100,16 @@ public class FinanceDocumentService {
     public InvoiceView createInvoice(FloworaPrincipal actor, String requestId, InvoiceCreate body) {
         String type = upper(body.documentType());
         if (!TYPES.contains(type)) throw conflict("INVALID_INVOICE_TYPE", Map.of("documentType", type));
-        if (type.endsWith("CREDIT")) ledger.lockOrganizationFinance(actor.organizationId());
+        ledger.lockOrganizationFinance(actor.organizationId());
         String key = requiredKey(requestId);
         List<String> existing = jdbc.query("SELECT id FROM flowora_finance_invoice WHERE organization_id=? AND request_id=?",
                 (rs, row) -> rs.getString(1), actor.organizationId(), key);
         if (!existing.isEmpty()) {
             InvoiceView replay = invoice(actor.organizationId(), existing.getFirst());
-            if (type.endsWith("CREDIT") || replay.documentType().endsWith("CREDIT")) requireCreditReplay(replay, body);
+            if (type.endsWith("CREDIT") || replay.documentType().endsWith("CREDIT")
+                    || replay.lines().stream().flatMap(l->l.sources().stream()).anyMatch(s->"PROJECT_BILLING_BASIS".equals(s.sourceType()))
+                    || body.lines().stream().filter(l->l.sources()!=null).flatMap(l->l.sources().stream()).anyMatch(s->"PROJECT_BILLING_BASIS".equals(upper(s.sourceType()))))
+                requireCreditReplay(replay, body);
             return replay;
         }
         boolean sales = type.equals("SALES_INVOICE") || type.equals("CUSTOMER_CREDIT");
@@ -158,6 +161,9 @@ public class FinanceDocumentService {
                 throw conflict("CREDIT_SOURCE_REQUIRED", Map.of("line", lineNo));
             }
             for (InvoiceSourceCreate source : sources) {
+                if ("PROJECT_BILLING_BASIS".equals(upper(source.sourceType()))
+                        && (source.amount().signum()<=0 || source.amount().stripTrailingZeros().scale()>4))
+                    throw conflict("PROJECT_BILLING_SOURCE_MISMATCH",Map.of());
                 validateSource(actor.organizationId(), type, body.partyId(), original, source);
                 jdbc.update("""
                         INSERT INTO flowora_finance_invoice_source
@@ -167,7 +173,9 @@ public class FinanceDocumentService {
                         source.sourceId(), nullable(source.sourceLineId()), source.quantity(), source.amount());
             }
         }
-        return invoice(actor.organizationId(), id);
+        var created=invoice(actor.organizationId(), id);
+        maintainProjectBilling(actor.organizationId(),created,1);
+        return created;
     }
 
     @Transactional
@@ -191,6 +199,7 @@ public class FinanceDocumentService {
         if (!"DRAFT".equals(invoice.status())) throw conflict("INVOICE_NOT_DRAFT", Map.of("status", invoice.status()));
         if ("EXCEPTION".equals(invoice.matchStatus())) throw conflict("MATCH_EXCEPTION_NOT_APPROVED", Map.of());
         requireSourceCapacity(actor.organizationId(), invoice);
+        maintainProjectBilling(actor.organizationId(),invoice,0);
         if (invoice.documentType().endsWith("CREDIT")) {
             requireCreditTerms(actor.organizationId(), invoice.documentType(), invoice.partyId(), invoice.projectId(), invoice.originalInvoiceId(),
                     invoice.accountingDate(), invoice.exchangeRateDate(), invoice.currencyCode(), invoice.baseCurrencyCode(),
@@ -621,10 +630,7 @@ public class FinanceDocumentService {
                 WHERE l.organization_id=? AND l.source_id=? AND e.status='POSTED' FOR UPDATE
                 """,(rs,row)->rs.getString(1),org,invoiceId);
         if(!revaluations.isEmpty())throw conflict("ACTIVE_REVALUATION_REQUIRES_REVERSAL",Map.of());
-        // Project invoices reserve billed_amount at draft creation. Keep that reservation until
-        // a dedicated project-billing correction can reconcile all project counters atomically.
-        if(invoice.lines().stream().flatMap(l->l.sources().stream()).anyMatch(s->"PROJECT_BILLING_BASIS".equals(s.sourceType())))
-            throw conflict("INVOICE_PROJECT_BILLING_REQUIRES_RELEASE",Map.of());
+        maintainProjectBilling(org,invoice,-1);
         String reversalId=null;
         if(reverse) {
             JournalView original=normal ? requireCreditOriginalJournal(org,invoice) : restoreCreditBasis(org,invoice);
@@ -641,6 +647,99 @@ public class FinanceDocumentService {
         jdbc.update("UPDATE flowora_finance_invoice SET status=?,version_no=version_no+1 WHERE organization_id=? AND id=?",
                 reverse?"REVERSED":"CANCELLED",org,invoiceId);
         return invoice(org,invoiceId);
+    }
+
+    // Project billing writers call this before locking project or basis rows.
+    public void lockProjectBilling(String org) { ledger.lockOrganizationFinance(org); }
+
+    public void refreshProjectBillingStatus(String org, String projectId) {
+        lockProjectBillingHeader(org,projectId);
+        var bases=jdbc.queryForList("SELECT available_amount,billed_amount,status FROM flowora_project_billing_basis WHERE organization_id=? AND project_id=? ORDER BY id FOR UPDATE",org,projectId);
+        BigDecimal total=BigDecimal.ZERO,billed=BigDecimal.ZERO;
+        for(var basis:bases) {
+            var available=(BigDecimal)basis.get("available_amount");var amount=(BigDecimal)basis.get("billed_amount");
+            if(!basisState(available,amount).equals(basis.get("status")))throw conflict("PROJECT_BILLING_STATE_CONFLICT",Map.of());
+            total=total.add(available);billed=billed.add(amount);
+        }
+        String state=billed.signum()==0?"UNBILLED":billed.compareTo(total)==0?"BILLED":"PARTIAL";
+        jdbc.update("UPDATE flowora_project SET billing_status=?,version_no=version_no+1 WHERE organization_id=? AND id=?",state,org,projectId);
+    }
+
+    private Map<String,Object> lockProjectBillingHeader(String org, String projectId) {
+        var projects=jdbc.queryForList("SELECT customer_id,currency_code FROM flowora_project WHERE organization_id=? AND id=? FOR UPDATE",org,projectId);
+        if(projects.size()!=1)throw conflict("PROJECT_BILLING_SOURCE_MISMATCH",Map.of());
+        return projects.getFirst();
+    }
+
+    private static String basisState(BigDecimal available, BigDecimal billed) {
+        if(available.signum()<=0 || billed.signum()<0 || billed.compareTo(available)>0)throw conflict("PROJECT_BILLING_STATE_CONFLICT",Map.of());
+        return billed.signum()==0?"AVAILABLE":billed.compareTo(available)==0?"BILLED":"PARTIAL";
+    }
+
+    // +1 reserves a new draft, 0 verifies its reservation before posting, -1 releases
+    // a cancelled/reversed normal invoice. Credits retain the original project reservation.
+    private void maintainProjectBilling(String org, InvoiceView invoice, int adjustment) {
+        var projectLines=invoice.lines().stream().filter(l->l.sources().stream().anyMatch(s->"PROJECT_BILLING_BASIS".equals(s.sourceType()))).toList();
+        if(projectLines.isEmpty())return;
+        var project=lockProjectBillingHeader(org,invoice.projectId());
+        if(!"SALES_INVOICE".equals(invoice.documentType()) || !"CUSTOMER".equals(invoice.partyType())
+                || !invoice.partyId().equals(project.get("customer_id")) || !invoice.currencyCode().equals(project.get("currency_code")))
+            throw conflict("PROJECT_BILLING_SOURCE_MISMATCH",Map.of());
+        requireInvoiceAmounts(invoice);
+        var changes=new java.util.TreeMap<String,BigDecimal>();
+        for(var line:projectLines) {
+            if(line.sources().size()!=1)throw conflict("PROJECT_BILLING_SOURCE_MISMATCH",Map.of());
+            var source=line.sources().getFirst();
+            if(!invoice.projectId().equals(source.sourceId()) || !invoice.projectId().equals(line.projectId()) || line.itemId()!=null
+                    || line.quantity().compareTo(BigDecimal.ONE)!=0 || source.quantity().compareTo(BigDecimal.ONE)!=0
+                    || line.discountRate().signum()!=0 || source.amount().signum()<=0
+                    || source.amount().compareTo(line.netAmount())!=0 || source.amount().compareTo(line.unitPrice())!=0)
+                throw conflict("PROJECT_BILLING_SOURCE_MISMATCH",Map.of());
+            if(changes.putIfAbsent(source.sourceLineId(),source.amount())!=null)throw conflict("PROJECT_BILLING_DUPLICATE_BASIS",Map.of());
+        }
+        var bases=jdbc.queryForList("SELECT id,available_amount,billed_amount,currency_code,status,approved_at,version_no FROM flowora_project_billing_basis WHERE organization_id=? AND project_id=? ORDER BY id FOR UPDATE",org,invoice.projectId());
+        var found=new java.util.HashSet<String>();
+        for(var basis:bases) {
+            String id=(String)basis.get("id");found.add(id);
+            BigDecimal available=(BigDecimal)basis.get("available_amount"),billed=(BigDecimal)basis.get("billed_amount");
+            if(!invoice.currencyCode().equals(basis.get("currency_code")) || basis.get("approved_at")==null
+                    || !basisState(available,billed).equals(basis.get("status")))throw conflict("PROJECT_BILLING_STATE_CONFLICT",Map.of());
+            var reservations=jdbc.queryForList("""
+                    SELECT i.document_type,i.party_type,i.party_id,i.project_id,i.currency_code,
+                    l.id AS line_id,l.item_id,l.project_id AS line_project,l.quantity AS line_quantity,l.unit_price,l.discount_rate,l.net_amount,
+                    s.source_id,s.quantity AS source_quantity,s.amount
+                    FROM flowora_finance_invoice_source s JOIN flowora_finance_invoice_line l ON l.id=s.invoice_line_id AND l.organization_id=s.organization_id
+                    JOIN flowora_finance_invoice i ON i.id=l.invoice_id AND i.organization_id=l.organization_id
+                    WHERE s.organization_id=? AND s.source_type='PROJECT_BILLING_BASIS' AND s.source_line_id=?
+                    AND i.status IN ('DRAFT','POSTED') AND (?='' OR i.id<>?) FOR UPDATE
+                    """,org,id,adjustment==1?invoice.id():"",invoice.id());
+            BigDecimal consumed=BigDecimal.ZERO;
+            for(var row:reservations) {
+                BigDecimal amount=(BigDecimal)row.get("amount");
+                if(!"SALES_INVOICE".equals(row.get("document_type")) || !"CUSTOMER".equals(row.get("party_type"))
+                        || !invoice.partyId().equals(row.get("party_id")) || !invoice.projectId().equals(row.get("project_id"))
+                        || !invoice.projectId().equals(row.get("line_project")) || !invoice.projectId().equals(row.get("source_id"))
+                        || !invoice.currencyCode().equals(row.get("currency_code")) || row.get("item_id")!=null
+                        || ((BigDecimal)row.get("line_quantity")).compareTo(BigDecimal.ONE)!=0
+                        || ((BigDecimal)row.get("source_quantity")).compareTo(BigDecimal.ONE)!=0
+                        || ((BigDecimal)row.get("discount_rate")).signum()!=0 || amount.signum()<=0
+                        || amount.compareTo((BigDecimal)row.get("net_amount"))!=0 || amount.compareTo((BigDecimal)row.get("unit_price"))!=0
+                        || jdbc.queryForList("SELECT id FROM flowora_finance_invoice_source WHERE organization_id=? AND invoice_line_id=? FOR UPDATE",org,row.get("line_id")).size()!=1)
+                    throw conflict("PROJECT_BILLING_STATE_CONFLICT",Map.of());
+                consumed=consumed.add(amount);
+            }
+            if(consumed.compareTo(billed)!=0)throw conflict("PROJECT_BILLING_STATE_CONFLICT",Map.of());
+            BigDecimal amount=changes.getOrDefault(id,BigDecimal.ZERO),next=billed.add(amount.multiply(BigDecimal.valueOf(adjustment)));
+            if(next.signum()<0)throw conflict("PROJECT_BILLING_STATE_CONFLICT",Map.of());
+            if(next.compareTo(available)>0)throw conflict("PROJECT_BILLING_EXCEEDS_REMAINING",Map.of());
+            if(adjustment!=0 && amount.signum()>0) {
+                int changed=jdbc.update("UPDATE flowora_project_billing_basis SET billed_amount=?,status=?,version_no=version_no+1 WHERE organization_id=? AND id=? AND version_no=?",
+                        next,basisState(available,next),org,id,((Number)basis.get("version_no")).longValue());
+                if(changed!=1)throw conflict("PROJECT_BILLING_CONCURRENT_CONFLICT",Map.of());
+            }
+        }
+        if(!found.containsAll(changes.keySet()))throw conflict("PROJECT_BILLING_SOURCE_MISMATCH",Map.of());
+        if(adjustment!=0)refreshProjectBillingStatus(org,invoice.projectId());
     }
 
     public PaymentCorrectionView paymentCorrection(String organizationId, String paymentId) {
