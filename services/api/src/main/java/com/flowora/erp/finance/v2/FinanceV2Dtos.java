@@ -85,7 +85,7 @@ public final class FinanceV2Dtos {
                               BigDecimal netAmount, BigDecimal taxAmount, BigDecimal totalAmount,
                               BigDecimal baseTotalAmount, BigDecimal allocatedAmount,
                               BigDecimal creditedAmount, String matchStatus, String matchExceptionApprovedBy, String matchExceptionReason, LocalDateTime postedAt,
-                              long version, List<InvoiceLineView> lines) {
+                              long version, InvoiceCorrectionView correction, List<InvoiceLineView> lines) {
     }
 
     public record PaymentCreate(
@@ -125,6 +125,11 @@ public final class FinanceV2Dtos {
     public record RefundSourceRecoveryView(String originalPaymentId, String refundJournalEntryId,
                                            String originalJournalEntryId, String reason, String actorUserId,
                                            LocalDateTime createdAt) {}
+
+    public record InvoiceCorrection(@PositiveOrZero long version, @NotNull LocalDate accountingDate,
+                                    @NotBlank @Size(max = 500) String reason) {}
+    public record InvoiceCorrectionView(String action, String reason, String actorUserId, LocalDate accountingDate,
+                                        String journalEntryId, LocalDateTime createdAt) {}
 
     public record PaymentCorrection(@PositiveOrZero long version, @NotNull LocalDate accountingDate,
                                     @NotBlank @Size(max = 500) String reason) {}

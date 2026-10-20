@@ -97,9 +97,22 @@ public class FinanceLedgerService {
         return reverseInternal(organizationId, actorUserId, journalId, accountingDate, reason, requestId, "PAYMENT");
     }
 
+    JournalView reverseInvoiceJournal(String organizationId, String actorUserId, String journalId,
+                                     LocalDate accountingDate, String reason, String requestId) {
+        return reverseInternal(organizationId,actorUserId,journalId,accountingDate,reason,requestId,"INVOICE");
+    }
+
     private JournalView reverseInternal(String organizationId, String actorUserId, String journalId,
                                        LocalDate accountingDate, String reason, String requestId, String businessAction) {
         JournalView original = journalForUpdate(organizationId, journalId);
+        boolean invoiceJournal=List.of("SALES_INVOICE","SUPPLIER_INVOICE","CUSTOMER_CREDIT","SUPPLIER_CREDIT").contains(original.sourceType());
+        boolean invoiceReversal=original.reversalOfId()!=null && jdbc.queryForObject("""
+                SELECT COUNT(*) FROM flowora_journal_entry WHERE organization_id=? AND id=?
+                AND source_type IN ('SALES_INVOICE','SUPPLIER_INVOICE','CUSTOMER_CREDIT','SUPPLIER_CREDIT')
+                """,Integer.class,organizationId,original.reversalOfId())>0;
+        if ((!"INVOICE".equals(businessAction) && (invoiceJournal || invoiceReversal))
+                || ("INVOICE".equals(businessAction) && !List.of("SALES_INVOICE","SUPPLIER_INVOICE").contains(original.sourceType())))
+            throw conflict("INVOICE_REQUIRES_BUSINESS_REVERSAL",Map.of());
         boolean refundJournal = List.of("CUSTOMER_REFUND", "SUPPLIER_REFUND", "REFUND_EXCHANGE").contains(original.sourceType());
         boolean refundReversal = original.reversalOfId() != null && jdbc.queryForObject("""
                 SELECT COUNT(*) FROM flowora_journal_entry WHERE organization_id=? AND id=?
