@@ -1154,4 +1154,229 @@ class FinanceMySqlTest {
         }finally{pool.shutdownNow();}
     }
 
+    InvoiceView postedTermsCredit(InvoiceView original) {
+        var draft=run(()->documents.createInvoice(actor,key(),termsCredit(original)));
+        return run(()->documents.postInvoice(actor,draft.id(),0));
+    }
+    InvoiceView reversePostedCredit(InvoiceView credit) {
+        return run(()->documents.correctInvoice(actor,credit.id(),key(),new InvoiceCorrection(credit.version(),date,"Reverse posted credit"),true));
+    }
+    @Test void postedCreditReversalRestoresExactOriginalAmountsQuantityAndActualAccountsBothSides() {
+        var originals=List.of(termsOriginal(false),termsOriginal(true));
+        jdbc.update("DELETE FROM flowora_posting_mapping WHERE organization_id=?",org);
+        for(var original:originals) {
+            boolean sales=original.partyType().equals("CUSTOMER");
+            var one=postedTermsCredit(original);var two=postedTermsCredit(original);
+            String journal=jdbc.queryForObject("SELECT id FROM flowora_journal_entry WHERE organization_id=? AND source_id=?",String.class,org,one.id());
+            var before=ledger.journal(org,journal);var originalJournal=ledger.journals(org,date,date).stream().filter(j->j.sourceId().equals(original.id())).findFirst().orElseThrow();
+            var full=documents.invoice(org,original.id());assertThat(full.creditStatus()).isEqualTo("FULL");assertThat(full.settlementStatus()).isEqualTo("PAID");
+            String request=key();var body=new InvoiceCorrection(one.version(),date.plusDays(1),"Restore original after credit reversal");
+            var result=run(()->documents.correctInvoice(actor,one.id(),request,body,true));
+            assertThat(result.status()).isEqualTo("REVERSED");assertThat(result.version()).isEqualTo(one.version()+1);
+            assertThat(result.correction().actorUserId()).isEqualTo(actor.userId());
+            var current=documents.invoice(org,original.id());assertThat(current.creditedAmount()).isEqualByComparingTo("11.88");
+            assertThat(current.lines().getFirst().creditedQuantity()).isEqualByComparingTo("1");assertThat(current.version()).isEqualTo(full.version()+1);
+            assertThat(current.creditStatus()).isEqualTo("PARTIAL");assertThat(current.settlementStatus()).isEqualTo("PARTIAL");
+            assertThat(ledger.journal(org,originalJournal.id())).isEqualTo(originalJournal);
+            assertThat(ledger.journal(org,journal).lines()).isEqualTo(before.lines());
+            var reversal=ledger.journal(org,result.correction().journalEntryId());
+            assertThat(reversal.exchangeRate()).isEqualByComparingTo("1.3");assertThat(reversal.accountingDate()).isEqualTo(date.plusDays(1));
+            for(int i=0;i<before.lines().size();i++) {
+                var a=before.lines().get(i);var b=reversal.lines().get(i);
+                assertThat(b.accountCode()).isEqualTo(a.accountCode());assertThat(b.debit()).isEqualByComparingTo(a.credit());
+                assertThat(b.credit()).isEqualByComparingTo(a.debit());assertThat(b.baseDebit()).isEqualByComparingTo(a.baseCredit());
+                assertThat(b.baseCredit()).isEqualByComparingTo(a.baseDebit());assertThat(b.sourceLineId()).isEqualTo(a.sourceLineId());
+            }
+            assertThat(run(()->documents.correctInvoice(actor,one.id(),request,body,true)).correction()).isEqualTo(result.correction());
+            assertThatThrownBy(()->run(()->documents.correctInvoice(actor,one.id(),request,new InvoiceCorrection(one.version(),date.plusDays(1),"Changed reason"),true)))
+                    .isInstanceOf(PlatformApiException.class).extracting("code").isEqualTo("IDEMPOTENCY_KEY_REUSED");
+            assertThatThrownBy(()->run(()->ledger.reverse(org,actor.userId(),reversal.id(),date.plusDays(1),"Use business action",key())))
+                    .isInstanceOf(PlatformApiException.class).extracting("code").isEqualTo("INVOICE_REQUIRES_BUSINESS_REVERSAL");
+            reversePostedCredit(two);var none=documents.invoice(org,original.id());
+            assertThat(none.creditedAmount()).isEqualByComparingTo("0");assertThat(none.lines().getFirst().creditedQuantity()).isEqualByComparingTo("0");
+            assertThat(none.creditStatus()).isEqualTo("NONE");assertThat(none.settlementStatus()).isEqualTo("UNPAID");
+            assertThat(accountNet(sales?"RECEIVABLE":"PAYABLE",original.partyId())).isEqualByComparingTo(sales?"30.888":"-30.888");
+            assertThat(accountNet(sales?"REVENUE":"EXPENSE",original.partyId())).isEqualByComparingTo(sales?"-28.08":"28.08");
+        }
+    }
+    @Test void reversingLastPostedCreditAllowsExplicitOriginalInvoiceReversal() {
+        var original=termsOriginal(false);var credit=postedTermsCredit(original);reversePostedCredit(credit);
+        var current=documents.invoice(org,original.id());
+        assertThat(run(()->documents.correctInvoice(actor,current.id(),key(),new InvoiceCorrection(current.version(),date,"Now reverse original"),true)).status()).isEqualTo("REVERSED");
+        assertThat(ledger.trialBalance(org,date,date)).allSatisfy(row->assertThat(row.balance()).isEqualByComparingTo("0"));
+    }
+    @Test void creditReversalReopensOutstandingButRetainsAllocationsPaymentsAndRefundsBothSides() {
+        for(boolean purchase:List.of(false,true)) {
+            var original=refundInvoice(purchase);var payment=originalRefundPayment(purchase,null);
+            var allocation=run(()->documents.allocate(actor,payment.id(),new AllocationCreate(original.id(),n("70"))));
+            var draft=creditFor(original,"30");var credit=run(()->documents.postInvoice(actor,draft.id(),0));
+            var refund=exchangeRefund(payment,"30","1.4");run(()->documents.postPayment(actor,refund.id(),0));
+            var paymentBefore=documents.payment(org,payment.id());var refundBefore=documents.payment(org,refund.id());
+            var allocationBefore=documents.payment(org,payment.id()).allocations();
+            reversePostedCredit(credit);var current=documents.invoice(org,original.id());
+            assertThat(current.allocatedAmount()).isEqualByComparingTo("70");assertThat(current.creditedAmount()).isEqualByComparingTo("0");
+            assertThat(current.settlementStatus()).isEqualTo("PARTIAL");assertThat(current.creditStatus()).isEqualTo("NONE");
+            assertThat(documents.payment(org,payment.id())).isEqualTo(paymentBefore);assertThat(documents.payment(org,refund.id())).isEqualTo(refundBefore);
+            assertThat(documents.payment(org,payment.id()).allocations()).isEqualTo(allocationBefore);assertThat(allocation.status()).isEqualTo("ACTIVE");
+            assertThat(accountNet(purchase?"PAYABLE":"RECEIVABLE",original.partyId())).isEqualByComparingTo(purchase?"-36":"36");
+        }
+    }
+    InvoiceView creditStockOriginal(boolean purchase) {
+        String order=key(),ol=key(),stock=key(),sl=key();String party=purchase?supplier:customer;
+        if(purchase) {
+            jdbc.update("INSERT INTO flowora_purchase_order(id,organization_id,number,supplier_id,warehouse_id,status,buyer_user_id,order_date,currency_code) VALUES (?,?,?,?,?,'RECEIVED','system:r6n','2026-10-01','EUR')",order,org,order.substring(0,30),party,"r6n-warehouse");
+            jdbc.update("INSERT INTO flowora_purchase_order_line(id,organization_id,purchase_order_id,item_id,ordered_quantity,received_quantity,unit_price,discount_rate,tax_rate) VALUES (?,?,?,?,1,1,10,0,0)",ol,org,order,"r6n-item");
+            jdbc.update("INSERT INTO flowora_purchase_receipt(id,organization_id,number,purchase_order_id,warehouse_id,status,received_by) VALUES (?,?,?,?,?,'POSTED','system:r6n')",stock,org,stock.substring(0,30),order,"r6n-warehouse");
+            jdbc.update("INSERT INTO flowora_purchase_receipt_line(id,organization_id,purchase_receipt_id,purchase_order_line_id,item_id,quantity,accepted_quantity,unit_cost) VALUES (?,?,?,?,?,1,1,8)",sl,org,stock,ol,"r6n-item");
+        }else {
+            jdbc.update("INSERT INTO flowora_sales_order(id,organization_id,number,customer_id,warehouse_id,status,sales_user_id,order_date,currency_code,total_amount) VALUES (?,?,?,?,?,'DELIVERED','system:r6n','2026-10-01','EUR',10)",order,org,order.substring(0,30),party,"r6n-warehouse");
+            jdbc.update("INSERT INTO flowora_sales_order_line(id,organization_id,sales_order_id,item_id,ordered_quantity,fulfilled_quantity,unit_price,discount_rate,tax_rate) VALUES (?,?,?,?,1,1,10,0,0)",ol,org,order,"r6n-item");
+            jdbc.update("INSERT INTO flowora_sales_delivery(id,organization_id,number,sales_order_id,warehouse_id,status,actor_user_id) VALUES (?,?,?,?,?,'POSTED','system:r6n')",stock,org,stock.substring(0,30),order,"r6n-warehouse");
+            jdbc.update("INSERT INTO flowora_sales_delivery_line(id,organization_id,delivery_id,sales_order_line_id,item_id,quantity,unit_cost) VALUES (?,?,?,?,?,1,8)",sl,org,stock,ol,"r6n-item");
+        }
+        var source=new InvoiceSourceCreate(purchase?"PURCHASE_RECEIPT_LINE":"SALES_DELIVERY_LINE",stock,sl,n("1"),n("10"));
+        var line=new InvoiceLineCreate("r6n-item","Stock credit reversal",n("1"),n("10"),n("0"),n("0"),null,null,List.of(source));
+        var draft=run(()->documents.createInvoice(actor,key(),input(purchase?"SUPPLIER_INVOICE":"SALES_INVOICE",party,"1.3",List.of(line))));
+        return run(()->documents.postInvoice(actor,draft.id(),0));
+    }
+    InvoiceView fullStockCredit(InvoiceView original) {
+        var row=original.lines().getFirst();var source=new InvoiceSourceCreate("ORIGINAL_INVOICE_LINE",original.id(),row.id(),n("1"),n("10"));
+        var line=new InvoiceLineCreate(row.itemId(),"Full stock credit",n("1"),n("10"),n("0"),n("0"),null,null,List.of(source));
+        var draft=run(()->documents.createInvoice(actor,key(),new InvoiceCreate(original.partyType().equals("CUSTOMER")?"CUSTOMER_CREDIT":"SUPPLIER_CREDIT",original.partyId(),null,original.id(),date,date,date,date,"EUR",n("1.3"),List.of(line))));
+        return run(()->documents.postInvoice(actor,draft.id(),0));
+    }
+    InvoiceView reusedStockDraft(InvoiceView original) {
+        var row=original.lines().getFirst();var source=row.sources().getFirst();
+        var line=new InvoiceLineCreate(row.itemId(),"Reused available source",row.quantity(),row.unitPrice(),row.discountRate(),row.taxRate(),null,null,List.of(new InvoiceSourceCreate(source.sourceType(),source.sourceId(),source.sourceLineId(),source.quantity(),source.amount())));
+        return run(()->documents.createInvoice(actor,key(),input(original.documentType(),original.partyId(),"1.3",List.of(line))));
+    }
+    @Test void creditReversalCannotReclaimReusedStockInvoiceCapacityUntilOtherInvoiceIsReversedBothSides() {
+        for(boolean purchase:List.of(false,true)) {
+            var original=creditStockOriginal(purchase);var credit=fullStockCredit(original);var otherDraft=reusedStockDraft(original);
+            var other=run(()->documents.postInvoice(actor,otherDraft.id(),0));var before=documents.invoice(org,original.id());
+            int count=ledger.journals(org,date,date).size();
+            assertThatThrownBy(()->reversePostedCredit(credit)).isInstanceOf(PlatformApiException.class).extracting("code").isEqualTo("CREDIT_REVERSAL_SOURCE_CAPACITY_EXCEEDED");
+            assertThat(documents.invoice(org,original.id())).isEqualTo(before);assertThat(documents.invoice(org,credit.id()).correction()).isNull();
+            assertThat(ledger.journals(org,date,date)).hasSize(count);
+            run(()->documents.correctInvoice(actor,other.id(),key(),new InvoiceCorrection(other.version(),date,"Release reused source"),true));
+            reversePostedCredit(credit);assertThat(documents.invoice(org,original.id()).creditedAmount()).isEqualByComparingTo("0");
+            var source=original.lines().getFirst().sources().getFirst();
+            assertThat(documents.stockInvoiceSources(org).stream().filter(x->x.sourceLineId().equals(source.sourceLineId())).findFirst().orElseThrow().remainingQuantity()).isEqualByComparingTo("0");
+        }
+    }
+    @Test void creditReversalRejectsStockQuantityAlreadyReturnedAndRollsBackOriginalCounters() {
+        for(boolean purchase:List.of(false,true)) {
+            var original=creditStockOriginal(purchase);var credit=fullStockCredit(original);var source=original.lines().getFirst().sources().getFirst();
+            String table=purchase?"flowora_purchase_receipt_line":"flowora_sales_delivery_line";
+            jdbc.update("UPDATE "+table+" SET returned_quantity=1 WHERE organization_id=? AND id=?",org,source.sourceLineId());
+            var before=documents.invoice(org,original.id());
+            assertThatThrownBy(()->reversePostedCredit(credit)).isInstanceOf(PlatformApiException.class).extracting("code").isEqualTo("CREDIT_REVERSAL_SOURCE_CAPACITY_EXCEEDED");
+            assertThat(documents.invoice(org,original.id())).isEqualTo(before);assertThat(documents.invoice(org,credit.id()).status()).isEqualTo("POSTED");
+        }
+    }
+    @Test void creditReversalRejectsInconsistentOriginalCreditedAmountsAndQuantitiesWithoutRepairingHistory() {
+        var original=termsOriginal(false);var credit=postedTermsCredit(original);
+        for(boolean header:List.of(false,true)) {
+            assertThatThrownBy(()->run(()->{
+                if(header)jdbc.update("UPDATE flowora_finance_invoice SET credited_amount=10 WHERE organization_id=? AND id=?",org,original.id());
+                else jdbc.update("UPDATE flowora_finance_invoice_line SET credited_quantity=0.5 WHERE organization_id=? AND invoice_id=?",org,original.id());
+                return documents.correctInvoice(actor,credit.id(),key(),new InvoiceCorrection(credit.version(),date,"Inconsistent counters"),true);
+            })).isInstanceOf(PlatformApiException.class).extracting("code").isEqualTo("CREDIT_SETTLEMENT_STATE_CONFLICT");
+        }
+        assertThat(documents.invoice(org,original.id()).creditedAmount()).isEqualByComparingTo("11.88");assertThat(documents.invoice(org,credit.id()).correction()).isNull();
+    }
+    @Test void creditReversalRechecksPostedTermsMetadataAndSources() {
+        var original=termsOriginal(false);var credit=postedTermsCredit(original);
+        for(String change:List.of("h:exchange_rate=1.4","h:party_type='SUPPLIER'","h:original_invoice_id=NULL","l:unit_price=13","l:revenue_expense_account_code='OTHER'","s:quantity=0.5","s:amount=9")) {
+            assertThatThrownBy(()->run(()->{
+                String kind=change.substring(0,1),table=kind.equals("h")?"flowora_finance_invoice":kind.equals("l")?"flowora_finance_invoice_line":"flowora_finance_invoice_source";
+                String where=kind.equals("h")?"id":kind.equals("l")?"invoice_id":"invoice_line_id";
+                jdbc.update("UPDATE "+table+" SET "+change.substring(2)+" WHERE organization_id=? AND "+where+"=?",org,kind.equals("s")?credit.lines().getFirst().id():credit.id());
+                return documents.correctInvoice(actor,credit.id(),key(),new InvoiceCorrection(credit.version(),date,"Recheck legacy posted credit"),true);
+            })).isInstanceOf(PlatformApiException.class);
+        }
+        assertThat(documents.invoice(org,credit.id()).status()).isEqualTo("POSTED");assertThat(documents.invoice(org,original.id()).creditedAmount()).isEqualByComparingTo("11.88");
+    }
+    @Test void creditReversalRejectsMissingReversedOrInconsistentActualCreditJournal() {
+        var original=termsOriginal(false);var credit=postedTermsCredit(original);
+        String journal=jdbc.queryForObject("SELECT id FROM flowora_journal_entry WHERE organization_id=? AND source_id=?",String.class,org,credit.id());
+        for(String change:List.of("h:status='REVERSED'","h:currency_code='USD'","h:exchange_rate=1.4","h:total_debit=12","l:account_code='OTHER'","l:party_id='other'","l:base_debit=base_debit+1")) {
+            assertThatThrownBy(()->run(()->{
+                String table=change.startsWith("h:")?"flowora_journal_entry":"flowora_journal_line",where=change.startsWith("h:")?"id":"journal_entry_id";
+                jdbc.update("UPDATE "+table+" SET "+change.substring(2)+" WHERE organization_id=? AND "+where+"=?",org,journal);
+                return documents.correctInvoice(actor,credit.id(),key(),new InvoiceCorrection(credit.version(),date,"Invalid actual credit journal"),true);
+            })).isInstanceOf(PlatformApiException.class).extracting("code").isEqualTo("CREDIT_POSTED_JOURNAL_MISMATCH");
+        }
+        assertThatThrownBy(()->run(()->{
+            jdbc.update("DELETE FROM flowora_journal_line WHERE organization_id=? AND journal_entry_id=?",org,journal);
+            jdbc.update("DELETE FROM flowora_journal_entry WHERE organization_id=? AND id=?",org,journal);
+            return documents.correctInvoice(actor,credit.id(),key(),new InvoiceCorrection(credit.version(),date,"Missing actual journal"),true);
+        })).isInstanceOf(PlatformApiException.class).extracting("code").isEqualTo("CREDIT_POSTED_JOURNAL_MISMATCH");
+        assertThat(documents.invoice(org,credit.id()).correction()).isNull();assertThat(documents.invoice(org,original.id()).creditedAmount()).isEqualByComparingTo("11.88");
+    }
+    @Test void creditReversalRequiresConsistentOtherActiveCreditJournals() {
+        var original=termsOriginal(false);var one=postedTermsCredit(original);var two=postedTermsCredit(original);
+        assertThatThrownBy(()->run(()->{
+            jdbc.update("UPDATE flowora_journal_entry SET status='REVERSED' WHERE organization_id=? AND source_id=?",org,two.id());
+            return documents.correctInvoice(actor,one.id(),key(),new InvoiceCorrection(one.version(),date,"Do not repair orphan credit"),true);
+        })).isInstanceOf(PlatformApiException.class).extracting("code").isEqualTo("CREDIT_POSTED_JOURNAL_MISMATCH");
+        assertThat(documents.invoice(org,original.id()).creditStatus()).isEqualTo("FULL");assertThat(documents.invoice(org,one.id()).correction()).isNull();
+    }
+    @Test void creditReversalRequiresReleasedOriginalRevaluationAndOpenCorrectionPeriod() {
+        var original=termsOriginal(false);var credit=postedTermsCredit(original);var operations=new FinanceOperationsService(jdbc,ledger);
+        var valuation=run(()->operations.revalue(actor,key(),new RevaluationCreate(date,"EUR",n("2"),null)));
+        assertThatThrownBy(()->reversePostedCredit(credit)).isInstanceOf(PlatformApiException.class).extracting("code").isEqualTo("ACTIVE_REVALUATION_REQUIRES_REVERSAL");
+        run(()->operations.reverseRevaluation(actor,valuation.id(),date,"Release valuation",key()));
+        jdbc.update("UPDATE flowora_accounting_period SET status='CLOSED' WHERE organization_id=?",org);
+        var before=documents.invoice(org,original.id());int count=ledger.journals(org,date,date).size();
+        assertThatThrownBy(()->reversePostedCredit(credit)).isInstanceOf(PlatformApiException.class);
+        assertThat(documents.invoice(org,original.id())).isEqualTo(before);assertThat(documents.invoice(org,credit.id()).correction()).isNull();assertThat(ledger.journals(org,date,date)).hasSize(count);
+    }
+    @Test void concurrentOtherCreditPostingAndReversalKeepAggregateCountersExact() throws Exception {
+        var original=termsOriginal(false);var one=postedTermsCredit(original);var two=run(()->documents.createInvoice(actor,key(),termsCredit(original)));
+        var barrier=new java.util.concurrent.CyclicBarrier(2);var pool=java.util.concurrent.Executors.newFixedThreadPool(2);
+        try {
+            var post=pool.submit(()->{barrier.await(10,java.util.concurrent.TimeUnit.SECONDS);return run(()->documents.postInvoice(actor,two.id(),0)).status();});
+            var reverse=pool.submit(()->{barrier.await(10,java.util.concurrent.TimeUnit.SECONDS);return reversePostedCredit(one).status();});
+            assertThat(List.of(post.get(20,java.util.concurrent.TimeUnit.SECONDS),reverse.get(20,java.util.concurrent.TimeUnit.SECONDS))).containsExactlyInAnyOrder("POSTED","REVERSED");
+            var current=documents.invoice(org,original.id());assertThat(current.creditedAmount()).isEqualByComparingTo("11.88");assertThat(current.lines().getFirst().creditedQuantity()).isEqualByComparingTo("1");
+            assertThat(ledger.journals(org,date,date)).hasSize(4);
+        }finally{pool.shutdownNow();}
+    }
+    @Test void concurrentSameKeyCreditReversalOnlyRestoresOriginalOnce() throws Exception {
+        var original=termsOriginal(false);var credit=postedTermsCredit(original);String request=key();var body=new InvoiceCorrection(credit.version(),date,"Explicit retry");
+        var barrier=new java.util.concurrent.CyclicBarrier(2);var pool=java.util.concurrent.Executors.newFixedThreadPool(2);
+        java.util.concurrent.Callable<String> reverse=()->{barrier.await(10,java.util.concurrent.TimeUnit.SECONDS);return run(()->documents.correctInvoice(actor,credit.id(),request,body,true)).status();};
+        try {
+            var a=pool.submit(reverse);var b=pool.submit(reverse);assertThat(List.of(a.get(20,java.util.concurrent.TimeUnit.SECONDS),b.get(20,java.util.concurrent.TimeUnit.SECONDS))).containsExactly("REVERSED","REVERSED");
+            var current=documents.invoice(org,original.id());assertThat(current.version()).isEqualTo(original.version()+2);assertThat(current.creditedAmount()).isEqualByComparingTo("0");
+            assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM flowora_invoice_correction WHERE organization_id=?",Integer.class,org)).isEqualTo(1);assertThat(ledger.journals(org,date,date)).hasSize(3);
+        }finally{pool.shutdownNow();}
+    }
+    @Test void creditReversalRejectsStaleOriginalSnapshotAfterAnotherCreditPosts() {
+        var original=termsOriginal(false);var credit=postedTermsCredit(original);var draft=run(()->documents.createInvoice(actor,key(),termsCredit(original)));
+        var pool=java.util.concurrent.Executors.newSingleThreadExecutor();
+        try {
+            assertThatThrownBy(()->run(()->{
+                documents.invoice(org,original.id());
+                try{pool.submit(()->run(()->documents.postInvoice(actor,draft.id(),0))).get(20,java.util.concurrent.TimeUnit.SECONDS);}
+                catch(Exception ex){throw new IllegalStateException(ex);}
+                return documents.correctInvoice(actor,credit.id(),key(),new InvoiceCorrection(credit.version(),date,"Stale original snapshot"),true);
+            })).isInstanceOf(PlatformApiException.class).extracting("code").isEqualTo("CREDIT_SETTLEMENT_STATE_CONFLICT");
+            assertThat(documents.invoice(org,original.id()).creditStatus()).isEqualTo("FULL");assertThat(documents.invoice(org,credit.id()).correction()).isNull();
+        }finally{pool.shutdownNow();}
+    }
+    @Test void concurrentStockInvoicePostingAndCreditReversalOnlyConsumeSourceOnce() throws Exception {
+        var original=creditStockOriginal(false);var credit=fullStockCredit(original);var draft=reusedStockDraft(original);
+        var barrier=new java.util.concurrent.CyclicBarrier(2);var pool=java.util.concurrent.Executors.newFixedThreadPool(2);
+        try {
+            var post=pool.submit(()->{barrier.await(10,java.util.concurrent.TimeUnit.SECONDS);try{return run(()->documents.postInvoice(actor,draft.id(),0)).status();}catch(PlatformApiException ex){return ex.code();}});
+            var reverse=pool.submit(()->{barrier.await(10,java.util.concurrent.TimeUnit.SECONDS);try{return reversePostedCredit(credit).status();}catch(PlatformApiException ex){return ex.code();}});
+            var results=List.of(post.get(20,java.util.concurrent.TimeUnit.SECONDS),reverse.get(20,java.util.concurrent.TimeUnit.SECONDS));
+            if("REVERSED".equals(documents.invoice(org,credit.id()).status()))assertThat(results).containsExactlyInAnyOrder("REVERSED","INVOICE_SOURCE_QUANTITY_EXCEEDED");
+            else assertThat(results).containsExactlyInAnyOrder("POSTED","CREDIT_REVERSAL_SOURCE_CAPACITY_EXCEEDED");
+            assertThat(documents.stockInvoiceSources(org)).singleElement().satisfies(row->assertThat(row.remainingQuantity()).isEqualByComparingTo("0"));
+        }finally{pool.shutdownNow();}
+    }
+
 }

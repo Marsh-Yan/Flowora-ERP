@@ -14,12 +14,19 @@ const canView=computed(()=>auth.hasPermission('finance:view'))
 const canCreate=computed(()=>canView.value && auth.hasPermission('finance:invoice'))
 const canPost=computed(()=>canView.value && auth.hasPermission('finance:post'))
 const originals=computed(()=>rows.value)
-const candidates=computed(()=>originals.value.filter(r=>(r.status==='DRAFT' && canCreate.value)||(r.status==='POSTED' && ['SALES_INVOICE','SUPPLIER_INVOICE'].includes(r.documentType) && canPost.value)))
+const candidates=computed(()=>originals.value.filter(r=>(r.status==='DRAFT' && canCreate.value)||(r.status==='POSTED' && ['SALES_INVOICE','SUPPLIER_INVOICE','CUSTOMER_CREDIT','SUPPLIER_CREDIT'].includes(r.documentType) && canPost.value)))
 const selected=computed(()=>candidates.value.find(r=>r.id===form.id))
+const isCredit=computed(()=>!!selected.value && ['CUSTOMER_CREDIT','SUPPLIER_CREDIT'].includes(selected.value.documentType))
+const basis=computed(()=>rows.value.find(r=>r.id===selected.value?.originalInvoiceId))
+const creditBasisValid=computed(()=>!isCredit.value || selected.value?.status==='DRAFT' || (!!basis.value && basis.value.status==='POSTED'
+  && basis.value.documentType===(selected.value?.documentType==='CUSTOMER_CREDIT'?'SALES_INVOICE':'SUPPLIER_INVOICE')
+  && basis.value.partyType===selected.value?.partyType && basis.value.partyId===selected.value?.partyId
+  && basis.value.currencyCode===selected.value?.currencyCode && (basis.value.projectId || '')===(selected.value?.projectId || '')
+  && basis.value.creditedAmount>=selected.value!.totalAmount))
 const occupied=computed(()=>!!selected.value && (selected.value.allocatedAmount!==0 || selected.value.creditedAmount!==0 || rows.value.some(r=>['DRAFT','POSTED'].includes(r.status) && r.originalInvoiceId===selected.value!.id)))
 const validDate=computed(()=>/^\d{4}-\d{2}-\d{2}$/.test(form.date) && Number.isFinite(Date.parse(form.date)) && new Date(form.date).toISOString().slice(0,10)===form.date)
-const valid=computed(()=>props.modelValue && canView.value && !loading.value && !failed.value && !!selected.value && !occupied.value && validDate.value && form.date>=selected.value.accountingDate && !!form.reason.trim() && form.reason.trim().length<=500 && form.confirmed)
-watch(()=>JSON.stringify([selected.value,occupied.value,form.date,form.reason]),()=>{form.confirmed=false})
+const valid=computed(()=>props.modelValue && canView.value && !loading.value && !failed.value && !!selected.value && !occupied.value && creditBasisValid.value && validDate.value && form.date>=selected.value.accountingDate && !!form.reason.trim() && form.reason.trim().length<=500 && form.confirmed)
+watch(()=>JSON.stringify([selected.value,basis.value,occupied.value,form.date,form.reason]),()=>{form.confirmed=false})
 async function load(){
   const token=++generation
   if(!props.modelValue || !canView.value){rows.value=[];loading.value=false;return}
@@ -51,10 +58,12 @@ async function correct(){
     <el-form v-if="canCreate || canPost" label-position="top" :disabled="busy || loading || failed">
       <el-form-item :label="t('finance.invoiceCorrection.select')"><el-select v-model="form.id" class="full-width" filterable><el-option v-for="row in candidates" :key="row.id" :value="row.id" :label="`${row.number} · ${row.documentType} · ${row.status} · ${row.totalAmount} ${row.currencyCode}`" /></el-select></el-form-item>
       <p v-if="selected">{{ selected.number }} · {{ selected.partyId }} · {{ selected.totalAmount }} {{ selected.currencyCode }} · {{ selected.accountingDate }} · {{ selected.status }}</p>
+      <p v-if="isCredit && basis">{{ t('finance.invoiceCorrection.creditBasis') }} {{ basis.number }} · {{ basis.creditedAmount }} {{ basis.currencyCode }} · {{ t('finance.invoiceCorrection.restoreAmount') }} {{ selected?.totalAmount }} {{ selected?.currencyCode }}</p>
+      <el-alert v-if="!creditBasisValid" :title="t('finance.invoiceCorrection.invalidBasis')" type="warning" :closable="false" />
       <el-alert v-if="occupied" :title="t('finance.invoiceCorrection.occupied')" type="warning" :closable="false" />
       <el-form-item :label="t('finance.invoiceCorrection.date')"><el-date-picker v-model="form.date" type="date" value-format="YYYY-MM-DD" /></el-form-item>
       <el-form-item :label="t('finance.refund.correctionReason')"><el-input v-model="form.reason" type="textarea" maxlength="500" /></el-form-item>
-      <p v-if="selected">{{ t(`finance.invoiceCorrection.${selected.status==='DRAFT'?'cancelAction':'reverseAction'}`) }}</p>
+      <p v-if="selected">{{ t(`finance.invoiceCorrection.${selected.status==='DRAFT'?'cancelAction':isCredit?'reverseCreditAction':'reverseAction'}`) }}</p>
       <el-checkbox v-model="form.confirmed">{{ t('finance.invoiceCorrection.confirm') }}</el-checkbox>
       <el-button type="danger" :loading="busy" :disabled="busy || !valid" @click="correct">{{ t('finance.invoiceCorrection.submit') }}</el-button>
     </el-form>
