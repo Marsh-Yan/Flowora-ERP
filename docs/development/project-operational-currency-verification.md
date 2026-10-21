@@ -35,3 +35,7 @@ The actual CSV, read-only snapshot and final screenshot are retained locally out
 ## Remaining scope
 
 Cross-currency valuation and budget comparisons need an explicit policy and recorded rate evidence; this batch does not invent one or repair inconsistent historical bases. Posted financial profitability remains governed by the explicit base-currency contract from the previous batch. Project close eligibility and approval/financial dependency consistency need a separate review, alongside historical journal issues, credit rounding, physical return costs and broader release validation.
+
+## Required runtime builder patch
+
+The first full CI run passed Web, API, Windows and isolated MySQL/HTTP checks. The unchanged production Compose image gate then reported CVE-2026-111943 in Go 1.27.2 used to build MySQL's gosu and Prometheus/promtool. Both existing Docker build stages now use Go 1.27.3, the patch release listed in the [official Go release history](https://go.dev/doc/devel/release). MySQL/Prometheus application versions, pinned source/archive checksums, scanner rules and all CI gates remain unchanged. Full CI is rerun against the updated PR head; its final results are recorded in the PR. This builder-only patch does not change the application code used for the browser/CSV acceptance above.

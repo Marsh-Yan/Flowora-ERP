@@ -1,4 +1,4 @@
-FROM golang:1.27.2-bookworm AS build
+FROM golang:1.27.3-bookworm AS build
 ENV GOTOOLCHAIN=local GOWORK=off CGO_ENABLED=0
 WORKDIR /src
 # Rebuild the same official 3.15.0 source and published UI assets with patched
