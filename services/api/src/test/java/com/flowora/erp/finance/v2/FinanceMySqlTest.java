@@ -47,7 +47,7 @@ class FinanceMySqlTest {
     @AfterEach void cleanup() {
         jdbc.update("UPDATE flowora_journal_entry SET reversal_of_id=NULL WHERE organization_id=?",org);
         jdbc.update("UPDATE flowora_finance_invoice SET original_invoice_id=NULL WHERE organization_id=?",org);
-        for(String table:List.of("flowora_invoice_correction","flowora_payment_correction","flowora_refund_source_recovery","flowora_refund_correction","flowora_currency_revaluation_line","flowora_currency_revaluation","flowora_bank_reconciliation_link","flowora_bank_reconciliation","flowora_bank_statement_line","flowora_allocation_reversal","flowora_payment_allocation","flowora_payment_v2","flowora_bank_account","flowora_finance_invoice_source","flowora_finance_invoice_line","flowora_finance_invoice","flowora_journal_line","flowora_journal_entry","flowora_accounting_period","flowora_posting_mapping","flowora_finance_setting","flowora_sales_delivery_line","flowora_sales_delivery","flowora_sales_order_line","flowora_sales_order","flowora_purchase_receipt_line","flowora_purchase_receipt","flowora_purchase_order_line","flowora_purchase_order","flowora_project_billing_basis","flowora_project","flowora_supplier","flowora_customer"))
+        for(String table:List.of("flowora_invoice_correction","flowora_payment_correction","flowora_refund_source_recovery","flowora_refund_correction","flowora_currency_revaluation_line","flowora_currency_revaluation","flowora_bank_reconciliation_link","flowora_bank_reconciliation","flowora_bank_statement_line","flowora_allocation_reversal","flowora_payment_allocation","flowora_payment_v2","flowora_bank_account","flowora_finance_invoice_source","flowora_finance_invoice_line","flowora_finance_invoice","flowora_journal_line","flowora_journal_entry","flowora_accounting_period","flowora_posting_mapping","flowora_finance_setting","flowora_sales_delivery_line","flowora_sales_delivery","flowora_sales_order_line","flowora_sales_order","flowora_purchase_receipt_line","flowora_purchase_receipt","flowora_purchase_order_line","flowora_purchase_order","flowora_account","flowora_timesheet","flowora_project_billing_basis","flowora_project","flowora_supplier","flowora_customer"))
             jdbc.update("DELETE FROM "+table+" WHERE organization_id=?",org);
         jdbc.update("DELETE FROM flowora_organization WHERE id=?",org);
     }
@@ -1549,4 +1549,60 @@ class FinanceMySqlTest {
         }finally{pool.shutdownNow();}
     }
 
+
+    void reportAccounts() {
+        for(String type:List.of("REVENUE","EXPENSE"))jdbc.update("INSERT INTO flowora_account(id,organization_id,code,name,account_type) VALUES (?,?,?,?,?)",key(),org,type,"Isolated project report "+type,type);
+    }
+    @Test void projectProfitUsesNetQuotaAndActualBaseLedgerThroughCreditAndReversals() {
+        String project=billingProject();reportAccounts();var draft=run(()->projectFinance().generateInvoice(actor,project,key(),projectInput(billingBasis(project).id(),"100","10")));
+        var initial=projectFinance().profit(org,project);assertThat(initial.billedAmount()).isEqualByComparingTo("100");assertThat(initial.currencyCode()).isEqualTo("EUR");assertThat(initial.baseCurrencyCode()).isEqualTo("USD");assertThat(initial.budgetRevenueVariance()).isNull();
+        var posted=run(()->documents.postInvoice(actor,draft.id(),0));var profit=projectFinance().profit(org,project);
+        assertThat(posted.totalAmount()).isEqualByComparingTo("110");assertThat(posted.baseTotalAmount()).isEqualByComparingTo("143");assertThat(profit.postedRevenue()).isEqualByComparingTo("130");assertThat(profit.grossProfit()).isEqualByComparingTo("130");
+        var line=posted.lines().getFirst();var creditLine=new InvoiceLineCreate(null,"Project partial credit",n("0.3"),n("100"),n("0"),n("10"),null,project,List.of(new InvoiceSourceCreate("ORIGINAL_INVOICE_LINE",posted.id(),line.id(),n("0.3"),n("30"))));
+        var cd=run(()->documents.createInvoice(actor,key(),new InvoiceCreate("CUSTOMER_CREDIT",customer,project,posted.id(),date,date,date,date,"EUR",n("1.3"),List.of(creditLine))));
+        var credit=run(()->documents.postInvoice(actor,cd.id(),0));assertThat(projectFinance().profit(org,project).postedRevenue()).isEqualByComparingTo("91");assertThat(projectFinance().profit(org,project).billedAmount()).isEqualByComparingTo("100");
+        reversePostedCredit(credit);assertThat(projectFinance().profit(org,project).postedRevenue()).isEqualByComparingTo("130");
+        correctProjectInvoice(documents.invoice(org,posted.id()),true);assertThat(projectFinance().profit(org,project).postedRevenue()).isEqualByComparingTo("0");assertThat(projectFinance().profit(org,project).availableBilling()).isEqualByComparingTo("100");
+    }
+    @Test void projectSplitInvoiceProfitRetainsEachActualHistoricalRate() {
+        String project=billingProject();reportAccounts();var one=projectDraft(project,"40");run(()->documents.postInvoice(actor,one.id(),0));
+        var twoBody=new ProjectInvoiceCreate(date,date,date,date,"EUR",n("1.5"),List.of(new ProjectInvoiceLine(billingBasis(project).id(),n("60"),n("0"),null)));
+        var two=run(()->projectFinance().generateInvoice(actor,project,key(),twoBody));run(()->documents.postInvoice(actor,two.id(),0));
+        assertThat(projectFinance().profit(org,project).postedRevenue()).isEqualByComparingTo("142");assertThat(projectFinance().profit(org,project).billedAmount()).isEqualByComparingTo("100");
+        correctProjectInvoice(documents.invoice(org,one.id()),true);assertThat(projectFinance().profit(org,project).postedRevenue()).isEqualByComparingTo("90");
+    }
+    @Test void sameCurrencyProjectBudgetVarianceAndExpenseUseOnlyComparableBaseAmounts() {
+        String project=billingProject();reportAccounts();jdbc.update("UPDATE flowora_project SET currency_code='USD',budget_revenue=120,budget_cost=80 WHERE id=?",project);jdbc.update("UPDATE flowora_project_billing_basis SET currency_code='USD' WHERE project_id=?",project);
+        var body=new ProjectInvoiceCreate(date,date,date,date,"USD",n("1"),List.of(new ProjectInvoiceLine(billingBasis(project).id(),n("100"),n("0"),null)));
+        var draft=run(()->projectFinance().generateInvoice(actor,project,key(),body));run(()->documents.postInvoice(actor,draft.id(),0));
+        var expense=new InvoiceLineCreate(null,"Project expense",n("1"),n("20"),n("0"),n("0"),null,project,List.of());
+        var bill=run(()->documents.createInvoice(actor,key(),new InvoiceCreate("SUPPLIER_INVOICE",supplier,project,null,date,date,date,date,"USD",n("1"),List.of(expense))));run(()->documents.postInvoice(actor,bill.id(),0));
+        var profit=projectFinance().profit(org,project);assertThat(profit.postedCost()).isEqualByComparingTo("20");assertThat(profit.grossProfit()).isEqualByComparingTo("80");assertThat(profit.budgetRevenueVariance()).isEqualByComparingTo("20");assertThat(profit.budgetCostVariance()).isEqualByComparingTo("60");
+    }
+    @Test void managementLaborCostsRemainSeparatedByRecordedCurrency() {
+        String project=billingProject();
+        for(String currency:List.of("EUR","USD"))jdbc.update("INSERT INTO flowora_timesheet(id,organization_id,project_id,user_id,work_date,hours,cost_rate,billing_rate,cost_amount,billable_amount,billable,currency_code,approval_status) VALUES (?,?,?,'synthetic-project-user',?,1,10,0,10,0,FALSE,?,'APPROVED')",key(),org,project,date,currency);
+        var profit=projectFinance().profit(org,project);assertThat(profit.managementLaborCost()).isNull();assertThat(profit.managementLaborCosts()).hasSize(2).allSatisfy(a->assertThat(a.amount()).isEqualByComparingTo("10"));assertThat(profit.managementLaborCosts()).extracting(CurrencyAmount::currencyCode).containsExactly("EUR","USD");
+        jdbc.update("DELETE FROM flowora_timesheet WHERE organization_id=? AND currency_code='USD'",org);assertThat(projectFinance().profit(org,project).managementLaborCost()).isEqualByComparingTo("10");
+    }
+    @Test void projectInvoiceRateDatesAndSameCurrencyRateRejectWithoutReservingQuota() {
+        String project=billingProject();var basis=billingBasis(project);var lines=List.of(new ProjectInvoiceLine(basis.id(),n("100"),n("0"),null));
+        for(var body:List.of(new ProjectInvoiceCreate(date,date,date,date.plusDays(1),"EUR",n("1.3"),lines),new ProjectInvoiceCreate(date,date,date,date,"EUR",n("1.123456789"),lines))) {
+            assertThatThrownBy(()->run(()->projectFinance().generateInvoice(actor,project,key(),body))).isInstanceOf(PlatformApiException.class);
+            assertThat(billingBasis(project).billedAmount()).isEqualByComparingTo("0");assertThat(documents.invoices(org,"","")).isEmpty();
+        }
+        jdbc.update("UPDATE flowora_project SET currency_code='USD' WHERE id=?",project);jdbc.update("UPDATE flowora_project_billing_basis SET currency_code='USD' WHERE id=?",basis.id());
+        assertThatThrownBy(()->run(()->projectFinance().generateInvoice(actor,project,key(),new ProjectInvoiceCreate(date,date,date,date,"USD",n("2"),lines)))).isInstanceOf(PlatformApiException.class).extracting("code").isEqualTo("PROJECT_EXCHANGE_TERMS_INVALID");assertThat(billingBasis(project).remainingAmount()).isEqualByComparingTo("100");
+    }
+    @Test void projectPostingRechecksStoredExchangeTermsAndRollsBack() {
+        String project=billingProject();var draft=projectDraft(project,"40");var before=billingBasis(project);
+        assertThatThrownBy(()->run(()->{jdbc.update("UPDATE flowora_finance_invoice SET exchange_rate_date=? WHERE id=?",date.plusDays(1),draft.id());return documents.postInvoice(actor,draft.id(),0);})).isInstanceOf(PlatformApiException.class).extracting("code").isEqualTo("PROJECT_EXCHANGE_TERMS_INVALID");
+        assertThat(billingBasis(project)).isEqualTo(before);assertThat(documents.invoice(org,draft.id()).status()).isEqualTo("DRAFT");assertThat(ledger.journals(org,date,date)).isEmpty();
+    }
+    @Test void projectReportRefusesHistoricalMixedBasisOrBaseLedgerCurrencies() {
+        String project=billingProject();reportAccounts();var draft=projectDraft(project,"100");run(()->documents.postInvoice(actor,draft.id(),0));
+        assertThatThrownBy(()->run(()->{jdbc.update("UPDATE flowora_project_billing_basis SET currency_code='USD' WHERE project_id=?",project);return projectFinance().profit(org,project);})).isInstanceOf(PlatformApiException.class).extracting("code").isEqualTo("PROJECT_BILLING_CURRENCY_MISMATCH");
+        assertThatThrownBy(()->run(()->{jdbc.update("UPDATE flowora_journal_entry SET base_currency_code='EUR' WHERE organization_id=?",org);return projectFinance().profit(org,project);})).isInstanceOf(PlatformApiException.class).extracting("code").isEqualTo("PROJECT_LEDGER_CURRENCY_MISMATCH");
+        assertThat(projectFinance().profit(org,project).postedRevenue()).isEqualByComparingTo("130");
+    }
 }

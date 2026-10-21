@@ -10,8 +10,9 @@ export interface ProjectBillingBasis {
 
 export interface ProjectProfit {
   projectId: string; currencyCode: string; contractAmount: number; availableBilling: number; billedAmount: number
-  postedRevenue: number; postedCost: number; managementLaborCost: number; grossProfit: number
-  budgetRevenueVariance: number; budgetCostVariance: number; pendingApprovals: number; unsettledInvoices: number; closeEligible: boolean
+  baseCurrencyCode: string; managementLaborCosts: Array<{ currencyCode: string; amount: number }>
+  postedRevenue: number; postedCost: number; managementLaborCost: number | null; grossProfit: number
+  budgetRevenueVariance: number | null; budgetCostVariance: number | null; pendingApprovals: number; unsettledInvoices: number; closeEligible: boolean
 }
 
 export async function getProjectProfitability(projectId: string) {
@@ -29,12 +30,13 @@ export async function configureProjectBilling(projectId: string, payload: { bill
   return response.data.data
 }
 
-export async function generateProjectInvoice(projectId: string, basis: ProjectBillingBasis, date: string) {
-  const payload = {
-    businessDate: date, accountingDate: date, dueDate: date, exchangeRateDate: date,
-    currencyCode: basis.currencyCode, exchangeRate: 1,
-    lines: [{ billingBasisId: basis.id, amount: basis.remainingAmount, taxRate: 0 }],
-  }
-  const response = await apiClient.post<ApiEnvelope<FinanceInvoice>>(`/v2/projects/${projectId}/invoices`, payload, { headers: { 'Idempotency-Key': crypto.randomUUID() } })
+export interface ProjectInvoiceInput {
+  businessDate: string; accountingDate: string; dueDate: string; exchangeRateDate: string
+  currencyCode: string; exchangeRate: number
+  lines: Array<{ billingBasisId: string; amount: number; taxRate: number }>
+}
+
+export async function generateProjectInvoice(projectId: string, payload: ProjectInvoiceInput, requestKey: string) {
+  const response = await apiClient.post<ApiEnvelope<FinanceInvoice>>(`/v2/projects/${projectId}/invoices`, payload, { headers: { 'Idempotency-Key': requestKey } })
   return response.data.data
 }

@@ -49,12 +49,15 @@ public final class ProjectFinanceDtos {
                                        @NotEmpty List<ProjectInvoiceLine> lines) {
     }
 
+    public record CurrencyAmount(String currencyCode, BigDecimal amount) { }
+
     public record ProjectProfitView(String projectId, String currencyCode, BigDecimal contractAmount,
                                     BigDecimal availableBilling, BigDecimal billedAmount,
                                     BigDecimal postedRevenue, BigDecimal postedCost,
                                     BigDecimal managementLaborCost, BigDecimal grossProfit,
                                     BigDecimal budgetRevenueVariance, BigDecimal budgetCostVariance,
                                     int openTasks, int pendingApprovals, int unsettledInvoices,
-                                    boolean closeEligible) {
+                                    boolean closeEligible, String baseCurrencyCode,
+                                    List<CurrencyAmount> managementLaborCosts) {
     }
 }
