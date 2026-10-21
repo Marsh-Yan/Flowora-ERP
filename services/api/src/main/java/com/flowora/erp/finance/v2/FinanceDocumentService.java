@@ -49,8 +49,10 @@ public class FinanceDocumentService {
 
     private final JdbcTemplate jdbc;
     private final FinanceLedgerService ledger;
+    private final com.flowora.erp.project.ProjectLifecycleService projectLifecycle;
 
-    public FinanceDocumentService(JdbcTemplate jdbc, FinanceLedgerService ledger) {
+    public FinanceDocumentService(JdbcTemplate jdbc, FinanceLedgerService ledger, com.flowora.erp.project.ProjectLifecycleService projectLifecycle) {
+        this.projectLifecycle=projectLifecycle;
         this.jdbc = jdbc;
         this.ledger = ledger;
     }
@@ -111,6 +113,13 @@ public class FinanceDocumentService {
                     || body.lines().stream().filter(l->l.sources()!=null).flatMap(l->l.sources().stream()).anyMatch(s->"PROJECT_BILLING_BASIS".equals(upper(s.sourceType()))))
                 requireCreditReplay(replay, body);
             return replay;
+        }
+        // Financial corrections/credits retain their existing flow; new ordinary project business requires an open project.
+        if(!type.endsWith("CREDIT")) {
+            var projectIds=new java.util.TreeSet<String>();
+            if(nullable(body.projectId())!=null)projectIds.add(body.projectId().trim());
+            body.lines().stream().map(InvoiceLineCreate::projectId).filter(id->id!=null && !id.isBlank()).forEach(id->projectIds.add(id.trim()));
+            projectIds.forEach(id->projectLifecycle.requireOpen(actor.organizationId(),id));
         }
         boolean sales = type.equals("SALES_INVOICE") || type.equals("CUSTOMER_CREDIT");
         boolean credit = type.endsWith("CREDIT");
@@ -198,6 +207,12 @@ public class FinanceDocumentService {
         if (invoice.version() != version) throw conflict("OPTIMISTIC_LOCK_CONFLICT", Map.of("expectedVersion", version));
         if (!"DRAFT".equals(invoice.status())) throw conflict("INVOICE_NOT_DRAFT", Map.of("status", invoice.status()));
         if ("EXCEPTION".equals(invoice.matchStatus())) throw conflict("MATCH_EXCEPTION_NOT_APPROVED", Map.of());
+        if(!invoice.documentType().endsWith("CREDIT")) {
+            var ids=new java.util.TreeSet<String>();
+            if(nullable(invoice.projectId())!=null)ids.add(invoice.projectId());
+            invoice.lines().stream().map(FinanceV2Dtos.InvoiceLineView::projectId).filter(id->id!=null && !id.isBlank()).forEach(ids::add);
+            ids.forEach(id->projectLifecycle.requireOpen(actor.organizationId(),id));
+        }
         requireSourceCapacity(actor.organizationId(), invoice);
         maintainProjectBilling(actor.organizationId(),invoice,0);
         if (invoice.documentType().endsWith("CREDIT")) {

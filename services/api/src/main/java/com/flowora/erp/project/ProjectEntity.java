@@ -71,6 +71,11 @@ public class ProjectEntity extends WorkflowEntity {
     public ProjectStatus status() { return status; }
 
     public void transitionTo(ProjectStatus next) {
+        requireTransition(status,next);
+        if(next!=null)this.status=next;
+    }
+
+    public static void requireTransition(ProjectStatus status,ProjectStatus next) {
         if (next == null || next == status) return;
         boolean allowed = switch (status) {
             case PLANNED -> next == ProjectStatus.ACTIVE || next == ProjectStatus.AT_RISK || next == ProjectStatus.ARCHIVED;
@@ -80,6 +85,5 @@ public class ProjectEntity extends WorkflowEntity {
             case ARCHIVED -> false;
         };
         if (!allowed) throw new WorkflowStateConflictException("Project cannot move from " + status + " to " + next);
-        this.status = next;
     }
 }

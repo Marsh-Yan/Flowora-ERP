@@ -58,6 +58,7 @@ public final class ProjectFinanceDtos {
                                     BigDecimal budgetRevenueVariance, BigDecimal budgetCostVariance,
                                     int openTasks, int pendingApprovals, int unsettledInvoices,
                                     boolean closeEligible, String baseCurrencyCode,
-                                    List<CurrencyAmount> managementLaborCosts) {
+                                    List<CurrencyAmount> managementLaborCosts, int unbilledBases,
+                                    int invalidBillingBases, List<String> closeBlockers) {
     }
 }

@@ -31,6 +31,7 @@ public class ProjectService {
     private static final BigDecimal ONE_HUNDRED = BigDecimal.valueOf(100);
 
     private final ProjectRepository projects;
+    private final ProjectLifecycleService lifecycle;
     private final MilestoneRepository milestones;
     private final ProjectTaskRepository tasks;
     private final TimesheetRepository timesheets;
@@ -44,7 +45,8 @@ public class ProjectService {
     public ProjectService(ProjectRepository projects, MilestoneRepository milestones, ProjectTaskRepository tasks,
                           TimesheetRepository timesheets, ProjectExpenseRepository expenses, ProjectBudgetRepository budgets,
                           CustomerRepository customers, SalesOrderRepository salesOrders, ActivityEventRepository activities,
-                          AuditEventRepository audits) {
+                          AuditEventRepository audits, ProjectLifecycleService lifecycle) {
+        this.lifecycle=lifecycle;
         this.projects = projects;
         this.milestones = milestones;
         this.tasks = tasks;
@@ -93,9 +95,8 @@ public class ProjectService {
 
     @Transactional
     public ProjectResponse changeStatus(FloworaPrincipal actor, String id, ProjectStatus status, String requestId) {
+        lifecycle.changeStatus(actor.organizationId(),id,status);
         ProjectEntity project = project(actor.organizationId(), id);
-        project.transitionTo(status);
-        projects.save(project);
         record(actor, "PROJECT_STATUS_CHANGED", id, "Project status changed to " + status, requestId);
         return projectResponse(project);
     }
@@ -113,6 +114,7 @@ public class ProjectService {
 
     @Transactional
     public MilestoneResponse createMilestone(FloworaPrincipal actor, String projectId, MilestoneCreate body, String requestId) {
+        lifecycle.requireOpen(actor.organizationId(),projectId);
         project(actor.organizationId(), projectId);
         int sequence = body.sequenceNo() == null ? milestones.findFirstByOrganizationIdAndProjectIdOrderBySequenceNoDesc(actor.organizationId(), projectId).map(item -> item.sequenceNo() + 1).orElse(1) : body.sequenceNo();
         MilestoneEntity saved = milestones.save(new MilestoneEntity(actor.organizationId(), projectId, body.name().trim(), sequence, body.targetDate()));
@@ -128,6 +130,7 @@ public class ProjectService {
 
     @Transactional
     public TaskResponse createTask(FloworaPrincipal actor, String projectId, TaskCreate body, String requestId) {
+        lifecycle.requireOpen(actor.organizationId(),projectId);
         project(actor.organizationId(), projectId);
         if (body.milestoneId() != null) {
             MilestoneEntity milestone = milestones.findByIdAndOrganizationId(body.milestoneId(), actor.organizationId())
@@ -143,8 +146,10 @@ public class ProjectService {
 
     @Transactional
     public TaskResponse changeTaskStatus(FloworaPrincipal actor, String taskId, ProjectTaskStatus status, String requestId) {
+        lifecycle.lockOrganization(actor.organizationId());
         ProjectTaskEntity task = tasks.findByIdAndOrganizationId(taskId, actor.organizationId())
                 .orElseThrow(() -> new ResourceNotFoundException("PROJECT_TASK", taskId));
+        lifecycle.requireOpen(actor.organizationId(),task.projectId());
         task.transitionTo(status);
         tasks.save(task);
         record(actor, "TASK_STATUS_CHANGED", task.projectId(), "Task status changed to " + status, requestId);
@@ -159,6 +164,7 @@ public class ProjectService {
 
     @Transactional
     public TimesheetResponse createTimesheet(FloworaPrincipal actor, String projectId, TimesheetCreate body, String requestId) {
+        lifecycle.requireOpen(actor.organizationId(),projectId);
         ProjectEntity project = project(actor.organizationId(), projectId);
         validateTask(actor.organizationId(), projectId, body.taskId());
         TimesheetEntity saved = timesheets.save(new TimesheetEntity(actor.organizationId(), projectId, blankToNull(body.taskId()), actor.userId(), body.workDate(), body.hours(), body.costRate(), body.billingRate(), body.billable(), normalizeCurrency(body.currencyCode(), project.currencyCode()), body.note()));
@@ -174,6 +180,7 @@ public class ProjectService {
 
     @Transactional
     public ExpenseResponse createExpense(FloworaPrincipal actor, String projectId, ExpenseCreate body, String requestId) {
+        lifecycle.requireOpen(actor.organizationId(),projectId);
         ProjectEntity project = project(actor.organizationId(), projectId);
         validateTask(actor.organizationId(), projectId, body.taskId());
         ProjectExpenseEntity saved = expenses.save(new ProjectExpenseEntity(actor.organizationId(), projectId, blankToNull(body.taskId()), actor.userId(), body.expenseDate(), body.category().trim(), body.amount(), body.billable(), normalizeCurrency(body.currencyCode(), project.currencyCode()), body.description()));
@@ -189,6 +196,7 @@ public class ProjectService {
 
     @Transactional
     public BudgetResponse createBudget(FloworaPrincipal actor, String projectId, BudgetCreate body, String requestId) {
+        lifecycle.requireOpen(actor.organizationId(),projectId);
         ProjectEntity project = project(actor.organizationId(), projectId);
         ProjectBudgetEntity saved = budgets.save(new ProjectBudgetEntity(actor.organizationId(), projectId, body.category().trim(), body.amount(), normalizeCurrency(body.currencyCode(), project.currencyCode()), body.note()));
         record(actor, "BUDGET_CREATED", projectId, "Budget " + body.category() + " created", requestId);

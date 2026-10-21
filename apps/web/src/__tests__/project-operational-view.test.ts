@@ -1,3 +1,4 @@
+import type {VueWrapper} from '@vue/test-utils'
 /* eslint-disable vue/one-component-per-file -- Focused project view stubs. */
 import {mount,flushPromises} from '@vue/test-utils'
 import {defineComponent} from 'vue'
@@ -28,4 +29,16 @@ it('refreshes both the project detail and list currency totals after recording a
  vi.mocked(masters.listMasterData).mockResolvedValue({content:[{id:'usd',code:'USD',active:true},{id:'cny',code:'CNY',active:true}],page:0,size:100,totalElements:2,totalPages:1});const w=render();await flushPromises();await w.findAll('button').find(x=>x.text()==='Alpha mixed')!.trigger('click');await flushPromises();await w.findAll('button').find(x=>x.text()==='Add expense')!.trigger('click');await w.find('input[type=number]').setValue(5);
  const updated={...a,operationalAmounts:[{currencyCode:'CNY',actualCost:100,billableAmount:100},{currencyCode:'USD',actualCost:30,billableAmount:50}]};vi.mocked(api.listProjects).mockResolvedValue({content:[updated,b],page:0,size:50,totalElements:2,totalPages:1});vi.mocked(api.getProjectSummary).mockResolvedValue(updated);vi.mocked(api.createProjectExpense).mockResolvedValue({id:'new-expense',projectId:'a',userId:'u',expenseDate:'2026-10-21',category:'TRAVEL',amount:5,billableAmount:5,billable:true,currencyCode:'USD'});
  await w.findAll('button').find(x=>x.text()==='Save')!.trigger('click');await flushPromises();expect(api.createProjectExpense).toHaveBeenCalledWith('a',expect.objectContaining({amount:5,currencyCode:'USD'}));expect(api.listProjects).toHaveBeenCalledTimes(2);expect(w.find('.inventory-summary-grid').text()).toContain('$50.00 USD');expect(w.find('.project-metrics').text()).toContain('$30.00 USD');expect(w.find('.project-metrics').text()).toContain('CN¥100.00 CNY')
+})
+
+
+it('keeps a late status response from restoring an earlier selected project',async()=>{
+ let resolve!:(p:Project)=>void;vi.mocked(api.changeProjectStatus).mockImplementation(()=>new Promise(r=>{resolve=r}));const w=render();await flushPromises();await w.findAll('button').find(x=>x.text()==='Alpha mixed')!.trigger('click');await flushPromises();(w.findComponent('.status-select') as VueWrapper).vm.$emit('update:modelValue','ACTIVE');await flushPromises();await w.findAll('button').find(x=>x.text()==='Beta CNY')!.trigger('click');await flushPromises();resolve({...a,status:'ACTIVE'});await flushPromises();expect(w.find('.project-detail-heading').text()).toContain('Beta CNY');expect(api.listProjects).toHaveBeenCalledTimes(1)
+})
+it('disables all five operational entry actions on an archived project',async()=>{
+ const archived={...a,status:'ARCHIVED' as const};vi.mocked(api.getProjectSummary).mockResolvedValue(archived);const w=render();await flushPromises();await w.findAll('button').find(x=>x.text()==='Alpha mixed')!.trigger('click');await flushPromises();for(const label of ['Add milestone','Add task','Log timesheet','Add expense','Add budget']){const button=w.findAll('button').find(x=>x.text()===label);expect(button).toBeDefined();expect(button!.attributes('disabled')).toBeDefined()}
+ expect(api.createProjectExpense).not.toHaveBeenCalled();expect(api.createTimesheet).not.toHaveBeenCalled()
+})
+it('ignores a second status click while the first request is pending',async()=>{
+ let resolve!:(p:Project)=>void;vi.mocked(api.changeProjectStatus).mockImplementation(()=>new Promise(r=>{resolve=r}));const w=render();await flushPromises();await w.findAll('button').find(x=>x.text()==='Alpha mixed')!.trigger('click');await flushPromises();const select=w.findComponent('.status-select') as VueWrapper;select.vm.$emit('update:modelValue','ACTIVE');select.vm.$emit('update:modelValue','AT_RISK');await flushPromises();expect(api.changeProjectStatus).toHaveBeenCalledTimes(1);resolve({...a,status:'ACTIVE'});await flushPromises()
 })

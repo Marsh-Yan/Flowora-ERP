@@ -37,8 +37,10 @@ public class ProjectFinanceService {
     private static final Set<String> BILLING_MODES = Set.of("FIXED_PRICE", "MILESTONE", "TIME_MATERIAL");
     private final JdbcTemplate jdbc;
     private final FinanceDocumentService finance;
+    private final com.flowora.erp.project.ProjectLifecycleService lifecycle;
 
-    public ProjectFinanceService(JdbcTemplate jdbc, FinanceDocumentService finance) {
+    public ProjectFinanceService(JdbcTemplate jdbc, FinanceDocumentService finance, com.flowora.erp.project.ProjectLifecycleService lifecycle) {
+        this.lifecycle=lifecycle;
         this.jdbc = jdbc;
         this.finance = finance;
     }
@@ -46,7 +48,7 @@ public class ProjectFinanceService {
     @Transactional
     public BillingConfiguration configure(FloworaPrincipal actor, String projectId, BillingConfiguration body) {
         finance.lockProjectBilling(actor.organizationId());
-        requireProject(actor.organizationId(), projectId);
+        lifecycle.requireOpen(actor.organizationId(), projectId);
         String mode = body.billingMode().toUpperCase();
         if (!BILLING_MODES.contains(mode) || body.contractAmount().signum() < 0) {
             throw conflict("INVALID_PROJECT_BILLING_CONFIGURATION", Map.of());
@@ -64,7 +66,7 @@ public class ProjectFinanceService {
 
     @Transactional
     public MemberView addMember(FloworaPrincipal actor, String projectId, MemberCreate body) {
-        requireProject(actor.organizationId(), projectId);
+        lifecycle.requireOpen(actor.organizationId(), projectId);
         String id = UUID.randomUUID().toString();
         jdbc.update("""
                 INSERT INTO flowora_project_member(id,organization_id,project_id,user_id,project_role,active)
@@ -87,6 +89,7 @@ public class ProjectFinanceService {
     public BillingBasisView approveTimesheet(FloworaPrincipal actor, String timesheetId, ApprovalAction body) {
         finance.lockProjectBilling(actor.organizationId());
         Timesheet value = timesheetForUpdate(actor.organizationId(), timesheetId);
+        lifecycle.requireOpen(actor.organizationId(),value.projectId());
         if ("APPROVED".equals(value.approvalStatus())) throw conflict("TIMESHEET_ALREADY_APPROVED", Map.of());
         if (!body.approved()) {
             jdbc.update("UPDATE flowora_timesheet SET approval_status='REJECTED',lifecycle_status='DRAFT',version_no=version_no+1 WHERE id=?", timesheetId);
@@ -105,6 +108,7 @@ public class ProjectFinanceService {
     public BillingBasisView approveExpense(FloworaPrincipal actor, String expenseId, ApprovalAction body) {
         finance.lockProjectBilling(actor.organizationId());
         Expense value = expenseForUpdate(actor.organizationId(), expenseId);
+        lifecycle.requireOpen(actor.organizationId(),value.projectId());
         if ("APPROVED".equals(value.approvalStatus())) throw conflict("EXPENSE_ALREADY_APPROVED", Map.of());
         if (!body.approved()) {
             jdbc.update("UPDATE flowora_project_expense SET approval_status='REJECTED',lifecycle_status='DRAFT',version_no=version_no+1 WHERE id=?", expenseId);
@@ -123,6 +127,7 @@ public class ProjectFinanceService {
     public BillingBasisView approveMilestone(FloworaPrincipal actor, String milestoneId, ApprovalAction body) {
         finance.lockProjectBilling(actor.organizationId());
         Milestone value = milestoneForUpdate(actor.organizationId(), milestoneId);
+        lifecycle.requireOpen(actor.organizationId(),value.projectId());
         if (!body.approved()) {
             jdbc.update("UPDATE flowora_project_milestone SET approval_status='REJECTED',version_no=version_no+1 WHERE id=?", milestoneId);
             return null;
@@ -170,6 +175,7 @@ public class ProjectFinanceService {
             if(!same)throw conflict("IDEMPOTENCY_KEY_REUSED",Map.of());
             return replay;
         }
+        lifecycle.requireOpen(actor.organizationId(),projectId);
         List<InvoiceLineCreate> invoiceLines = new ArrayList<>();
         Set<String> basisIds = new HashSet<>();
         for (var line : body.lines()) {
@@ -190,6 +196,7 @@ public class ProjectFinanceService {
         return invoice;
     }
 
+    @Transactional(readOnly = true)
     public ProjectProfitView profit(String organizationId, String projectId) {
         Project project = project(projectId, organizationId);
         String baseCurrency=finance.projectBaseCurrency(organizationId);
@@ -218,15 +225,13 @@ public class ProjectFinanceService {
                 (rs,row)->new ProjectFinanceDtos.CurrencyAmount(rs.getString("currency_code"),rs.getBigDecimal("amount")),organizationId,projectId);
         BigDecimal labor=laborAmounts.stream().allMatch(a->project.currencyCode().equals(a.currencyCode()))
                 ?laborAmounts.stream().map(ProjectFinanceDtos.CurrencyAmount::amount).reduce(BigDecimal.ZERO,BigDecimal::add):null;
-        int openTasks = count("SELECT COUNT(*) FROM flowora_project_task WHERE organization_id=? AND project_id=? AND status<>'DONE'", organizationId, projectId);
-        int pending = count("SELECT (SELECT COUNT(*) FROM flowora_timesheet WHERE organization_id=? AND project_id=? AND approval_status NOT IN ('APPROVED','REJECTED')) + (SELECT COUNT(*) FROM flowora_project_expense WHERE organization_id=? AND project_id=? AND approval_status NOT IN ('APPROVED','REJECTED'))", organizationId, projectId, organizationId, projectId);
-        int unsettled = count("SELECT COUNT(*) FROM flowora_finance_invoice WHERE organization_id=? AND project_id=? AND status='POSTED' AND settlement_status<>'PAID'", organizationId, projectId);
+        var readiness=lifecycle.readiness(organizationId,projectId);
         BigDecimal gross = revenue.subtract(cost);
-        boolean eligible = openTasks == 0 && pending == 0 && unsettled == 0 && available.signum() == 0;
         return new ProjectProfitView(projectId, project.currencyCode(), project.contractAmount(), available, billed,
                 revenue, cost, labor, gross, project.currencyCode().equals(baseCurrency)?project.budgetRevenue().subtract(revenue):null,
                 project.currencyCode().equals(baseCurrency)?project.budgetCost().subtract(cost):null,
-                openTasks, pending, unsettled, eligible, baseCurrency, laborAmounts);
+                readiness.openTasks(), readiness.pendingApprovals(), readiness.unsettledInvoices(), readiness.eligible(), baseCurrency, laborAmounts,
+                readiness.unbilledBases(),readiness.invalidBillingBases(),readiness.blockers());
     }
 
     private BillingBasisView upsertBasis(String organizationId, String projectId, String type, String sourceId,

@@ -12,7 +12,7 @@ export interface ProjectProfit {
   projectId: string; currencyCode: string; contractAmount: number; availableBilling: number; billedAmount: number
   baseCurrencyCode: string; managementLaborCosts: Array<{ currencyCode: string; amount: number }>
   postedRevenue: number; postedCost: number; managementLaborCost: number | null; grossProfit: number
-  budgetRevenueVariance: number | null; budgetCostVariance: number | null; pendingApprovals: number; unsettledInvoices: number; closeEligible: boolean
+  budgetRevenueVariance: number | null; budgetCostVariance: number | null; openTasks: number; unbilledBases: number; invalidBillingBases: number; closeBlockers: string[]; pendingApprovals: number; unsettledInvoices: number; closeEligible: boolean
 }
 
 export async function getProjectProfitability(projectId: string) {

@@ -41,13 +41,13 @@ class FinanceMySqlTest {
         jdbc.update("INSERT INTO flowora_finance_setting(organization_id,base_currency_code) VALUES (?,'USD')",org);
         for(String semantic:List.of("RECEIVABLE","PAYABLE","ACCRUED_PAYABLE","REVENUE","EXPENSE","TAX_PAYABLE","TAX_RECEIVABLE","CASH","FX_GAIN","FX_LOSS"))
             jdbc.update("INSERT INTO flowora_posting_mapping(id,organization_id,semantic_code,account_code) VALUES (?,?,?,?)",key(),org,semantic,semantic);
-        ledger=new FinanceLedgerService(jdbc); documents=new FinanceDocumentService(jdbc,ledger);
+        ledger=new FinanceLedgerService(jdbc); documents=new FinanceDocumentService(jdbc,ledger,lifecycle());
         actor=new FloworaPrincipal("system:r3-test","r3","R3 test",org,"R3 isolated test",List.of("ADMIN"));
     }
     @AfterEach void cleanup() {
         jdbc.update("UPDATE flowora_journal_entry SET reversal_of_id=NULL WHERE organization_id=?",org);
         jdbc.update("UPDATE flowora_finance_invoice SET original_invoice_id=NULL WHERE organization_id=?",org);
-        for(String table:List.of("flowora_invoice_correction","flowora_payment_correction","flowora_refund_source_recovery","flowora_refund_correction","flowora_currency_revaluation_line","flowora_currency_revaluation","flowora_bank_reconciliation_link","flowora_bank_reconciliation","flowora_bank_statement_line","flowora_allocation_reversal","flowora_payment_allocation","flowora_payment_v2","flowora_bank_account","flowora_finance_invoice_source","flowora_finance_invoice_line","flowora_finance_invoice","flowora_journal_line","flowora_journal_entry","flowora_accounting_period","flowora_posting_mapping","flowora_finance_setting","flowora_sales_delivery_line","flowora_sales_delivery","flowora_sales_order_line","flowora_sales_order","flowora_purchase_receipt_line","flowora_purchase_receipt","flowora_purchase_order_line","flowora_purchase_order","flowora_account","flowora_timesheet","flowora_project_expense","flowora_project_billing_basis","flowora_project","flowora_supplier","flowora_customer"))
+        for(String table:List.of("flowora_invoice_correction","flowora_payment_correction","flowora_refund_source_recovery","flowora_refund_correction","flowora_currency_revaluation_line","flowora_currency_revaluation","flowora_bank_reconciliation_link","flowora_bank_reconciliation","flowora_bank_statement_line","flowora_allocation_reversal","flowora_payment_allocation","flowora_payment_v2","flowora_bank_account","flowora_finance_invoice_source","flowora_finance_invoice_line","flowora_finance_invoice","flowora_journal_line","flowora_journal_entry","flowora_accounting_period","flowora_posting_mapping","flowora_finance_setting","flowora_sales_delivery_line","flowora_sales_delivery","flowora_sales_order_line","flowora_sales_order","flowora_purchase_receipt_line","flowora_purchase_receipt","flowora_purchase_order_line","flowora_purchase_order","flowora_account","flowora_timesheet","flowora_project_expense","flowora_project_billing_basis","flowora_project_task","flowora_project_milestone","flowora_project_member","flowora_project","flowora_supplier","flowora_customer"))
             jdbc.update("DELETE FROM "+table+" WHERE organization_id=?",org);
         jdbc.update("DELETE FROM flowora_organization WHERE id=?",org);
     }
@@ -1381,7 +1381,8 @@ class FinanceMySqlTest {
         }finally{pool.shutdownNow();}
     }
 
-    ProjectFinanceService projectFinance() {return new ProjectFinanceService(jdbc,documents);}
+    com.flowora.erp.project.ProjectLifecycleService lifecycle() {return new com.flowora.erp.project.ProjectLifecycleService(jdbc,ledger);}
+    ProjectFinanceService projectFinance() {return new ProjectFinanceService(jdbc,documents,lifecycle());}
     String billingProject() {
         String id=legacyProjectFixture();jdbc.update("UPDATE flowora_project SET customer_id=?,currency_code='EUR' WHERE organization_id=? AND id=?",customer,org,id);
         run(()->projectFinance().configure(actor,id,new BillingConfiguration("FIXED_PRICE",n("100"),null)));return id;
@@ -1633,5 +1634,111 @@ class FinanceMySqlTest {
             assertThat(jdbc.queryForObject("SELECT approval_status FROM "+table+" WHERE organization_id=? AND id=?",String.class,org,id)).isEqualTo("APPROVED");assertThat(jdbc.queryForObject("SELECT currency_code FROM "+table+" WHERE organization_id=? AND id=?",String.class,org,id)).isEqualTo("USD");
         }
         assertThat(projectFinance().billingBasis(org,project)).containsExactly(original);assertThat(projectFinance().profit(org,project).managementLaborCost()).isNull();assertThat(projectFinance().profit(org,project).managementLaborCosts()).containsExactly(new CurrencyAmount("USD",n("10.0000")));assertThat(ledger.journals(org,date,date)).isEmpty();
+    }
+
+    String closeProject() {String id=legacyProjectFixture();jdbc.update("UPDATE flowora_project SET customer_id=? WHERE organization_id=? AND id=?",customer,org,id);return id;}
+    void changeProject(String id,com.flowora.erp.project.ProjectStatus status) {run(()->{lifecycle().changeStatus(org,id,status);return true;});}
+    String projectStatus(String id) {return jdbc.queryForObject("SELECT status FROM flowora_project WHERE organization_id=? AND id=?",String.class,org,id);}
+    String closeTask(String project,String status) {
+        String id=key();jdbc.update("INSERT INTO flowora_project_task(id,organization_id,project_id,title,assignee_user_id,priority,status) VALUES (?,?,?,'Synthetic delivery task','synthetic-user','MEDIUM',?)",id,org,project,status);return id;
+    }
+    void assertCloseBlocked(String project,String blocker) {
+        var before=jdbc.queryForMap("SELECT * FROM flowora_project WHERE organization_id=? AND id=?",org,project);
+        for(var state:List.of(com.flowora.erp.project.ProjectStatus.COMPLETED,com.flowora.erp.project.ProjectStatus.ARCHIVED))
+            assertThatThrownBy(()->changeProject(project,state)).isInstanceOf(PlatformApiException.class).satisfies(ex->{var e=(PlatformApiException)ex;assertThat(e.code()).isEqualTo("PROJECT_CLOSE_BLOCKED");assertThat(e.args().get("blockers")).asList().contains(blocker);});
+        var after=jdbc.queryForMap("SELECT * FROM flowora_project WHERE organization_id=? AND id=?",org,project);
+        for(var field:before.entrySet())if(!"updated_at".equals(field.getKey()))assertThat(after.get(field.getKey())).isEqualTo(field.getValue());
+    }
+    @Test void completingAndArchivingRequireFinishedTasksAndResolvedTimeExpenseApprovals() {
+        String project=closeProject(),task=closeTask(project,"TODO");assertCloseBlocked(project,"OPEN_TASKS");
+        jdbc.update("UPDATE flowora_project_task SET status='DONE' WHERE organization_id=? AND id=?",org,task);
+        String time=operationalSource(project,false,false),expense=operationalSource(project,true,false);
+        assertThat(projectFinance().profit(org,project).pendingApprovals()).isEqualTo(2);assertCloseBlocked(project,"PENDING_APPROVALS");
+        run(()->projectFinance().approveTimesheet(actor,time,new ApprovalAction(false,"Not delivered")));
+        run(()->projectFinance().approveExpense(actor,expense,new ApprovalAction(true,"Approved operating cost")));
+        assertThat(projectFinance().profit(org,project).closeEligible()).isTrue();changeProject(project,com.flowora.erp.project.ProjectStatus.COMPLETED);
+        assertThat(projectStatus(project)).isEqualTo("COMPLETED");changeProject(project,com.flowora.erp.project.ProjectStatus.ARCHIVED);assertThat(projectStatus(project)).isEqualTo("ARCHIVED");
+        assertThat(ledger.journals(org,date,date)).isEmpty();
+    }
+    @Test void fullyReservedDraftStillBlocksCloseAndCancellationRestoresAnUnbilledBlocker() {
+        String project=billingProject();var draft=projectDraft(project,"100");var report=projectFinance().profit(org,project);
+        assertThat(report.availableBilling()).isEqualByComparingTo("0");assertThat(report.unsettledInvoices()).isEqualTo(1);assertThat(report.closeEligible()).isFalse();assertCloseBlocked(project,"UNSETTLED_INVOICES");
+        correctProjectInvoice(draft,false);assertThat(projectFinance().profit(org,project).unsettledInvoices()).isZero();assertCloseBlocked(project,"UNBILLED_BASES");assertThat(billingBasis(project).remainingAmount()).isEqualByComparingTo("100");
+    }
+    @Test void postedInvoicesMustBeSettledAndLineOnlyProjectInvoicesAreCounted() {
+        String project=closeProject();var line=new InvoiceLineCreate(null,"Line-only project cost",n("1"),n("10"),n("0"),n("0"),null,project,List.of());
+        var draft=run(()->documents.createInvoice(actor,key(),new InvoiceCreate("SUPPLIER_INVOICE",supplier,null,null,date,date,date,date,"EUR",n("1.3"),List.of(line))));
+        assertCloseBlocked(project,"UNSETTLED_INVOICES");run(()->documents.postInvoice(actor,draft.id(),0));assertCloseBlocked(project,"UNSETTLED_INVOICES");
+        var payment=originalRefundPayment(true,null);run(()->documents.allocate(actor,payment.id(),new AllocationCreate(draft.id(),n("10"))));
+        assertThat(projectFinance().profit(org,project).closeEligible()).isTrue();changeProject(project,com.flowora.erp.project.ProjectStatus.ARCHIVED);
+        assertThat(documents.invoice(org,draft.id()).status()).isEqualTo("POSTED");
+    }
+    @Test void completedBillableMilestoneApprovalIsPartOfTheSharedCloseAssessment() {
+        String project=closeProject(),milestone=key();jdbc.update("INSERT INTO flowora_project_milestone(id,organization_id,project_id,name,sequence_no,status,billable,billing_amount) VALUES (?,?,?,'Completed synthetic milestone',1,'COMPLETED',TRUE,10)",milestone,org,project);
+        assertThat(projectFinance().profit(org,project).pendingApprovals()).isEqualTo(1);assertCloseBlocked(project,"PENDING_APPROVALS");
+        run(()->projectFinance().approveMilestone(actor,milestone,new ApprovalAction(true,"Approve completed delivery")));assertCloseBlocked(project,"UNBILLED_BASES");
+    }
+    @Test void invalidHistoricalBillingStateCannotBeCertifiedOrRepairedByClosing() {
+        String project=billingProject();jdbc.update("UPDATE flowora_project_billing_basis SET billed_amount=available_amount,status='BILLED' WHERE organization_id=? AND project_id=?",org,project);
+        var before=projectFinance().billingBasis(org,project);assertThat(projectFinance().profit(org,project).availableBilling()).isEqualByComparingTo("0");assertCloseBlocked(project,"INVALID_BILLING_BASES");assertThat(projectFinance().billingBasis(org,project)).isEqualTo(before);
+    }
+    @Test void terminalProjectsRejectNewBillingAndApprovalWritesButRetainFinancialCorrections() {
+        String project=billingProject();var draft=projectDraft(project,"100");String time=operationalSource(project,false,false),expense=operationalSource(project,true,false);
+        // Legacy terminal rows may already contain unfinished work. Do not auto-reopen or rewrite them.
+        jdbc.update("UPDATE flowora_project SET status='COMPLETED' WHERE organization_id=? AND id=?",org,project);
+        var basis=billingBasis(project);
+        List<Supplier<?>> actions=List.of(()->projectFinance().configure(actor,project,new BillingConfiguration("FIXED_PRICE",n("200"),null)),()->projectFinance().addMember(actor,project,new MemberCreate("synthetic-user","MEMBER")),()->projectFinance().approveTimesheet(actor,time,new ApprovalAction(true,"Approve")),()->projectFinance().approveExpense(actor,expense,new ApprovalAction(false,"Reject")),()->projectFinance().generateInvoice(actor,project,key(),projectInput(basis.id(),"1","0")),()->documents.createInvoice(actor,key(),directProjectInput(project,basis.id(),"1")),()->documents.postInvoice(actor,draft.id(),0));
+        for(var action:actions)assertThatThrownBy(()->run(action::get)).isInstanceOf(PlatformApiException.class).extracting("code").isEqualTo("PROJECT_CLOSED");
+        assertThat(billingBasis(project)).isEqualTo(basis);assertThat(projectFinance().members(org,project)).isEmpty();
+        assertThat(jdbc.queryForObject("SELECT approval_status FROM flowora_timesheet WHERE organization_id=? AND id=?",String.class,org,time)).isEqualTo("DRAFT");
+        String request=jdbc.queryForObject("SELECT request_id FROM flowora_finance_invoice WHERE organization_id=? AND id=?",String.class,org,draft.id());
+        assertThat(projectFinance().generateInvoice(actor,project,request.substring("project-invoice:".length()),projectInput(basis.id(),"100","0")).id()).isEqualTo(draft.id());
+        assertThat(correctProjectInvoice(draft,false).status()).isEqualTo("CANCELLED");assertThat(billingBasis(project).remainingAmount()).isEqualByComparingTo("100");assertThat(projectStatus(project)).isEqualTo("COMPLETED");assertThat(ledger.journals(org,date,date)).isEmpty();
+    }
+    @Test void closeChecksCurrentRowsAfterAnOlderTransactionSnapshot() throws Exception {
+        String project=closeProject();var pool=java.util.concurrent.Executors.newSingleThreadExecutor();
+        try {run(()->{assertThat(lifecycle().readiness(org,project).eligible()).isTrue();
+            try {pool.submit(()->run(()->{lifecycle().requireOpen(org,project);return operationalSource(project,false,false);})).get(15,java.util.concurrent.TimeUnit.SECONDS);}catch(Exception ex){throw new IllegalStateException(ex);}
+            assertThatThrownBy(()->lifecycle().changeStatus(org,project,com.flowora.erp.project.ProjectStatus.COMPLETED)).isInstanceOf(PlatformApiException.class).extracting("code").isEqualTo("PROJECT_CLOSE_BLOCKED");return true;});
+            assertThat(projectStatus(project)).isEqualTo("AT_RISK");
+        }finally{pool.shutdownNow();}
+    }
+    @Test void concurrentCloseAndNewPendingRegistrationCannotBothSucceed() throws Exception {
+        String project=closeProject();var pool=java.util.concurrent.Executors.newFixedThreadPool(2);var barrier=new java.util.concurrent.CyclicBarrier(2);
+        try {
+            var close=pool.submit(()->{barrier.await(10,java.util.concurrent.TimeUnit.SECONDS);try{changeProject(project,com.flowora.erp.project.ProjectStatus.COMPLETED);return "COMPLETED";}catch(PlatformApiException ex){return ex.code();}});
+            var add=pool.submit(()->{barrier.await(10,java.util.concurrent.TimeUnit.SECONDS);try{return run(()->{lifecycle().requireOpen(org,project);operationalSource(project,true,false);return "CREATED";});}catch(PlatformApiException ex){return ex.code();}});
+            var result=List.of(close.get(20,java.util.concurrent.TimeUnit.SECONDS),add.get(20,java.util.concurrent.TimeUnit.SECONDS));
+            if("COMPLETED".equals(projectStatus(project))){assertThat(result).containsExactlyInAnyOrder("COMPLETED","PROJECT_CLOSED");assertThat(lifecycle().readiness(org,project).pendingApprovals()).isZero();}
+            else {assertThat(result).containsExactlyInAnyOrder("PROJECT_CLOSE_BLOCKED","CREATED");assertThat(lifecycle().readiness(org,project).pendingApprovals()).isEqualTo(1);}
+        }finally{pool.shutdownNow();}
+    }
+    @Test void closeAssessmentAndTransitionKeepOrganizationBoundaries() {
+        String project=closeProject();assertThatThrownBy(()->lifecycle().readiness(key(),project)).isInstanceOf(PlatformApiException.class);assertThat(projectStatus(project)).isEqualTo("AT_RISK");
+        run(()->{lifecycle().changeStatus(org,project,com.flowora.erp.project.ProjectStatus.ARCHIVED);return true;});
+        assertThatThrownBy(()->run(()->{lifecycle().requireOpen(org,project);return true;})).isInstanceOf(PlatformApiException.class).extracting("code").isEqualTo("PROJECT_CLOSED");
+    }
+
+    @Test void settledProjectCanCloseAndLaterFinancialCorrectionRecomputesReadinessWithoutReopening() {
+        String project=billingProject();var draft=projectDraft(project,"100");var posted=run(()->documents.postInvoice(actor,draft.id(),0));
+        var payment=originalRefundPayment(false,null);var allocation=run(()->documents.allocate(actor,payment.id(),new AllocationCreate(posted.id(),n("100"))));
+        assertThat(projectFinance().profit(org,project).closeEligible()).isTrue();changeProject(project,com.flowora.erp.project.ProjectStatus.COMPLETED);
+        run(()->documents.reverseAllocation(actor,allocation.id(),key(),new AllocationReverse("Correct settled project invoice")));
+        assertThat(projectFinance().profit(org,project).closeBlockers()).contains("UNSETTLED_INVOICES");
+        assertThat(correctProjectInvoice(documents.invoice(org,posted.id()),true).status()).isEqualTo("REVERSED");
+        var current=projectFinance().profit(org,project);assertThat(current.closeEligible()).isFalse();assertThat(current.closeBlockers()).containsExactly("UNBILLED_BASES");assertThat(current.postedRevenue()).isEqualByComparingTo("0");
+        assertThat(projectStatus(project)).isEqualTo("COMPLETED");assertCloseBlocked(project,"UNBILLED_BASES");
+    }
+
+    @Test void approvedBillableSourceWithoutItsBasisStillBlocksClosing() {
+        String project=closeProject(),source=operationalSource(project,false,true);
+        run(()->projectFinance().approveTimesheet(actor,source,new ApprovalAction(true,"Approved delivery")));
+        jdbc.update("DELETE FROM flowora_project_billing_basis WHERE organization_id=? AND project_id=?",org,project);
+        assertThat(projectFinance().profit(org,project).availableBilling()).isEqualByComparingTo("0");assertCloseBlocked(project,"INVALID_BILLING_BASES");
+        assertThat(projectFinance().billingBasis(org,project)).isEmpty();assertThat(jdbc.queryForObject("SELECT approval_status FROM flowora_timesheet WHERE organization_id=? AND id=?",String.class,org,source)).isEqualTo("APPROVED");
+    }
+    @Test void positiveFixedContractCannotAppearClosedWhenItsBasisIsMissing() {
+        String project=billingProject();jdbc.update("DELETE FROM flowora_project_billing_basis WHERE organization_id=? AND project_id=?",org,project);
+        assertThat(projectFinance().profit(org,project).invalidBillingBases()).isEqualTo(1);assertCloseBlocked(project,"INVALID_BILLING_BASES");assertThat(projectFinance().billingBasis(org,project)).isEmpty();
     }
 }
