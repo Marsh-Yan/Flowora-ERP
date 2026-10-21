@@ -7,6 +7,7 @@ import jakarta.validation.constraints.Size;
 
 import java.math.BigDecimal;
 import java.time.LocalDate;
+import java.util.List;
 
 public final class ProjectDtos {
     private ProjectDtos() {
@@ -80,11 +81,14 @@ public final class ProjectDtos {
     ) {
     }
 
+    public record OperationalCurrencyAmount(String currencyCode, BigDecimal actualCost, BigDecimal billableAmount) { }
+
     public record ProjectResponse(
             String id, String number, String name, String description, String customerId, String salesOrderId,
             String managerUserId, LocalDate targetDate, BigDecimal budgetRevenue, BigDecimal budgetCost,
             String currencyCode, ProjectStatus status, BigDecimal progressPercent, BigDecimal actualCost,
-            BigDecimal actualHours, BigDecimal billableAmount, int completedTaskCount, int totalTaskCount
+            BigDecimal actualHours, BigDecimal billableAmount, int completedTaskCount, int totalTaskCount,
+            List<OperationalCurrencyAmount> operationalAmounts
     ) {
     }
 

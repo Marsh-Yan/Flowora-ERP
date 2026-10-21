@@ -17,6 +17,8 @@ export type ProjectStatus = 'PLANNED' | 'ACTIVE' | 'AT_RISK' | 'COMPLETED' | 'AR
 export type TaskStatus = 'TODO' | 'IN_PROGRESS' | 'BLOCKED' | 'DONE'
 export type TaskPriority = 'LOW' | 'MEDIUM' | 'HIGH'
 
+export interface OperationalCurrencyAmount { currencyCode: string; actualCost: number; billableAmount: number }
+
 export interface Project {
   id: string
   number: string
@@ -31,9 +33,10 @@ export interface Project {
   currencyCode: string
   status: ProjectStatus
   progressPercent: number
-  actualCost: number
+  actualCost: number | null
   actualHours: number
-  billableAmount: number
+  billableAmount: number | null
+  operationalAmounts: OperationalCurrencyAmount[]
   completedTaskCount: number
   totalTaskCount: number
 }
