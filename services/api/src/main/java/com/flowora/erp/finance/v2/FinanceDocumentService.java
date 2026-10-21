@@ -652,6 +652,17 @@ public class FinanceDocumentService {
     // Project billing writers call this before locking project or basis rows.
     public void lockProjectBilling(String org) { ledger.lockOrganizationFinance(org); }
 
+    public String projectBaseCurrency(String org) { return ledger.baseCurrency(org); }
+
+    private void requireProjectRate(String org, InvoiceView invoice) {
+        if(!invoice.currencyCode().matches("[A-Z]{3}") || !invoice.baseCurrencyCode().matches("[A-Z]{3}")
+                || !invoice.baseCurrencyCode().equals(ledger.baseCurrency(org))
+                || invoice.exchangeRate().signum()<=0 || invoice.exchangeRate().stripTrailingZeros().scale()>8
+                || (invoice.currencyCode().equals(invoice.baseCurrencyCode()) && invoice.exchangeRate().compareTo(BigDecimal.ONE)!=0)
+                || invoice.exchangeRateDate().isAfter(invoice.accountingDate()) || invoice.exchangeRateDate().isAfter(LocalDate.now()))
+            throw conflict("PROJECT_EXCHANGE_TERMS_INVALID",Map.of());
+    }
+
     public void refreshProjectBillingStatus(String org, String projectId) {
         lockProjectBillingHeader(org,projectId);
         var bases=jdbc.queryForList("SELECT available_amount,billed_amount,status FROM flowora_project_billing_basis WHERE organization_id=? AND project_id=? ORDER BY id FOR UPDATE",org,projectId);
@@ -681,6 +692,7 @@ public class FinanceDocumentService {
     private void maintainProjectBilling(String org, InvoiceView invoice, int adjustment) {
         var projectLines=invoice.lines().stream().filter(l->l.sources().stream().anyMatch(s->"PROJECT_BILLING_BASIS".equals(s.sourceType()))).toList();
         if(projectLines.isEmpty())return;
+        requireProjectRate(org,invoice);
         var project=lockProjectBillingHeader(org,invoice.projectId());
         if(!"SALES_INVOICE".equals(invoice.documentType()) || !"CUSTOMER".equals(invoice.partyType())
                 || !invoice.partyId().equals(project.get("customer_id")) || !invoice.currencyCode().equals(project.get("currency_code")))

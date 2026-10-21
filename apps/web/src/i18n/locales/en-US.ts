@@ -622,7 +622,7 @@ export default {
       grossProfit: 'Gross profit', closeEligible: 'Ready to close',
       correctionHelp: "Draft and posted project invoices reserve net billing capacity. Use invoice corrections to cancel or reverse the whole invoice and refresh the project capacity and status. Resolve allocations, active credits and revaluations first. Credits do not automatically release project capacity; contracts and approvals are retained.",
       reloadBilling: "Reload billing capacity",
-      basisTotal: "Basis net total",
+      invoiceDate: 'Invoice accounting date', currencyTerms: 'Contract and billing quota: {project}. Posted revenue, cost and gross profit: organization base currency {base}. No cross-currency budget variance is calculated without a conversion basis.', invoiceTerms: 'Confirm the rate and dates before saving a draft. Foreign rates start empty; same-currency rate is 1. Posting is a separate action in Finance.', invoiceUncertain: 'The result is uncertain. Retry unchanged details with the same request key, or reload invoice history before changing them.', invoiceBasePreview: 'Estimated invoice total in base currency: {amount} {base}', invoiceConfirm: 'I checked the amount, currencies, rate and dates.', basisTotal: "Basis net total",
       reserved: "Reserved net amount",
       saveBilling: 'Save billing setup',
       createInvoice: 'Create invoice draft', invoiceCreated: 'Project invoice draft created.', saved: 'Billing setup saved.',

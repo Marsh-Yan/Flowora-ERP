@@ -561,7 +561,7 @@ export default {
       contract: '合同金额', available: '待计费金额', revenue: '已过账收入', cost: '已过账成本', grossProfit: '毛利',
       correctionHelp: "项目发票草稿及已过账单均占用未税额度。通过发票更正取消或撤销整张发票后，本项目可开票额度与状态会同步回退；有核销、活动贷记或重估时请先处理依赖。贷记不自动释放项目额度，合同及审批记录保留。",
       reloadBilling: "刷新开票额度",
-      basisTotal: "依据未税总额",
+      invoiceDate: '发票记账日期', currencyTerms: '合同和开票额度：{project}。已过账收入、成本和毛利：组织本位币 {base}。缺少换算依据时不计算跨币种预算差额。', invoiceTerms: '保存草稿前请核对汇率和日期。外币汇率须明确填写；同币种汇率为 1。之后需在财务中心单独过账。', invoiceUncertain: '结果尚不确定。保持原内容重试将沿用同一请求标识；修改前请先刷新发票历史核对结果。', invoiceBasePreview: '预计发票含税本位币金额：{amount} {base}', invoiceConfirm: '我已核对金额、币种、汇率和日期。', basisTotal: "依据未税总额",
       reserved: "已占用未税额度",
       closeEligible: '可否结项', saveBilling: '保存计费配置', createInvoice: '生成发票草稿',
       invoiceCreated: '项目发票草稿已创建。', saved: '项目计费配置已保存。',

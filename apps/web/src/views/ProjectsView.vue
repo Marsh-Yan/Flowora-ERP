@@ -41,6 +41,7 @@ const loading = ref(false)
 const activeTab = ref('milestones')
 const projects = ref<Project[]>([])
 const customers = ref<MasterDataRecord[]>([])
+const currencies = ref<MasterDataRecord[]>([])
 const salesOrders = ref<SalesOrder[]>([])
 const selectedProject = ref<Project | null>(null)
 const milestones = ref<Milestone[]>([])
@@ -56,7 +57,7 @@ const timesheetVisible = ref(false)
 const expenseVisible = ref(false)
 const budgetVisible = ref(false)
 
-const projectForm = reactive({ name: '', description: '', customerId: '', salesOrderId: '', targetDate: today(), budgetRevenue: 0, budgetCost: 0, currencyCode: 'USD' })
+const projectForm = reactive({ name: '', description: '', customerId: '', salesOrderId: '', targetDate: today(), budgetRevenue: 0, budgetCost: 0, currencyCode: '' })
 const milestoneForm = reactive({ name: '', sequenceNo: undefined as number | undefined, targetDate: '' })
 const taskForm = reactive({ title: '', description: '', milestoneId: '', assigneeUserId: '', priority: 'MEDIUM' as TaskPriority, dueDate: '', estimatedHours: 0 })
 const timesheetForm = reactive({ taskId: '', workDate: today(), hours: 1, costRate: 0, billingRate: 0, billable: true, currencyCode: 'USD', note: '' })
@@ -112,14 +113,21 @@ function orderName(id?: string) {
   return salesOrders.value.find((item) => item.id === id)?.number ?? id ?? '-'
 }
 
+async function loadCurrencies() {
+  const rows: MasterDataRecord[]=[]
+  for(let page=0;page<100;page++) {const result=await listMasterData<MasterDataRecord>('currencies','',page,100);rows.push(...result.content);if(page+1>=result.totalPages)return rows.filter(c=>c.active && /^[A-Z]{3}$/.test(c.code))}
+  throw new Error('Incomplete project currency list')
+}
 async function load() {
   loading.value = true
   try {
-    const [projectPage, customerPage, orderPage] = await Promise.all([
+    const [projectPage, customerPage, orderPage, currencyRows] = await Promise.all([
       listProjects(),
       listMasterData<MasterDataRecord>('customers', '', 0, 100),
       listSalesOrders('', 0, 100),
+      loadCurrencies(),
     ])
+    currencies.value=currencyRows
     projects.value = projectPage.content
     customers.value = customerPage.content
     salesOrders.value = orderPage.content
@@ -162,11 +170,12 @@ async function selectProject(project: Project) {
 }
 
 function openProject() {
-  Object.assign(projectForm, { name: '', description: '', customerId: '', salesOrderId: '', targetDate: today(), budgetRevenue: 0, budgetCost: 0, currencyCode: 'USD' })
+  Object.assign(projectForm, { name: '', description: '', customerId: '', salesOrderId: '', targetDate: today(), budgetRevenue: 0, budgetCost: 0, currencyCode: '' })
   projectVisible.value = true
 }
 
 async function submitProject() {
+  if(!currencies.value.some(c=>c.code===projectForm.currencyCode))return
   try {
     const created = await createProject({ ...projectForm, customerId: projectForm.customerId || undefined, salesOrderId: projectForm.salesOrderId || undefined })
     projectVisible.value = false
@@ -317,7 +326,7 @@ onMounted(load)
       </el-card>
     </div>
 
-    <el-dialog v-model="projectVisible" :title="t('projects.createProject')" width="620px"><el-form label-position="top"><div class="operations-form-grid"><el-form-item :label="t('projects.name')"><el-input v-model="projectForm.name" /></el-form-item><el-form-item :label="t('projects.targetDate')"><el-date-picker v-model="projectForm.targetDate" type="date" value-format="YYYY-MM-DD" class="full-width" /></el-form-item><el-form-item :label="t('projects.customer')"><el-select v-model="projectForm.customerId" clearable filterable class="full-width"><el-option v-for="customer in customers" :key="customer.id" :label="`${customer.code} · ${customer.name}`" :value="customer.id" /></el-select></el-form-item><el-form-item :label="t('projects.salesOrder')"><el-select v-model="projectForm.salesOrderId" clearable filterable class="full-width"><el-option v-for="order in salesOrders" :key="order.id" :label="`${order.number} · ${formatAmount(order.totalAmount, order.currencyCode)}`" :value="order.id" /></el-select></el-form-item><el-form-item :label="t('projects.budgetRevenue')"><el-input-number v-model="projectForm.budgetRevenue" :min="0" :precision="2" class="full-width" /></el-form-item><el-form-item :label="t('projects.budgetCost')"><el-input-number v-model="projectForm.budgetCost" :min="0" :precision="2" class="full-width" /></el-form-item></div><el-form-item :label="t('projects.description')"><el-input v-model="projectForm.description" type="textarea" :rows="3" /></el-form-item></el-form><template #footer><el-button @click="projectVisible = false">{{ t('projects.cancel') }}</el-button><el-button type="primary" @click="submitProject">{{ t('projects.save') }}</el-button></template></el-dialog>
+    <el-dialog v-model="projectVisible" :title="t('projects.createProject')" width="620px"><el-form label-position="top"><div class="operations-form-grid"><el-form-item :label="t('projects.name')"><el-input v-model="projectForm.name" /></el-form-item><el-form-item :label="t('projects.targetDate')"><el-date-picker v-model="projectForm.targetDate" type="date" value-format="YYYY-MM-DD" class="full-width" /></el-form-item><el-form-item :label="t('projects.customer')"><el-select v-model="projectForm.customerId" clearable filterable class="full-width"><el-option v-for="customer in customers" :key="customer.id" :label="`${customer.code} · ${customer.name}`" :value="customer.id" /></el-select></el-form-item><el-form-item :label="t('projects.salesOrder')"><el-select v-model="projectForm.salesOrderId" clearable filterable class="full-width"><el-option v-for="order in salesOrders" :key="order.id" :label="`${order.number} · ${formatAmount(order.totalAmount, order.currencyCode)}`" :value="order.id" /></el-select></el-form-item><el-form-item :label="t('projects.currency')"><el-select v-model="projectForm.currencyCode" class="full-width"><el-option v-for="currency in currencies" :key="currency.id" :label="currency.code" :value="currency.code" /></el-select></el-form-item><el-form-item :label="t('projects.budgetRevenue')"><el-input-number v-model="projectForm.budgetRevenue" :min="0" :precision="2" class="full-width" /></el-form-item><el-form-item :label="t('projects.budgetCost')"><el-input-number v-model="projectForm.budgetCost" :min="0" :precision="2" class="full-width" /></el-form-item></div><el-form-item :label="t('projects.description')"><el-input v-model="projectForm.description" type="textarea" :rows="3" /></el-form-item></el-form><template #footer><el-button @click="projectVisible = false">{{ t('projects.cancel') }}</el-button><el-button type="primary"  :disabled="!currencies.some(c=>c.code===projectForm.currencyCode)" @click="submitProject">{{ t('projects.save') }}</el-button></template></el-dialog>
     <el-dialog v-model="milestoneVisible" :title="t('projects.addMilestone')" width="480px"><el-form label-position="top"><el-form-item :label="t('projects.name')"><el-input v-model="milestoneForm.name" /></el-form-item><div class="operations-form-grid"><el-form-item :label="t('projects.sequenceNo')"><el-input-number v-model="milestoneForm.sequenceNo" :min="1" class="full-width" /></el-form-item><el-form-item :label="t('projects.targetDate')"><el-date-picker v-model="milestoneForm.targetDate" type="date" value-format="YYYY-MM-DD" class="full-width" /></el-form-item></div></el-form><template #footer><el-button @click="milestoneVisible = false">{{ t('projects.cancel') }}</el-button><el-button type="primary" @click="submitMilestone">{{ t('projects.save') }}</el-button></template></el-dialog>
     <el-dialog v-model="taskVisible" :title="t('projects.addTask')" width="560px"><el-form label-position="top"><el-form-item :label="t('projects.task')"><el-input v-model="taskForm.title" /></el-form-item><div class="operations-form-grid"><el-form-item :label="t('projects.milestone')"><el-select v-model="taskForm.milestoneId" clearable class="full-width"><el-option v-for="item in milestones" :key="item.id" :label="item.name" :value="item.id" /></el-select></el-form-item><el-form-item :label="t('projects.priority')"><el-select v-model="taskForm.priority" class="full-width"><el-option v-for="item in ['LOW', 'MEDIUM', 'HIGH']" :key="item" :label="label('projects.priorityValue', item)" :value="item" /></el-select></el-form-item><el-form-item :label="t('projects.assignee')"><el-input v-model="taskForm.assigneeUserId" /></el-form-item><el-form-item :label="t('projects.dueDate')"><el-date-picker v-model="taskForm.dueDate" type="date" value-format="YYYY-MM-DD" class="full-width" /></el-form-item><el-form-item :label="t('projects.estimate')"><el-input-number v-model="taskForm.estimatedHours" :min="0" :precision="2" class="full-width" /></el-form-item></div><el-form-item :label="t('projects.description')"><el-input v-model="taskForm.description" type="textarea" :rows="3" /></el-form-item></el-form><template #footer><el-button @click="taskVisible = false">{{ t('projects.cancel') }}</el-button><el-button type="primary" @click="submitTask">{{ t('projects.save') }}</el-button></template></el-dialog>
     <el-dialog v-model="timesheetVisible" :title="t('projects.addTimesheet')" width="560px"><el-form label-position="top"><div class="operations-form-grid"><el-form-item :label="t('projects.task')"><el-select v-model="timesheetForm.taskId" clearable class="full-width"><el-option v-for="item in tasks" :key="item.id" :label="item.title" :value="item.id" /></el-select></el-form-item><el-form-item :label="t('projects.date')"><el-date-picker v-model="timesheetForm.workDate" type="date" value-format="YYYY-MM-DD" class="full-width" /></el-form-item><el-form-item :label="t('projects.hours')"><el-input-number v-model="timesheetForm.hours" :min="0.01" :precision="2" class="full-width" /></el-form-item><el-form-item :label="t('projects.costRate')"><el-input-number v-model="timesheetForm.costRate" :min="0" :precision="2" class="full-width" /></el-form-item><el-form-item :label="t('projects.billingRate')"><el-input-number v-model="timesheetForm.billingRate" :min="0" :precision="2" class="full-width" /></el-form-item></div><el-form-item :label="t('projects.note')"><el-input v-model="timesheetForm.note" /></el-form-item><el-checkbox v-model="timesheetForm.billable">{{ t('projects.billableFlag') }}</el-checkbox></el-form><template #footer><el-button @click="timesheetVisible = false">{{ t('projects.cancel') }}</el-button><el-button type="primary" @click="submitTimesheet">{{ t('projects.save') }}</el-button></template></el-dialog>

@@ -4,8 +4,9 @@ import { ElMessage } from 'element-plus'
 import { useI18n } from 'vue-i18n'
 import { useAuthStore } from '@/stores/auth'
 import InvoiceCorrectionDialog from '@/components/finance/InvoiceCorrectionDialog.vue'
+import ProjectInvoiceDialog from './ProjectInvoiceDialog.vue'
 import {
-  configureProjectBilling, generateProjectInvoice, getProjectProfitability, listProjectBillingBasisV2,
+  configureProjectBilling, getProjectProfitability, listProjectBillingBasisV2,
   type ProjectBillingBasis, type ProjectProfit,
 } from '@/api/project-finance'
 
@@ -16,9 +17,10 @@ const loading = ref(false),mutating=ref(false)
 let generation=0
 const profit = ref<ProjectProfit | null>(null)
 const basis = ref<ProjectBillingBasis[]>([])
+const selectedBasis=ref<ProjectBillingBasis | null>(null)
 const mode = ref('')
 const contractAmount = ref(0)
-function money(value?: number, currency?: string) { return new Intl.NumberFormat(locale.value, { style: 'currency', currency: currency || 'USD', maximumFractionDigits: 2 }).format(Number(value ?? 0)) }
+function money(value?: number, currency?: string) { if(!currency || !/^[A-Z]{3}$/.test(currency))return '—';return new Intl.NumberFormat(locale.value, { style: 'currency', currency: currency || 'USD', maximumFractionDigits: 2 }).format(Number(value ?? 0)) }
 async function load() {
   const token=++generation,id=props.projectId
   loading.value=true
@@ -33,14 +35,11 @@ async function saveConfiguration() {
   catch {if(token===generation)ElMessage.error(t('projects.saveFailed'))}
   finally {mutating.value=false}
 }
-async function invoice(row: ProjectBillingBasis) {
-  if(loading.value || mutating.value || !profit.value)return
-  const id=props.projectId,token=generation;mutating.value=true
-  try {await generateProjectInvoice(id,row,new Date().toISOString().slice(0,10));if(token===generation){ElMessage.success(t('projects.m4.invoiceCreated'));await load()}}
-  catch {if(token===generation)ElMessage.error(t('projects.saveFailed'))}
-  finally {mutating.value=false}
+function invoice(row: ProjectBillingBasis) {
+  if(loading.value || mutating.value || !profit.value || !profit.value.baseCurrencyCode)return
+  selectedBasis.value={...row}
 }
-watch(()=>[props.projectId,auth.user?.organizationId],()=>{mode.value='';load()})
+watch(()=>[props.projectId,auth.user?.organizationId],()=>{mode.value='';selectedBasis.value=null;load()})
 onMounted(load)
 onBeforeUnmount(()=>{generation++})
 </script>
@@ -52,12 +51,14 @@ onBeforeUnmount(()=>{generation++})
     <el-button :disabled="loading || mutating" @click="load">{{ t('projects.m4.reloadBilling') }}</el-button>
     <el-button v-if="auth.hasPermission('finance:view')" :disabled="loading || mutating || !profit" @click="correctionVisible=true">{{ t('finance.invoiceCorrection.title') }}</el-button>
     <InvoiceCorrectionDialog v-model="correctionVisible" :project-id="projectId" @changed="load" />
+    <ProjectInvoiceDialog :project-id="projectId" :basis="selectedBasis" :base-currency-code="profit?.baseCurrencyCode || ''" @close="selectedBasis=null" @changed="load" />
+    <p v-if="profit">{{ t('projects.m4.currencyTerms',{project:profit.currencyCode,base:profit.baseCurrencyCode || '—'}) }}</p>
     <div class="profit-grid">
       <div><span>{{ t('projects.m4.contract') }}</span><strong>{{ money(profit?.contractAmount, profit?.currencyCode) }}</strong></div>
       <div><span>{{ t('projects.m4.available') }}</span><strong>{{ money(profit?.availableBilling, profit?.currencyCode) }}</strong></div>
-      <div><span>{{ t('projects.m4.revenue') }}</span><strong>{{ money(profit?.postedRevenue, profit?.currencyCode) }}</strong></div>
-      <div><span>{{ t('projects.m4.cost') }}</span><strong>{{ money(profit?.postedCost, profit?.currencyCode) }}</strong></div>
-      <div><span>{{ t('projects.m4.grossProfit') }}</span><strong>{{ money(profit?.grossProfit, profit?.currencyCode) }}</strong></div>
+      <div><span>{{ t('projects.m4.revenue') }}</span><strong>{{ money(profit?.postedRevenue, profit?.baseCurrencyCode) }}</strong></div>
+      <div><span>{{ t('projects.m4.cost') }}</span><strong>{{ money(profit?.postedCost, profit?.baseCurrencyCode) }}</strong></div>
+      <div><span>{{ t('projects.m4.grossProfit') }}</span><strong>{{ money(profit?.grossProfit, profit?.baseCurrencyCode) }}</strong></div>
       <div><span>{{ t('projects.m4.closeEligible') }}</span><strong>{{ profit?.closeEligible ? t('projects.yes') : t('projects.no') }}</strong></div>
     </div>
     <el-table :data="basis" size="small"><el-table-column prop="basisType" :label="t('projects.type')" width="130" /><el-table-column prop="description" :label="t('projects.description')" min-width="200" /><el-table-column :label="t('projects.m4.basisTotal')" width="140"><template #default="{ row }">{{ money(row.availableAmount, row.currencyCode) }}</template></el-table-column><el-table-column :label="t('projects.m4.reserved')" width="140"><template #default="{ row }">{{ money(row.billedAmount, row.currencyCode) }}</template></el-table-column><el-table-column :label="t('projects.m4.available')" width="140"><template #default="{ row }">{{ money(row.remainingAmount, row.currencyCode) }}</template></el-table-column><el-table-column prop="status" :label="t('projects.statusLabel')" width="110" /><el-table-column :label="t('finance.actions')" width="140"><template #default="{ row }"><el-button v-if="row.remainingAmount > 0" link type="primary" :disabled="loading || mutating" @click="invoice(row)">{{ t('projects.m4.createInvoice') }}</el-button></template></el-table-column></el-table>

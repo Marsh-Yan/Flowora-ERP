@@ -192,29 +192,41 @@ public class ProjectFinanceService {
 
     public ProjectProfitView profit(String organizationId, String projectId) {
         Project project = project(projectId, organizationId);
+        String baseCurrency=finance.projectBaseCurrency(organizationId);
+        if(count("SELECT COUNT(*) FROM flowora_project_billing_basis WHERE organization_id=? AND project_id=? AND currency_code<>?",organizationId,projectId,project.currencyCode())>0)
+            throw conflict("PROJECT_BILLING_CURRENCY_MISMATCH",Map.of());
+        if(count("""
+                SELECT COUNT(*) FROM flowora_journal_line l JOIN flowora_journal_entry e
+                ON e.id=l.journal_entry_id AND e.organization_id=l.organization_id
+                WHERE l.organization_id=? AND l.project_id=? AND e.status IN ('POSTED','REVERSED') AND e.base_currency_code<>?
+                """,organizationId,projectId,baseCurrency)>0)throw conflict("PROJECT_LEDGER_CURRENCY_MISMATCH",Map.of());
         BigDecimal available = scalar("SELECT COALESCE(SUM(available_amount-billed_amount),0) FROM flowora_project_billing_basis WHERE organization_id=? AND project_id=?", organizationId, projectId);
-        BigDecimal billed = scalar("SELECT COALESCE(SUM(total_amount),0) FROM flowora_finance_invoice WHERE organization_id=? AND project_id=? AND document_type='SALES_INVOICE' AND status IN ('DRAFT','POSTED')", organizationId, projectId);
+        BigDecimal billed = scalar("SELECT COALESCE(SUM(billed_amount),0) FROM flowora_project_billing_basis WHERE organization_id=? AND project_id=?", organizationId, projectId);
         BigDecimal revenue = scalar("""
                 SELECT COALESCE(SUM(l.base_credit-l.base_debit),0) FROM flowora_journal_line l
-                JOIN flowora_journal_entry e ON e.id=l.journal_entry_id JOIN flowora_account a
+                JOIN flowora_journal_entry e ON e.id=l.journal_entry_id AND e.organization_id=l.organization_id JOIN flowora_account a
                   ON a.organization_id=l.organization_id AND a.code=l.account_code
                 WHERE l.organization_id=? AND l.project_id=? AND e.status IN ('POSTED','REVERSED') AND a.account_type='REVENUE'
                 """, organizationId, projectId);
         BigDecimal cost = scalar("""
                 SELECT COALESCE(SUM(l.base_debit-l.base_credit),0) FROM flowora_journal_line l
-                JOIN flowora_journal_entry e ON e.id=l.journal_entry_id JOIN flowora_account a
+                JOIN flowora_journal_entry e ON e.id=l.journal_entry_id AND e.organization_id=l.organization_id JOIN flowora_account a
                   ON a.organization_id=l.organization_id AND a.code=l.account_code
                 WHERE l.organization_id=? AND l.project_id=? AND e.status IN ('POSTED','REVERSED') AND a.account_type='EXPENSE'
                 """, organizationId, projectId);
-        BigDecimal labor = scalar("SELECT COALESCE(SUM(cost_amount),0) FROM flowora_timesheet WHERE organization_id=? AND project_id=? AND approval_status='APPROVED'", organizationId, projectId);
+        var laborAmounts=jdbc.query("SELECT currency_code,SUM(cost_amount) AS amount FROM flowora_timesheet WHERE organization_id=? AND project_id=? AND approval_status='APPROVED' GROUP BY currency_code ORDER BY currency_code",
+                (rs,row)->new ProjectFinanceDtos.CurrencyAmount(rs.getString("currency_code"),rs.getBigDecimal("amount")),organizationId,projectId);
+        BigDecimal labor=laborAmounts.stream().allMatch(a->project.currencyCode().equals(a.currencyCode()))
+                ?laborAmounts.stream().map(ProjectFinanceDtos.CurrencyAmount::amount).reduce(BigDecimal.ZERO,BigDecimal::add):null;
         int openTasks = count("SELECT COUNT(*) FROM flowora_project_task WHERE organization_id=? AND project_id=? AND status<>'DONE'", organizationId, projectId);
         int pending = count("SELECT (SELECT COUNT(*) FROM flowora_timesheet WHERE organization_id=? AND project_id=? AND approval_status NOT IN ('APPROVED','REJECTED')) + (SELECT COUNT(*) FROM flowora_project_expense WHERE organization_id=? AND project_id=? AND approval_status NOT IN ('APPROVED','REJECTED'))", organizationId, projectId, organizationId, projectId);
         int unsettled = count("SELECT COUNT(*) FROM flowora_finance_invoice WHERE organization_id=? AND project_id=? AND status='POSTED' AND settlement_status<>'PAID'", organizationId, projectId);
         BigDecimal gross = revenue.subtract(cost);
         boolean eligible = openTasks == 0 && pending == 0 && unsettled == 0 && available.signum() == 0;
         return new ProjectProfitView(projectId, project.currencyCode(), project.contractAmount(), available, billed,
-                revenue, cost, labor, gross, project.budgetRevenue().subtract(revenue),
-                project.budgetCost().subtract(cost), openTasks, pending, unsettled, eligible);
+                revenue, cost, labor, gross, project.currencyCode().equals(baseCurrency)?project.budgetRevenue().subtract(revenue):null,
+                project.currencyCode().equals(baseCurrency)?project.budgetCost().subtract(cost):null,
+                openTasks, pending, unsettled, eligible, baseCurrency, laborAmounts);
     }
 
     private BillingBasisView upsertBasis(String organizationId, String projectId, String type, String sourceId,
