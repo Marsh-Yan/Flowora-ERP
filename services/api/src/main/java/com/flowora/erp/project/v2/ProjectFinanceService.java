@@ -25,6 +25,7 @@ import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Set;
 import java.util.UUID;
 
@@ -44,6 +45,7 @@ public class ProjectFinanceService {
 
     @Transactional
     public BillingConfiguration configure(FloworaPrincipal actor, String projectId, BillingConfiguration body) {
+        finance.lockProjectBilling(actor.organizationId());
         requireProject(actor.organizationId(), projectId);
         String mode = body.billingMode().toUpperCase();
         if (!BILLING_MODES.contains(mode) || body.contractAmount().signum() < 0) {
@@ -83,6 +85,7 @@ public class ProjectFinanceService {
 
     @Transactional
     public BillingBasisView approveTimesheet(FloworaPrincipal actor, String timesheetId, ApprovalAction body) {
+        finance.lockProjectBilling(actor.organizationId());
         Timesheet value = timesheetForUpdate(actor.organizationId(), timesheetId);
         if ("APPROVED".equals(value.approvalStatus())) throw conflict("TIMESHEET_ALREADY_APPROVED", Map.of());
         if (!body.approved()) {
@@ -100,6 +103,7 @@ public class ProjectFinanceService {
 
     @Transactional
     public BillingBasisView approveExpense(FloworaPrincipal actor, String expenseId, ApprovalAction body) {
+        finance.lockProjectBilling(actor.organizationId());
         Expense value = expenseForUpdate(actor.organizationId(), expenseId);
         if ("APPROVED".equals(value.approvalStatus())) throw conflict("EXPENSE_ALREADY_APPROVED", Map.of());
         if (!body.approved()) {
@@ -117,6 +121,7 @@ public class ProjectFinanceService {
 
     @Transactional
     public BillingBasisView approveMilestone(FloworaPrincipal actor, String milestoneId, ApprovalAction body) {
+        finance.lockProjectBilling(actor.organizationId());
         Milestone value = milestoneForUpdate(actor.organizationId(), milestoneId);
         if (!body.approved()) {
             jdbc.update("UPDATE flowora_project_milestone SET approval_status='REJECTED',version_no=version_no+1 WHERE id=?", milestoneId);
@@ -142,14 +147,30 @@ public class ProjectFinanceService {
 
     @Transactional
     public InvoiceView generateInvoice(FloworaPrincipal actor, String projectId, String requestId, ProjectInvoiceCreate body) {
+        finance.lockProjectBilling(actor.organizationId());
         Project project = project(projectId, actor.organizationId());
         if (project.customerId() == null || project.customerId().isBlank()) throw conflict("PROJECT_CUSTOMER_REQUIRED", Map.of());
         String financeRequestId = "project-invoice:" + required(requestId);
         List<String> existing = jdbc.query("SELECT id FROM flowora_finance_invoice WHERE organization_id=? AND request_id=?",
                 (rs, row) -> rs.getString(1), actor.organizationId(), financeRequestId);
-        if (!existing.isEmpty()) return finance.invoice(actor.organizationId(), existing.getFirst());
+        if (!existing.isEmpty()) {
+            var replay=finance.invoice(actor.organizationId(),existing.getFirst());
+            boolean same=projectId.equals(replay.projectId()) && "SALES_INVOICE".equals(replay.documentType())
+                    && replay.businessDate().equals(body.businessDate()) && replay.accountingDate().equals(body.accountingDate())
+                    && replay.dueDate().equals(body.dueDate()) && replay.exchangeRateDate().equals(body.exchangeRateDate())
+                    && replay.currencyCode().equals(body.currencyCode().trim().toUpperCase(java.util.Locale.ROOT))
+                    && replay.exchangeRate().compareTo(body.exchangeRate())==0 && replay.lines().size()==body.lines().size();
+            if(same)for(int i=0;i<body.lines().size();i++) {
+                var line=replay.lines().get(i);var input=body.lines().get(i);
+                same &= line.sources().size()==1 && "PROJECT_BILLING_BASIS".equals(line.sources().getFirst().sourceType())
+                        && projectId.equals(line.sources().getFirst().sourceId()) && input.billingBasisId().equals(line.sources().getFirst().sourceLineId())
+                        && line.unitPrice().compareTo(input.amount())==0 && line.taxRate().compareTo(input.taxRate()==null?BigDecimal.ZERO:input.taxRate())==0
+                        && Objects.equals(line.accountCode(),clean(input.accountCode()));
+            }
+            if(!same)throw conflict("IDEMPOTENCY_KEY_REUSED",Map.of());
+            return replay;
+        }
         List<InvoiceLineCreate> invoiceLines = new ArrayList<>();
-        List<BasisSelection> selected = new ArrayList<>();
         Set<String> basisIds = new HashSet<>();
         for (var line : body.lines()) {
             BillingBasisView basis = basisForUpdate(actor.organizationId(), projectId, line.billingBasisId());
@@ -162,24 +183,10 @@ public class ProjectFinanceService {
             invoiceLines.add(new InvoiceLineCreate(null, basis.description(), BigDecimal.ONE, line.amount(),
                     BigDecimal.ZERO, taxRate, clean(line.accountCode()), projectId,
                     List.of(new InvoiceSourceCreate("PROJECT_BILLING_BASIS", projectId, basis.id(), BigDecimal.ONE, line.amount()))));
-            selected.add(new BasisSelection(basis.id(), line.amount()));
         }
         InvoiceView invoice = finance.createInvoice(actor, financeRequestId, new InvoiceCreate(
                 "SALES_INVOICE", project.customerId(), projectId, null, body.businessDate(), body.accountingDate(),
                 body.dueDate(), body.exchangeRateDate(), body.currencyCode(), body.exchangeRate(), invoiceLines));
-        for (BasisSelection item : selected) {
-            int changed = jdbc.update("""
-                    UPDATE flowora_project_billing_basis SET
-                    status=CASE WHEN billed_amount+?=available_amount THEN 'BILLED' ELSE 'PARTIAL' END,billed_amount=billed_amount+?,
-                    version_no=version_no+1 WHERE id=? AND organization_id=? AND billed_amount+?<=available_amount
-                    """, item.amount(), item.amount(), item.id(), actor.organizationId(), item.amount());
-            if (changed != 1) throw conflict("PROJECT_BILLING_CONCURRENT_CONFLICT", Map.of("basisId", item.id()));
-        }
-        jdbc.update("""
-                UPDATE flowora_project SET billing_status=CASE
-                WHEN NOT EXISTS (SELECT 1 FROM flowora_project_billing_basis b WHERE b.project_id=? AND b.status<>'BILLED')
-                THEN 'BILLED' ELSE 'PARTIAL' END,version_no=version_no+1 WHERE id=? AND organization_id=?
-                """, projectId, projectId, actor.organizationId());
         return invoice;
     }
 
@@ -216,8 +223,11 @@ public class ProjectFinanceService {
                 INSERT INTO flowora_project_billing_basis
                 (id,organization_id,project_id,basis_type,source_id,description,available_amount,currency_code,status,approved_at)
                 VALUES (?,?,?,?,?,?,?,?,'AVAILABLE',CURRENT_TIMESTAMP)
-                ON DUPLICATE KEY UPDATE description=VALUES(description),available_amount=GREATEST(available_amount,VALUES(available_amount)),approved_at=CURRENT_TIMESTAMP
+                ON DUPLICATE KEY UPDATE description=VALUES(description),
+                status=CASE WHEN billed_amount=0 THEN 'AVAILABLE' WHEN billed_amount=GREATEST(available_amount,VALUES(available_amount)) THEN 'BILLED' ELSE 'PARTIAL' END,
+                available_amount=GREATEST(available_amount,VALUES(available_amount)),approved_at=CURRENT_TIMESTAMP,version_no=version_no+1
                 """, UUID.randomUUID().toString(), organizationId, projectId, type, sourceId, description, amount, currency);
+        finance.refreshProjectBillingStatus(organizationId,projectId);
         return jdbc.query("""
                 SELECT id,project_id,basis_type,source_id,description,available_amount,billed_amount,currency_code,status,approved_at
                 FROM flowora_project_billing_basis WHERE organization_id=? AND basis_type=? AND source_id=?
@@ -325,6 +335,4 @@ public class ProjectFinanceService {
                              BigDecimal billingAmount) {
     }
 
-    private record BasisSelection(String id, BigDecimal amount) {
-    }
 }

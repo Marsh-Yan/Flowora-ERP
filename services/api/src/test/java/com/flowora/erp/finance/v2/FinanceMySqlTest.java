@@ -2,6 +2,8 @@ package com.flowora.erp.finance.v2;
 
 import com.flowora.erp.common.api.PlatformApiException;
 import com.flowora.erp.identity.FloworaPrincipal;
+import com.flowora.erp.project.v2.ProjectFinanceService;
+import static com.flowora.erp.project.v2.ProjectFinanceDtos.*;
 import org.flywaydb.core.Flyway;
 import org.junit.jupiter.api.*;
 import org.junit.jupiter.api.condition.EnabledIfEnvironmentVariable;
@@ -1106,13 +1108,13 @@ class FinanceMySqlTest {
         assertThat(documents.stockInvoiceSources(org)).singleElement().satisfies(row->assertThat(row.remainingQuantity()).isEqualByComparingTo("1"));
         assertThat(jdbc.queryForObject("SELECT status FROM flowora_sales_delivery WHERE id=?",String.class,delivery)).isEqualTo("POSTED");
     }
-    @Test void invoiceProjectSourcesRemainBlockedWithReservationUnchanged() {
+    @Test void invoiceUnreconciledLegacyProjectSourcesRemainBlockedWithReservationUnchanged() {
         String project=legacyProjectFixture(),basis=key();
         jdbc.update("INSERT INTO flowora_project_billing_basis(id,organization_id,project_id,basis_type,source_id,description,available_amount,billed_amount,currency_code,status,approved_at) VALUES (?,?,?,'FIXED_PRICE',?,'Project correction fixture',10,10,'EUR','BILLED',CURRENT_TIMESTAMP)",basis,org,project,project);
         var draft=run(()->documents.createInvoice(actor,key(),input("SALES_INVOICE",customer,"1.3",List.of(line("10",List.of())))));
         jdbc.update("INSERT INTO flowora_finance_invoice_source(id,organization_id,invoice_line_id,source_type,source_id,source_line_id,quantity,amount) VALUES (?,?,?,'PROJECT_BILLING_BASIS',?,?,1,10)",key(),org,draft.lines().getFirst().id(),project,basis);
         assertThatThrownBy(()->run(()->documents.correctInvoice(actor,draft.id(),key(),new InvoiceCorrection(0,date,"Project reservation"),false)))
-                .isInstanceOf(PlatformApiException.class).extracting("code").isEqualTo("INVOICE_PROJECT_BILLING_REQUIRES_RELEASE");
+                .isInstanceOf(PlatformApiException.class).extracting("code").isEqualTo("PROJECT_BILLING_SOURCE_MISMATCH");
         assertThat(documents.invoice(org,draft.id()).status()).isEqualTo("DRAFT");assertThat(documents.invoice(org,draft.id()).correction()).isNull();
         assertThat(jdbc.queryForObject("SELECT billed_amount FROM flowora_project_billing_basis WHERE id=?",BigDecimal.class,basis)).isEqualByComparingTo("10");
     }
@@ -1376,6 +1378,174 @@ class FinanceMySqlTest {
             if("REVERSED".equals(documents.invoice(org,credit.id()).status()))assertThat(results).containsExactlyInAnyOrder("REVERSED","INVOICE_SOURCE_QUANTITY_EXCEEDED");
             else assertThat(results).containsExactlyInAnyOrder("POSTED","CREDIT_REVERSAL_SOURCE_CAPACITY_EXCEEDED");
             assertThat(documents.stockInvoiceSources(org)).singleElement().satisfies(row->assertThat(row.remainingQuantity()).isEqualByComparingTo("0"));
+        }finally{pool.shutdownNow();}
+    }
+
+    ProjectFinanceService projectFinance() {return new ProjectFinanceService(jdbc,documents);}
+    String billingProject() {
+        String id=legacyProjectFixture();jdbc.update("UPDATE flowora_project SET customer_id=?,currency_code='EUR' WHERE organization_id=? AND id=?",customer,org,id);
+        run(()->projectFinance().configure(actor,id,new BillingConfiguration("FIXED_PRICE",n("100"),null)));return id;
+    }
+    BillingBasisView billingBasis(String project) {return projectFinance().billingBasis(org,project).getFirst();}
+    String projectBillingState(String project) {return jdbc.queryForObject("SELECT billing_status FROM flowora_project WHERE organization_id=? AND id=?",String.class,org,project);}
+    ProjectInvoiceCreate projectInput(String basis,String amount,String tax) {
+        return new ProjectInvoiceCreate(date,date,date,date,"EUR",n("1.3"),List.of(new ProjectInvoiceLine(basis,n(amount),n(tax),null)));
+    }
+    InvoiceView projectDraft(String project,String amount) {return run(()->projectFinance().generateInvoice(actor,project,key(),projectInput(billingBasis(project).id(),amount,"0")));}
+    InvoiceCreate directProjectInput(String project,String basis,String amount) {
+        var source=new InvoiceSourceCreate("PROJECT_BILLING_BASIS",project,basis,n("1"),n(amount));
+        var line=new InvoiceLineCreate(null,"Direct project basis",n("1"),n(amount),n("0"),n("10"),null,project,List.of(source));
+        return new InvoiceCreate("SALES_INVOICE",customer,project,null,date,date,date,date,"EUR",n("1.3"),List.of(line));
+    }
+    InvoiceView correctProjectInvoice(InvoiceView invoice,boolean reverse) {
+        return run(()->documents.correctInvoice(actor,invoice.id(),key(),new InvoiceCorrection(invoice.version(),date,"Project billing correction"),reverse));
+    }
+    @Test void projectDraftReservationCancellationAndBoundReplayKeepQuotaExact() {
+        String project=billingProject(),request=key();var basis=billingBasis(project);var body=projectInput(basis.id(),"40","10");
+        var draft=run(()->projectFinance().generateInvoice(actor,project,request,body));
+        assertThat(draft.totalAmount()).isEqualByComparingTo("44");assertThat(billingBasis(project).billedAmount()).isEqualByComparingTo("40");
+        assertThat(billingBasis(project).remainingAmount()).isEqualByComparingTo("60");assertThat(projectBillingState(project)).isEqualTo("PARTIAL");
+        var reserved=billingBasis(project);long projectVersion=jdbc.queryForObject("SELECT version_no FROM flowora_project WHERE id=?",Long.class,project);
+        assertThat(run(()->projectFinance().generateInvoice(actor,project,request,body)).id()).isEqualTo(draft.id());assertThat(billingBasis(project)).isEqualTo(reserved);
+        assertThat(jdbc.queryForObject("SELECT version_no FROM flowora_project WHERE id=?",Long.class,project)).isEqualTo(projectVersion);
+        assertThatThrownBy(()->run(()->projectFinance().generateInvoice(actor,project,request,projectInput(basis.id(),"41","10"))))
+                .isInstanceOf(PlatformApiException.class).extracting("code").isEqualTo("IDEMPOTENCY_KEY_REUSED");
+        String correctionKey=key();var correction=new InvoiceCorrection(0,date,"Release duplicate project draft");
+        var cancelled=run(()->documents.correctInvoice(actor,draft.id(),correctionKey,correction,false));
+        assertThat(cancelled.status()).isEqualTo("CANCELLED");assertThat(cancelled.correction().journalEntryId()).isNull();assertThat(ledger.journals(org,date,date)).isEmpty();
+        assertThat(billingBasis(project).billedAmount()).isEqualByComparingTo("0");assertThat(billingBasis(project).status()).isEqualTo("AVAILABLE");assertThat(projectBillingState(project)).isEqualTo("UNBILLED");
+        var released=billingBasis(project);run(()->documents.correctInvoice(actor,draft.id(),correctionKey,correction,false));assertThat(billingBasis(project)).isEqualTo(released);
+        assertThat(run(()->projectFinance().generateInvoice(actor,project,request,body)).status()).isEqualTo("CANCELLED");assertThat(billingBasis(project)).isEqualTo(released);
+        assertThat(projectDraft(project,"100").status()).isEqualTo("DRAFT");assertThat(billingBasis(project).status()).isEqualTo("BILLED");assertThat(projectBillingState(project)).isEqualTo("BILLED");
+    }
+    @Test void postedProjectInvoiceReversalReleasesNetReservationAndRetainsOriginalLedgerEvidence() {
+        String project=billingProject();var body=projectInput(billingBasis(project).id(),"100","10");
+        var draft=run(()->projectFinance().generateInvoice(actor,project,key(),body));var reserved=billingBasis(project);
+        var posted=run(()->documents.postInvoice(actor,draft.id(),0));assertThat(billingBasis(project)).isEqualTo(reserved);
+        assertThat(posted.totalAmount()).isEqualByComparingTo("110");assertThat(posted.baseTotalAmount()).isEqualByComparingTo("143");
+        var journal=ledger.journals(org,date,date).getFirst();var reversed=correctProjectInvoice(posted,true);
+        assertThat(reversed.status()).isEqualTo("REVERSED");assertThat(reversed.correction().actorUserId()).isEqualTo(actor.userId());
+        assertThat(ledger.journal(org,journal.id()).lines()).isEqualTo(journal.lines());assertThat(billingBasis(project).remainingAmount()).isEqualByComparingTo("100");
+        assertThat(projectBillingState(project)).isEqualTo("UNBILLED");assertThat(ledger.trialBalance(org,date,date)).allSatisfy(row->assertThat(row.balance()).isEqualByComparingTo("0"));
+        assertThat(projectDraft(project,"100").status()).isEqualTo("DRAFT");assertThat(billingBasis(project).billedAmount()).isEqualByComparingTo("100");
+    }
+    @Test void projectSplitInvoicesReleaseOnlyTheirOwnReservationsAcrossDraftAndPostedStates() {
+        String project=billingProject();var one=projectDraft(project,"30");var two=projectDraft(project,"70");
+        assertThat(billingBasis(project).status()).isEqualTo("BILLED");correctProjectInvoice(one,false);
+        assertThat(billingBasis(project).billedAmount()).isEqualByComparingTo("70");assertThat(billingBasis(project).remainingAmount()).isEqualByComparingTo("30");assertThat(projectBillingState(project)).isEqualTo("PARTIAL");
+        var posted=run(()->documents.postInvoice(actor,two.id(),0));correctProjectInvoice(posted,true);
+        assertThat(billingBasis(project).billedAmount()).isEqualByComparingTo("0");assertThat(projectBillingState(project)).isEqualTo("UNBILLED");
+    }
+    @Test void projectCreditAndItsReversalRetainProjectReservationUntilOriginalIsExplicitlyReversed() {
+        String project=billingProject();var draft=projectDraft(project,"100");var original=run(()->documents.postInvoice(actor,draft.id(),0));
+        var line=original.lines().getFirst();var source=new InvoiceSourceCreate("ORIGINAL_INVOICE_LINE",original.id(),line.id(),n("0.3"),n("30"));
+        var creditLine=new InvoiceLineCreate(null,"Project credit",n("0.3"),n("100"),n("0"),n("0"),null,project,List.of(source));
+        var creditDraft=run(()->documents.createInvoice(actor,key(),new InvoiceCreate("CUSTOMER_CREDIT",customer,project,original.id(),date,date,date,date,"EUR",n("1.3"),List.of(creditLine))));
+        var credit=run(()->documents.postInvoice(actor,creditDraft.id(),0));assertThat(billingBasis(project).billedAmount()).isEqualByComparingTo("100");
+        var occupied=documents.invoice(org,original.id());
+        assertThatThrownBy(()->correctProjectInvoice(occupied,true)).isInstanceOf(PlatformApiException.class).extracting("code").isEqualTo("INVOICE_HAS_ACTIVE_CREDITS");
+        reversePostedCredit(credit);assertThat(billingBasis(project).billedAmount()).isEqualByComparingTo("100");
+        correctProjectInvoice(documents.invoice(org,original.id()),true);assertThat(billingBasis(project).remainingAmount()).isEqualByComparingTo("100");
+    }
+    @Test void directFinanceProjectInvoiceUsesSameReservationAndStrictReplayAsProjectEntry() {
+        String project=billingProject(),request=key();var basis=billingBasis(project);var body=directProjectInput(project,basis.id(),"40");
+        var draft=run(()->documents.createInvoice(actor,request,body));var reserved=billingBasis(project);
+        assertThat(reserved.billedAmount()).isEqualByComparingTo("40");assertThat(run(()->documents.createInvoice(actor,request,body)).id()).isEqualTo(draft.id());assertThat(billingBasis(project)).isEqualTo(reserved);
+        assertThatThrownBy(()->run(()->documents.createInvoice(actor,request,directProjectInput(project,basis.id(),"41"))))
+                .isInstanceOf(PlatformApiException.class).extracting("code").isEqualTo("IDEMPOTENCY_KEY_REUSED");
+        assertThatThrownBy(()->run(()->documents.createInvoice(actor,key(),directProjectInput(project,basis.id(),"61"))))
+                .isInstanceOf(PlatformApiException.class).extracting("code").isEqualTo("PROJECT_BILLING_EXCEEDS_REMAINING");
+        projectDraft(project,"60");assertThat(billingBasis(project).billedAmount()).isEqualByComparingTo("100");
+    }
+    @Test void projectReservationMismatchBlocksCreationPostingAndCancellationWithoutRepair() {
+        String project=billingProject();var draft=projectDraft(project,"40");
+        for(int action:List.of(0,1,2)) {
+            assertThatThrownBy(()->run(()->{
+                jdbc.update("UPDATE flowora_project_billing_basis SET billed_amount=39 WHERE organization_id=? AND project_id=?",org,project);
+                return action==0?projectFinance().generateInvoice(actor,project,key(),projectInput(billingBasis(project).id(),"10","0"))
+                        :action==1?documents.postInvoice(actor,draft.id(),0):documents.correctInvoice(actor,draft.id(),key(),new InvoiceCorrection(0,date,"Unreconciled project reservation"),false);
+            })).isInstanceOf(PlatformApiException.class).extracting("code").isEqualTo("PROJECT_BILLING_STATE_CONFLICT");
+        }
+        assertThat(billingBasis(project).billedAmount()).isEqualByComparingTo("40");assertThat(documents.invoice(org,draft.id()).status()).isEqualTo("DRAFT");assertThat(ledger.journals(org,date,date)).isEmpty();
+    }
+    @Test void projectInvoiceSourceRequiresMatchingHeaderLineCurrencyAndNetAmount() {
+        String project=billingProject(),basis=billingBasis(project).id();var good=directProjectInput(project,basis,"40");var line=good.lines().getFirst();var source=line.sources().getFirst();
+        var badLines=List.of(new InvoiceLineCreate(null,line.description(),n("1"),n("40"),n("0"),n("10"),null,null,List.of(source)),
+                new InvoiceLineCreate("unrelated-item",line.description(),n("1"),n("40"),n("0"),n("10"),null,project,List.of(source)),
+                new InvoiceLineCreate(null,line.description(),n("1"),n("40"),n("0"),n("10"),null,project,List.of(new InvoiceSourceCreate("PROJECT_BILLING_BASIS",project,basis,n("1"),n("39")))),
+                new InvoiceLineCreate(null,line.description(),n("2"),n("20"),n("0"),n("10"),null,project,List.of(source)));
+        for(var bad:badLines)assertThatThrownBy(()->run(()->documents.createInvoice(actor,key(),new InvoiceCreate("SALES_INVOICE",customer,project,null,date,date,date,date,"EUR",n("1.3"),List.of(bad)))))
+                .isInstanceOf(PlatformApiException.class).extracting("code").isEqualTo("PROJECT_BILLING_SOURCE_MISMATCH");
+        assertThatThrownBy(()->run(()->documents.createInvoice(actor,key(),new InvoiceCreate("SALES_INVOICE",customer,project,null,date,date,date,date,"USD",n("1"),List.of(line)))))
+                .isInstanceOf(PlatformApiException.class).extracting("code").isEqualTo("PROJECT_BILLING_SOURCE_MISMATCH");
+        assertThat(billingBasis(project).billedAmount()).isEqualByComparingTo("0");assertThat(documents.invoices(org,"","")).isEmpty();
+    }
+    @Test void projectPostingAndCorrectionRecheckStoredSourceMetadata() {
+        String project=billingProject();var draft=projectDraft(project,"40");var before=billingBasis(project);
+        for(boolean posting:List.of(false,true))assertThatThrownBy(()->run(()->{
+            jdbc.update("UPDATE flowora_finance_invoice_source SET amount=39 WHERE organization_id=? AND invoice_line_id=?",org,draft.lines().getFirst().id());
+            return posting?documents.postInvoice(actor,draft.id(),0):documents.correctInvoice(actor,draft.id(),key(),new InvoiceCorrection(0,date,"Changed legacy source"),false);
+        })).isInstanceOf(PlatformApiException.class).extracting("code").isEqualTo("PROJECT_BILLING_SOURCE_MISMATCH");
+        assertThat(billingBasis(project)).isEqualTo(before);assertThat(documents.invoice(org,draft.id()).correction()).isNull();
+    }
+    @Test void closedPeriodProjectReversalRollsBackBasisProjectInvoiceJournalAndAudit() {
+        String project=billingProject();var draft=projectDraft(project,"100");var posted=run(()->documents.postInvoice(actor,draft.id(),0));
+        var basis=billingBasis(project);long version=jdbc.queryForObject("SELECT version_no FROM flowora_project WHERE id=?",Long.class,project);
+        jdbc.update("UPDATE flowora_accounting_period SET status='CLOSED' WHERE organization_id=?",org);
+        assertThatThrownBy(()->correctProjectInvoice(posted,true)).isInstanceOf(PlatformApiException.class);
+        assertThat(billingBasis(project)).isEqualTo(basis);assertThat(projectBillingState(project)).isEqualTo("BILLED");assertThat(jdbc.queryForObject("SELECT version_no FROM flowora_project WHERE id=?",Long.class,project)).isEqualTo(version);
+        assertThat(documents.invoice(org,posted.id()).status()).isEqualTo("POSTED");assertThat(documents.invoice(org,posted.id()).correction()).isNull();assertThat(ledger.journals(org,date,date)).hasSize(1);
+    }
+    @Test void projectAllocationAndRevaluationMustBeReleasedBeforeInvoiceQuota() {
+        String project=billingProject();var draft=projectDraft(project,"100");var posted=run(()->documents.postInvoice(actor,draft.id(),0));var payment=originalRefundPayment(false,null);
+        var allocation=run(()->documents.allocate(actor,payment.id(),new AllocationCreate(posted.id(),n("10"))));
+        assertThatThrownBy(()->correctProjectInvoice(documents.invoice(org,posted.id()),true)).isInstanceOf(PlatformApiException.class).extracting("code").isEqualTo("INVOICE_HAS_ALLOCATIONS");
+        run(()->documents.reverseAllocation(actor,allocation.id(),key(),new AllocationReverse("Release project allocation")));
+        var operations=new FinanceOperationsService(jdbc,ledger);var valuation=run(()->operations.revalue(actor,key(),new RevaluationCreate(date,"EUR",n("2"),null)));
+        assertThatThrownBy(()->correctProjectInvoice(documents.invoice(org,posted.id()),true)).isInstanceOf(PlatformApiException.class).extracting("code").isEqualTo("ACTIVE_REVALUATION_REQUIRES_REVERSAL");
+        assertThat(billingBasis(project).billedAmount()).isEqualByComparingTo("100");run(()->operations.reverseRevaluation(actor,valuation.id(),date,"Release project valuation",key()));
+        correctProjectInvoice(documents.invoice(org,posted.id()),true);assertThat(billingBasis(project).billedAmount()).isEqualByComparingTo("0");
+    }
+    @Test void multipleProjectBasesAndInvoicesRecomputePartialAndUnbilledWithoutReleasingOtherReservations() {
+        String project=billingProject(),other=key();String first=billingBasis(project).id();
+        jdbc.update("INSERT INTO flowora_project_billing_basis(id,organization_id,project_id,basis_type,source_id,description,available_amount,currency_code,status,approved_at) VALUES (?,?,?,'MILESTONE',?,'Approved isolated basis',60,'EUR','AVAILABLE',CURRENT_TIMESTAMP)",other,org,project,key());
+        var body=new ProjectInvoiceCreate(date,date,date,date,"EUR",n("1.3"),List.of(new ProjectInvoiceLine(first,n("30"),n("0"),null),new ProjectInvoiceLine(other,n("60"),n("0"),null)));
+        var draft=run(()->projectFinance().generateInvoice(actor,project,key(),body));assertThat(projectBillingState(project)).isEqualTo("PARTIAL");
+        correctProjectInvoice(draft,false);assertThat(projectFinance().billingBasis(org,project)).allSatisfy(b->assertThat(b.billedAmount()).isEqualByComparingTo("0"));assertThat(projectBillingState(project)).isEqualTo("UNBILLED");
+        var a=run(()->projectFinance().generateInvoice(actor,project,key(),projectInput(first,"100","0")));assertThat(projectBillingState(project)).isEqualTo("PARTIAL");
+        run(()->projectFinance().generateInvoice(actor,project,key(),projectInput(other,"60","0")));assertThat(projectBillingState(project)).isEqualTo("BILLED");
+        correctProjectInvoice(a,false);assertThat(projectBillingState(project)).isEqualTo("PARTIAL");
+        assertThat(projectFinance().billingBasis(org,project).stream().filter(b->b.id().equals(other)).findFirst().orElseThrow().billedAmount()).isEqualByComparingTo("60");
+    }
+    @Test void projectContractIncreaseRetainsExistingReservationAndRecomputesBasisState() {
+        String project=billingProject();var draft=projectDraft(project,"100");assertThat(projectBillingState(project)).isEqualTo("BILLED");
+        run(()->projectFinance().configure(actor,project,new BillingConfiguration("FIXED_PRICE",n("150"),null)));
+        assertThat(billingBasis(project).status()).isEqualTo("PARTIAL");assertThat(billingBasis(project).remainingAmount()).isEqualByComparingTo("50");assertThat(projectBillingState(project)).isEqualTo("PARTIAL");
+        correctProjectInvoice(draft,false);assertThat(billingBasis(project).remainingAmount()).isEqualByComparingTo("150");assertThat(projectBillingState(project)).isEqualTo("UNBILLED");
+    }
+    @Test void concurrentProjectDraftsCannotReserveMoreThanBasisCapacity() throws Exception {
+        String project=billingProject();var body=projectInput(billingBasis(project).id(),"60","0");var barrier=new java.util.concurrent.CyclicBarrier(2);var pool=java.util.concurrent.Executors.newFixedThreadPool(2);
+        java.util.concurrent.Callable<String> create=()->{barrier.await(10,java.util.concurrent.TimeUnit.SECONDS);try{return run(()->projectFinance().generateInvoice(actor,project,key(),body)).status();}catch(PlatformApiException ex){return ex.code();}};
+        try{var a=pool.submit(create);var b=pool.submit(create);assertThat(List.of(a.get(20,java.util.concurrent.TimeUnit.SECONDS),b.get(20,java.util.concurrent.TimeUnit.SECONDS))).containsExactlyInAnyOrder("DRAFT","PROJECT_BILLING_EXCEEDS_REMAINING");assertThat(billingBasis(project).billedAmount()).isEqualByComparingTo("60");assertThat(documents.invoices(org,"","")).hasSize(1);}finally{pool.shutdownNow();}
+    }
+    @Test void concurrentProjectCancellationAndNewDraftNeverReleaseOrConsumeOtherInvoiceQuota() throws Exception {
+        String project=billingProject();var draft=projectDraft(project,"40");var body=projectInput(billingBasis(project).id(),"100","0");var barrier=new java.util.concurrent.CyclicBarrier(2);var pool=java.util.concurrent.Executors.newFixedThreadPool(2);
+        try {
+            var create=pool.submit(()->{barrier.await(10,java.util.concurrent.TimeUnit.SECONDS);try{return run(()->projectFinance().generateInvoice(actor,project,key(),body)).status();}catch(PlatformApiException ex){return ex.code();}});
+            var cancel=pool.submit(()->{barrier.await(10,java.util.concurrent.TimeUnit.SECONDS);return correctProjectInvoice(draft,false).status();});
+            var results=List.of(create.get(20,java.util.concurrent.TimeUnit.SECONDS),cancel.get(20,java.util.concurrent.TimeUnit.SECONDS));assertThat(results).contains("CANCELLED");
+            assertThat(billingBasis(project).billedAmount()).isEqualByComparingTo(results.contains("DRAFT")?"100":"0");if(!results.contains("DRAFT"))assertThat(results).contains("PROJECT_BILLING_EXCEEDS_REMAINING");
+        }finally{pool.shutdownNow();}
+    }
+    @Test void projectCorrectionUsesCurrentReservationsAfterEarlierConsistentSnapshot() {
+        String project=billingProject();var draft=projectDraft(project,"30");var body=projectInput(billingBasis(project).id(),"40","0");var pool=java.util.concurrent.Executors.newSingleThreadExecutor();
+        try {
+            run(()->{
+                projectFinance().billingBasis(org,project);
+                try{pool.submit(()->run(()->projectFinance().generateInvoice(actor,project,key(),body))).get(20,java.util.concurrent.TimeUnit.SECONDS);}catch(Exception ex){throw new IllegalStateException(ex);}
+                return documents.correctInvoice(actor,draft.id(),key(),new InvoiceCorrection(0,date,"Release only this draft after new reservation"),false);
+            });
+            assertThat(billingBasis(project).billedAmount()).isEqualByComparingTo("40");assertThat(billingBasis(project).remainingAmount()).isEqualByComparingTo("60");assertThat(projectBillingState(project)).isEqualTo("PARTIAL");
         }finally{pool.shutdownNow();}
     }
 
