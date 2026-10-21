@@ -36,3 +36,9 @@ Screenshots and the read-only SQL snapshot are retained locally outside the publ
 ## Boundaries and remaining work
 
 Rates are entered explicitly; this change does not fetch market rates or repair earlier invoices saved at an incorrect rate. Historical corrections require the existing audited workflow and valid original evidence. Cross-currency budget comparisons require an explicit valuation policy and are not estimated here. The older operational project summary still aggregates raw timesheet/expense values and needs a separate currency-aware change; the financial panel and profitability contract described above are the scope of this batch. Historical inconsistent data, credit rounding, physical return costs and broader release validation remain separate tasks.
+
+## CI dependency patch
+
+The first PR run stopped at the unchanged official-registry audit, before Web type checking/tests: five findings (three high, two moderate) on follow-redirects 1.16.0 and Vite 7.3.6. The project dependency range was raised to Vite ^7.3.7; a narrow same-major override selects follow-redirects 1.16.1. The lockfile is regenerated against the official npm registry; no audit ignore or threshold change is used. These patches address the existing gate findings and do not change project financial logic.
+
+Official patched-version evidence: [follow-redirects](https://github.com/advisories/GHSA-q3jh-wrc6-jgq8), [Vite](https://github.com/advisories/GHSA-587h-7wmj-h5pm). The existing CI gate and full front-end verification must pass again on the updated dependency graph. Browser evidence above was recorded before the dependency-only patch; financial production code is unchanged afterward.
