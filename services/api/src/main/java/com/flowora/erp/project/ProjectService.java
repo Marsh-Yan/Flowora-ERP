@@ -20,6 +20,8 @@ import java.math.RoundingMode;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
+import java.util.Map;
+import java.util.TreeMap;
 import java.util.UUID;
 
 import static com.flowora.erp.project.ProjectDtos.*;
@@ -218,12 +220,25 @@ public class ProjectService {
         List<ProjectTaskEntity> projectTasks = tasks.findByOrganizationIdAndProjectIdOrderByDueDateAscCreatedAtAsc(project.organizationId(), project.id());
         List<TimesheetEntity> projectTimesheets = timesheets.findByOrganizationIdAndProjectIdOrderByWorkDateDescCreatedAtDesc(project.organizationId(), project.id());
         List<ProjectExpenseEntity> projectExpenses = expenses.findByOrganizationIdAndProjectIdOrderByExpenseDateDescCreatedAtDesc(project.organizationId(), project.id());
-        BigDecimal actualCost = projectTimesheets.stream().map(TimesheetEntity::costAmount).reduce(BigDecimal.ZERO, BigDecimal::add).add(projectExpenses.stream().map(ProjectExpenseEntity::amount).reduce(BigDecimal.ZERO, BigDecimal::add));
+        var grouped=new TreeMap<String,OperationalCurrencyAmount>();
+        projectTimesheets.forEach(item->addOperationalAmount(grouped,item.currencyCode(),item.costAmount(),item.billable()?item.billableAmount():BigDecimal.ZERO));
+        projectExpenses.forEach(item->addOperationalAmount(grouped,item.currencyCode(),item.amount(),item.billable()?item.billableAmount():BigDecimal.ZERO));
+        var amounts=List.copyOf(grouped.values());
+        // Legacy scalar fields are meaningful only in the declared project currency.
+        BigDecimal actualCost=amounts.stream().anyMatch(a->!project.currencyCode().equals(a.currencyCode()) && a.actualCost().signum()!=0)
+                ?null:amounts.stream().map(OperationalCurrencyAmount::actualCost).reduce(BigDecimal.ZERO,BigDecimal::add);
+        BigDecimal billable=amounts.stream().anyMatch(a->!project.currencyCode().equals(a.currencyCode()) && a.billableAmount().signum()!=0)
+                ?null:amounts.stream().map(OperationalCurrencyAmount::billableAmount).reduce(BigDecimal.ZERO,BigDecimal::add);
         BigDecimal actualHours = projectTimesheets.stream().map(TimesheetEntity::hours).reduce(BigDecimal.ZERO, BigDecimal::add);
-        BigDecimal billable = projectTimesheets.stream().map(TimesheetEntity::billableAmount).reduce(BigDecimal.ZERO, BigDecimal::add).add(projectExpenses.stream().map(ProjectExpenseEntity::billableAmount).reduce(BigDecimal.ZERO, BigDecimal::add));
         int completed = (int) projectTasks.stream().filter(item -> item.status() == ProjectTaskStatus.DONE).count();
         BigDecimal progress = projectTasks.isEmpty() ? BigDecimal.ZERO : BigDecimal.valueOf(completed).multiply(ONE_HUNDRED).divide(BigDecimal.valueOf(projectTasks.size()), 2, RoundingMode.HALF_UP);
-        return new ProjectResponse(project.id(), project.number(), project.name(), project.description(), project.customerId(), project.salesOrderId(), project.managerUserId(), project.targetDate(), project.budgetRevenue(), project.budgetCost(), project.currencyCode(), project.status(), progress, actualCost, actualHours, billable, completed, projectTasks.size());
+        return new ProjectResponse(project.id(), project.number(), project.name(), project.description(), project.customerId(), project.salesOrderId(), project.managerUserId(), project.targetDate(), project.budgetRevenue(), project.budgetCost(), project.currencyCode(), project.status(), progress, actualCost, actualHours, billable, completed, projectTasks.size(), amounts);
+    }
+
+    private static void addOperationalAmount(Map<String,OperationalCurrencyAmount> grouped,String currency,BigDecimal cost,BigDecimal billable) {
+        if(currency==null || !currency.matches("[A-Z]{3}"))throw new IllegalStateException("Project operational record has an invalid currency");
+        var previous=grouped.getOrDefault(currency,new OperationalCurrencyAmount(currency,BigDecimal.ZERO,BigDecimal.ZERO));
+        grouped.put(currency,new OperationalCurrencyAmount(currency,previous.actualCost().add(cost),previous.billableAmount().add(billable)));
     }
 
     private TaskResponse taskResponse(String organizationId, ProjectTaskEntity task) {

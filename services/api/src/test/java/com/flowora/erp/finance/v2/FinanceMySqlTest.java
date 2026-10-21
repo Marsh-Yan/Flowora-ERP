@@ -47,7 +47,7 @@ class FinanceMySqlTest {
     @AfterEach void cleanup() {
         jdbc.update("UPDATE flowora_journal_entry SET reversal_of_id=NULL WHERE organization_id=?",org);
         jdbc.update("UPDATE flowora_finance_invoice SET original_invoice_id=NULL WHERE organization_id=?",org);
-        for(String table:List.of("flowora_invoice_correction","flowora_payment_correction","flowora_refund_source_recovery","flowora_refund_correction","flowora_currency_revaluation_line","flowora_currency_revaluation","flowora_bank_reconciliation_link","flowora_bank_reconciliation","flowora_bank_statement_line","flowora_allocation_reversal","flowora_payment_allocation","flowora_payment_v2","flowora_bank_account","flowora_finance_invoice_source","flowora_finance_invoice_line","flowora_finance_invoice","flowora_journal_line","flowora_journal_entry","flowora_accounting_period","flowora_posting_mapping","flowora_finance_setting","flowora_sales_delivery_line","flowora_sales_delivery","flowora_sales_order_line","flowora_sales_order","flowora_purchase_receipt_line","flowora_purchase_receipt","flowora_purchase_order_line","flowora_purchase_order","flowora_account","flowora_timesheet","flowora_project_billing_basis","flowora_project","flowora_supplier","flowora_customer"))
+        for(String table:List.of("flowora_invoice_correction","flowora_payment_correction","flowora_refund_source_recovery","flowora_refund_correction","flowora_currency_revaluation_line","flowora_currency_revaluation","flowora_bank_reconciliation_link","flowora_bank_reconciliation","flowora_bank_statement_line","flowora_allocation_reversal","flowora_payment_allocation","flowora_payment_v2","flowora_bank_account","flowora_finance_invoice_source","flowora_finance_invoice_line","flowora_finance_invoice","flowora_journal_line","flowora_journal_entry","flowora_accounting_period","flowora_posting_mapping","flowora_finance_setting","flowora_sales_delivery_line","flowora_sales_delivery","flowora_sales_order_line","flowora_sales_order","flowora_purchase_receipt_line","flowora_purchase_receipt","flowora_purchase_order_line","flowora_purchase_order","flowora_account","flowora_timesheet","flowora_project_expense","flowora_project_billing_basis","flowora_project","flowora_supplier","flowora_customer"))
             jdbc.update("DELETE FROM "+table+" WHERE organization_id=?",org);
         jdbc.update("DELETE FROM flowora_organization WHERE id=?",org);
     }
@@ -1604,5 +1604,34 @@ class FinanceMySqlTest {
         assertThatThrownBy(()->run(()->{jdbc.update("UPDATE flowora_project_billing_basis SET currency_code='USD' WHERE project_id=?",project);return projectFinance().profit(org,project);})).isInstanceOf(PlatformApiException.class).extracting("code").isEqualTo("PROJECT_BILLING_CURRENCY_MISMATCH");
         assertThatThrownBy(()->run(()->{jdbc.update("UPDATE flowora_journal_entry SET base_currency_code='EUR' WHERE organization_id=?",org);return projectFinance().profit(org,project);})).isInstanceOf(PlatformApiException.class).extracting("code").isEqualTo("PROJECT_LEDGER_CURRENCY_MISMATCH");
         assertThat(projectFinance().profit(org,project).postedRevenue()).isEqualByComparingTo("130");
+    }
+
+    String operationalSource(String project,boolean expense,boolean billable) {
+        String id=key();
+        if(expense)jdbc.update("INSERT INTO flowora_project_expense(id,organization_id,project_id,user_id,expense_date,category,amount,billable_amount,billable,currency_code) VALUES (?,?,?,'synthetic-project-user',?,'TRAVEL',10,?,?,'USD')",id,org,project,date,billable?n("10"):n("0"),billable);
+        else jdbc.update("INSERT INTO flowora_timesheet(id,organization_id,project_id,user_id,work_date,hours,cost_rate,billing_rate,cost_amount,billable_amount,billable,currency_code) VALUES (?,?,?,'synthetic-project-user',?,1,10,20,10,?,?,'USD')",id,org,project,date,billable?n("20"):n("0"),billable);
+        return id;
+    }
+    @Test void foreignBillableTimesheetAndExpenseCannotCreateAnUnusableProjectBasisOnApproval() {
+        String project=billingProject();var original=billingBasis(project);
+        for(boolean expense:List.of(false,true)) {
+            String id=operationalSource(project,expense,true),table=expense?"flowora_project_expense":"flowora_timesheet";
+            var before=jdbc.queryForMap("SELECT * FROM "+table+" WHERE organization_id=? AND id=?",org,id);
+            assertThatThrownBy(()->run(()->expense?projectFinance().approveExpense(actor,id,new ApprovalAction(true,"Approve foreign billable record")):projectFinance().approveTimesheet(actor,id,new ApprovalAction(true,"Approve foreign billable record"))))
+                    .isInstanceOf(PlatformApiException.class).extracting("code").isEqualTo("PROJECT_BILLING_CURRENCY_MISMATCH");
+            var after=jdbc.queryForMap("SELECT * FROM "+table+" WHERE organization_id=? AND id=?",org,id);
+            for(var field:before.entrySet())if(!"updated_at".equals(field.getKey()))assertThat(after.get(field.getKey())).isEqualTo(field.getValue());
+            assertThat(projectFinance().billingBasis(org,project)).containsExactly(original);assertThat(projectBillingState(project)).isEqualTo("UNBILLED");
+        }
+        assertThat(ledger.journals(org,date,date)).isEmpty();
+    }
+    @Test void nonBillableForeignOperatingRecordsCanBeApprovedWithoutConvertingThemIntoInvoiceQuota() {
+        String project=billingProject();var original=billingBasis(project);
+        for(boolean expense:List.of(false,true)) {
+            String id=operationalSource(project,expense,false),table=expense?"flowora_project_expense":"flowora_timesheet";
+            assertThat(run(()->expense?projectFinance().approveExpense(actor,id,new ApprovalAction(true,"Approve operating cost")):projectFinance().approveTimesheet(actor,id,new ApprovalAction(true,"Approve operating cost")))).isNull();
+            assertThat(jdbc.queryForObject("SELECT approval_status FROM "+table+" WHERE organization_id=? AND id=?",String.class,org,id)).isEqualTo("APPROVED");assertThat(jdbc.queryForObject("SELECT currency_code FROM "+table+" WHERE organization_id=? AND id=?",String.class,org,id)).isEqualTo("USD");
+        }
+        assertThat(projectFinance().billingBasis(org,project)).containsExactly(original);assertThat(projectFinance().profit(org,project).managementLaborCost()).isNull();assertThat(projectFinance().profit(org,project).managementLaborCosts()).containsExactly(new CurrencyAmount("USD",n("10.0000")));assertThat(ledger.journals(org,date,date)).isEmpty();
     }
 }

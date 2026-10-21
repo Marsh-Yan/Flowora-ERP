@@ -231,6 +231,8 @@ public class ProjectFinanceService {
 
     private BillingBasisView upsertBasis(String organizationId, String projectId, String type, String sourceId,
                                          String description, BigDecimal amount, String currency) {
+        if(!project(projectId,organizationId).currencyCode().equals(currency))
+            throw conflict("PROJECT_BILLING_CURRENCY_MISMATCH",Map.of());
         jdbc.update("""
                 INSERT INTO flowora_project_billing_basis
                 (id,organization_id,project_id,basis_type,source_id,description,available_amount,currency_code,status,approved_at)
