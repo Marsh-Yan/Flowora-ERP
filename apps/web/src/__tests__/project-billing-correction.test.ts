@@ -13,7 +13,7 @@ vi.mock('element-plus',()=>({ElMessage:{success:vi.fn(),error:vi.fn()}}))
 const slot=defineComponent({template:'<div><slot /></div>'})
 const button=defineComponent({props:{disabled:Boolean},template:'<button :disabled="disabled"><slot /></button>'})
 const dialog=defineComponent({props:{modelValue:Boolean,projectId:{type:String,default:''}},emits:['changed'],template:`<section v-if="modelValue">{{projectId}}<button @click="$emit('changed')">Complete project correction</button></section>`})
-const profit=(patch:Partial<api.ProjectProfit>={}):api.ProjectProfit=>({projectId:'project-a',currencyCode:'USD',baseCurrencyCode:'USD',managementLaborCosts:[],contractAmount:100,availableBilling:0,billedAmount:100,postedRevenue:0,postedCost:0,managementLaborCost:0,grossProfit:0,budgetRevenueVariance:0,budgetCostVariance:0,pendingApprovals:0,unsettledInvoices:0,closeEligible:false,...patch})
+const profit=(patch:Partial<api.ProjectProfit>={}):api.ProjectProfit=>({projectId:'project-a',openTasks:0,unbilledBases:0,invalidBillingBases:0,closeBlockers:[],currencyCode:'USD',baseCurrencyCode:'USD',managementLaborCosts:[],contractAmount:100,availableBilling:0,billedAmount:100,postedRevenue:0,postedCost:0,managementLaborCost:0,grossProfit:0,budgetRevenueVariance:0,budgetCostVariance:0,pendingApprovals:0,unsettledInvoices:0,closeEligible:false,...patch})
 const basis=(patch:Partial<api.ProjectBillingBasis>={}):api.ProjectBillingBasis=>({id:'basis-a',basisType:'FIXED_PRICE',description:'Actual project basis',availableAmount:100,billedAmount:100,remainingAmount:0,currencyCode:'USD',status:'BILLED',...patch})
 function render(permissions=['finance:view']){const pinia=createPinia();useAuthStore(pinia).user={id:'u',username:'u',displayName:'u',organizationId:'org',organizationName:'org',departmentId:null,dataScope:'ALL',permissions,roles:[],mustChangePassword:false};return mount(Panel,{props:{projectId:'project-a'},global:{plugins:[pinia,createI18n({legacy:false,locale:'en-US',messages:{'en-US':en}})],directives:{loading:()=>{}},stubs:{ProjectInvoiceDialog:true,InvoiceCorrectionDialog:dialog,ElCard:slot,ElButton:button,ElSelect:slot,ElOption:true,ElInputNumber:true,ElTable:defineComponent({props:{data:{type:Array,default:()=>[]}},template:'<pre>{{JSON.stringify(data)}}</pre>'}),ElTableColumn:true}}})}
 beforeEach(()=>{vi.resetAllMocks();vi.mocked(api.getProjectProfitability).mockResolvedValue(profit());vi.mocked(api.listProjectBillingBasisV2).mockResolvedValue([basis()])})
@@ -32,4 +32,15 @@ it('disables financial actions after project loading fails while allowing an exp
 
 it('labels base-currency profit separately from project-currency contract and quota',async()=>{
  vi.mocked(api.getProjectProfitability).mockResolvedValue(profit({currencyCode:'EUR',baseCurrencyCode:'USD',postedRevenue:130,postedCost:20,grossProfit:110,contractAmount:100,availableBilling:100}));const w=render();await flushPromises();expect(w.text()).toContain('Contract and billing quota: EUR');expect(w.text()).toContain('base currency USD');expect(w.text()).toContain('$130.00');expect(w.text()).not.toContain('€130.00');expect(w.text()).toContain('€100.00')
+})
+
+
+it('shows the actual close blockers rather than equating reserved capacity with completed finance',async()=>{
+ vi.mocked(api.getProjectProfitability).mockResolvedValue(profit({unsettledInvoices:1,closeBlockers:['UNSETTLED_INVOICES','PENDING_APPROVALS']}));const w=render();await flushPromises();expect(w.find('.close-blockers').text()).toContain('Draft or unpaid posted invoices remain');expect(w.find('.close-blockers').text()).toContain('await approval');expect(w.text()).toContain('Completion and archiving both require')
+})
+it('disables new billing after completion while keeping existing financial corrections available',async()=>{
+ const w=render();await flushPromises();await w.setProps({projectStatus:'COMPLETED'});await flushPromises();expect(w.findAll('button').find(b=>b.text()==='Save billing setup')!.attributes('disabled')).toBeDefined();expect(w.findAll('button').find(b=>b.text()==='Invoice corrections')!.attributes('disabled')).toBeUndefined();expect(w.text()).toContain('New delivery and billing entries are closed');expect(api.configureProjectBilling).not.toHaveBeenCalled()
+})
+it('reloads readiness after an operational registration changes the parent revision',async()=>{
+ const w=render();await flushPromises();vi.mocked(api.getProjectProfitability).mockResolvedValue(profit({pendingApprovals:1,closeBlockers:['PENDING_APPROVALS']}));await w.setProps({revision:1});await flushPromises();expect(api.getProjectProfitability).toHaveBeenCalledTimes(2);expect(w.find('.close-blockers').text()).toContain('await approval')
 })
