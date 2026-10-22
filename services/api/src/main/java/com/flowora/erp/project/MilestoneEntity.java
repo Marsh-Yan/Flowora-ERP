@@ -24,11 +24,26 @@ public class MilestoneEntity extends WorkflowEntity {
     @Column(length = 24, nullable = false)
     private MilestoneStatus status;
 
+    @Column(nullable=false)
+    private boolean billable;
+    @Column(name="billing_amount",precision=19,scale=4,nullable=false)
+    private java.math.BigDecimal billingAmount;
+    @Column(name="approval_status",length=16,nullable=false)
+    private String approvalStatus;
+
     protected MilestoneEntity() {
     }
 
     public MilestoneEntity(String organizationId, String projectId, String name, int sequenceNo, LocalDate targetDate) {
+        this(organizationId,projectId,name,sequenceNo,targetDate,false,java.math.BigDecimal.ZERO);
+    }
+
+    public MilestoneEntity(String organizationId,String projectId,String name,int sequenceNo,LocalDate targetDate,boolean billable,java.math.BigDecimal amount) {
         super(organizationId);
+        this.billingAmount=amount==null?java.math.BigDecimal.ZERO:amount;
+        ProjectLifecycleService.validateMilestoneAmount(billable,this.billingAmount);
+        this.billable=billable;
+        this.approvalStatus=billable?"DRAFT":"NOT_REQUIRED";
         this.projectId = projectId;
         this.name = name;
         this.sequenceNo = sequenceNo;
@@ -41,4 +56,7 @@ public class MilestoneEntity extends WorkflowEntity {
     public int sequenceNo() { return sequenceNo; }
     public LocalDate targetDate() { return targetDate; }
     public MilestoneStatus status() { return status; }
+    public boolean billable(){return billable;}
+    public java.math.BigDecimal billingAmount(){return billingAmount;}
+    public String approvalStatus(){return approvalStatus;}
 }

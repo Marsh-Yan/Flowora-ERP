@@ -50,6 +50,7 @@ public abstract class WorkflowEntity {
     }
 
     public String id() { return id; }
+    public long version(){return version;}
     public String organizationId() { return organizationId; }
     public Instant createdAt() { return createdAt; }
     public Instant updatedAt() { return updatedAt; }

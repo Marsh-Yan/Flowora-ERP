@@ -12,7 +12,7 @@ export interface ProjectProfit {
   projectId: string; currencyCode: string; contractAmount: number; availableBilling: number; billedAmount: number
   baseCurrencyCode: string; managementLaborCosts: Array<{ currencyCode: string; amount: number }>
   postedRevenue: number; postedCost: number; managementLaborCost: number | null; grossProfit: number
-  budgetRevenueVariance: number | null; budgetCostVariance: number | null; openTasks: number; unbilledBases: number; invalidBillingBases: number; closeBlockers: string[]; pendingApprovals: number; unsettledInvoices: number; closeEligible: boolean
+  budgetRevenueVariance: number | null; budgetCostVariance: number | null; openTasks: number; openMilestones: number; unbilledBases: number; invalidBillingBases: number; closeBlockers: string[]; pendingApprovals: number; unsettledInvoices: number; closeEligible: boolean
 }
 
 export async function getProjectProfitability(projectId: string) {
@@ -28,6 +28,11 @@ export async function listProjectBillingBasisV2(projectId: string) {
 export async function configureProjectBilling(projectId: string, payload: { billingMode: string; contractAmount: number }) {
   const response = await apiClient.post<ApiEnvelope<{ billingMode: string; contractAmount: number }>>(`/v2/projects/${projectId}/billing-configuration`, payload)
   return response.data.data
+}
+
+export async function approveProjectMilestone(id:string,payload:{approved:boolean;reason:string;version:number}) {
+ const response=await apiClient.post<ApiEnvelope<ProjectBillingBasis | null>>(`/v2/projects/milestones/${id}/approval`,payload)
+ return response.data.data
 }
 
 export interface ProjectInvoiceInput {

@@ -38,6 +38,11 @@ public class ProjectEntity extends WorkflowEntity {
     @Column(length = 24, nullable = false)
     private ProjectStatus status;
 
+    @Column(name="billing_mode",length=24,nullable=false)
+    private String billingMode="TIME_MATERIAL";
+
+    public String billingMode(){return billingMode;}
+
     protected ProjectEntity() {
     }
 

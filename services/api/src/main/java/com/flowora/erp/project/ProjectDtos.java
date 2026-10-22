@@ -31,10 +31,14 @@ public final class ProjectDtos {
 
     public record MilestoneCreate(
             @NotBlank @Size(max = 160) String name,
-            Integer sequenceNo,
-            LocalDate targetDate
+            @jakarta.validation.constraints.Min(1) Integer sequenceNo,
+            LocalDate targetDate,
+            boolean billable,
+            @DecimalMin("0") @jakarta.validation.constraints.Digits(integer=15,fraction=4) BigDecimal billingAmount
     ) {
     }
+
+    public record MilestoneStatusChange(@NotNull MilestoneStatus status,@NotNull @jakarta.validation.constraints.Min(0) Long version) { }
 
     public record TaskCreate(
             @NotBlank @Size(max = 200) String title,
@@ -88,11 +92,11 @@ public final class ProjectDtos {
             String managerUserId, LocalDate targetDate, BigDecimal budgetRevenue, BigDecimal budgetCost,
             String currencyCode, ProjectStatus status, BigDecimal progressPercent, BigDecimal actualCost,
             BigDecimal actualHours, BigDecimal billableAmount, int completedTaskCount, int totalTaskCount,
-            List<OperationalCurrencyAmount> operationalAmounts
+            List<OperationalCurrencyAmount> operationalAmounts, String billingMode
     ) {
     }
 
-    public record MilestoneResponse(String id, String projectId, String name, int sequenceNo, LocalDate targetDate, MilestoneStatus status) {
+    public record MilestoneResponse(String id, String projectId, String name, int sequenceNo, LocalDate targetDate, MilestoneStatus status, boolean billable, BigDecimal billingAmount, String approvalStatus, String currencyCode, long version) {
     }
 
     public record TaskResponse(String id, String projectId, String milestoneId, String title, String description,

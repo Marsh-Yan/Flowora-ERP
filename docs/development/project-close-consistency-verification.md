@@ -35,4 +35,4 @@ Read-only SQL evidence and screenshots are retained outside public source. SQL v
 
 ## Remaining scope
 
-This check covers the existing task/readiness and billing dependencies. Planned/in-progress milestone lifecycle, explicit reopening/correction governance, historical rate/basis/journal repair, cross-currency budget valuation and broader release/performance acceptance remain separate work. It does not certify that all historical financial records are correct or rewrite closed project history.
+This check covers the existing task/readiness and billing dependencies. Planned/in-progress milestone lifecycle is covered by the subsequent [milestone lifecycle verification](project-milestone-lifecycle-verification.md). Explicit reopening/correction governance, historical rate/basis/journal repair, cross-currency budget valuation and broader release/performance acceptance remain separate work. It does not certify that all historical financial records are correct or rewrite closed project history.

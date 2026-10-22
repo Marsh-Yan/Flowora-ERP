@@ -37,6 +37,7 @@ export interface Project {
   actualHours: number
   billableAmount: number | null
   operationalAmounts: OperationalCurrencyAmount[]
+  billingMode?: string
   completedTaskCount: number
   totalTaskCount: number
 }
@@ -48,6 +49,7 @@ export interface Milestone {
   sequenceNo: number
   targetDate?: string
   status: 'PLANNED' | 'IN_PROGRESS' | 'COMPLETED'
+  billable: boolean; billingAmount: number; currencyCode: string; approvalStatus: string; version: number
 }
 
 export interface ProjectTask {
@@ -138,9 +140,14 @@ export async function listMilestones(projectId: string) {
   return response.data.data
 }
 
-export async function createMilestone(projectId: string, payload: { name: string; sequenceNo?: number; targetDate?: string }) {
+export async function createMilestone(projectId: string, payload: { name: string; sequenceNo?: number; targetDate?: string; billable?: boolean; billingAmount?: number }) {
   const response = await apiClient.post<ApiEnvelope<Milestone>>(`/v2/compat/projects/${projectId}/milestones`, payload)
   return response.data.data
+}
+
+export async function changeMilestoneStatus(id:string,status:Milestone['status'],version:number) {
+ const response=await apiClient.post<ApiEnvelope<Milestone>>(`/v2/compat/projects/milestones/${id}/status`,{status,version})
+ return response.data.data
 }
 
 export async function listProjectTasks(projectId: string, page = 0, size = 50) {

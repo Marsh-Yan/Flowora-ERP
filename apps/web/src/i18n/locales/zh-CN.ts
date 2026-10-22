@@ -555,6 +555,7 @@ export default {
     milestoneStatus: { PLANNED: '计划中', IN_PROGRESS: '进行中', COMPLETED: '已完成' },
     taskStatus: { TODO: '待开始', IN_PROGRESS: '进行中', BLOCKED: '已阻塞', DONE: '已完成' },
     priorityValue: { LOW: '低', MEDIUM: '中', HIGH: '高' },
+    milestoneFlow: { operatingHelp:'里程碑计费模式下，工时和费用用于登记不计费运营成本，开票额度仅来自已审批里程碑。', amount:'可计费未税金额',nonBillable:'不计费',approval:'审批',start:'开始交付',finish:'完成交付',approve:'通过计费审批',reject:'驳回计费',reason:'请输入审核原因',failed:'操作失败，请刷新并核对记录版本、关联任务、审批状态和计费模式后重试。',createHelp:'项目完成或归档前须完成全部里程碑。可计费里程碑须先启用里程碑计费模式，未税金额使用项目币种；关联任务完成后才能完成交付。',reviewHelp:'审批通过将按项目币种生成额度，创建发票和过账仍为独立操作。已审批记录不能在这里驳回或修改；已驳回记录可使用当前版本重新审核。',approvalStates:{NOT_REQUIRED:'无需审批',DRAFT:'待审核',APPROVED:'已审批',REJECTED:'已驳回'} },
     basisType: { TIMESHEET: '工时', EXPENSE: '费用' },
     m4: {
       title: '项目计费与利润', subtitle: '将已审批的交付记录生成发票草稿，并跟踪项目利润。',
@@ -563,7 +564,7 @@ export default {
       closeHelp: '完成和归档均要求任务完成、审批处理完、没有草稿或未结清发票、没有待计费额度。保存状态时后端会再次核对。',
       closedHelp: '本项目已完成或归档，不能新增交付及计费记录。已有账务仍可按原流程更正，更正可能改变当前结项条件。',
       closeActionFailed: '状态变更失败，请核对当前结项条件并刷新项目后重试。',
-      closeReasons: { OPEN_TASKS: '仍有未完成任务。', PENDING_APPROVALS: '工时、费用或已完成的可计费里程碑仍待审批。', UNSETTLED_INVOICES: '仍有草稿或未结清的已过账发票，包含仅在行上关联本项目的发票。', UNBILLED_BASES: '仍有未使用的已审批计费额度。', INVALID_BILLING_BASES: '计费依据记录不一致，需要核对。' },
+      closeReasons: { OPEN_MILESTONES: '仍有计划中或进行中的里程碑。', OPEN_TASKS: '仍有未完成任务。', PENDING_APPROVALS: '工时、费用或已完成的可计费里程碑仍待审批。', UNSETTLED_INVOICES: '仍有草稿或未结清的已过账发票，包含仅在行上关联本项目的发票。', UNBILLED_BASES: '仍有未使用的已审批计费额度。', INVALID_BILLING_BASES: '计费依据记录不一致，需要核对。' },
       reloadBilling: "刷新开票额度",
       invoiceDate: '发票记账日期', currencyTerms: '合同和开票额度：{project}。已过账收入、成本和毛利：组织本位币 {base}。缺少换算依据时不计算跨币种预算差额。', invoiceTerms: '保存草稿前请核对汇率和日期。外币汇率须明确填写；同币种汇率为 1。之后需在财务中心单独过账。', invoiceUncertain: '结果尚不确定。保持原内容重试将沿用同一请求标识；修改前请先刷新发票历史核对结果。', invoiceBasePreview: '预计发票含税本位币金额：{amount} {base}', invoiceConfirm: '我已核对金额、币种、汇率和日期。', basisTotal: "依据未税总额",
       reserved: "已占用未税额度",

@@ -13,7 +13,7 @@ vi.mock('element-plus',()=>({ElMessage:{success:vi.fn(),error:vi.fn()}}))
 const slot=defineComponent({template:'<div><slot /></div>'})
 const button=defineComponent({props:{disabled:Boolean},template:'<button :disabled="disabled"><slot /></button>'})
 const dialog=defineComponent({props:{modelValue:Boolean,projectId:{type:String,default:''}},emits:['changed'],template:`<section v-if="modelValue">{{projectId}}<button @click="$emit('changed')">Complete project correction</button></section>`})
-const profit=(patch:Partial<api.ProjectProfit>={}):api.ProjectProfit=>({projectId:'project-a',openTasks:0,unbilledBases:0,invalidBillingBases:0,closeBlockers:[],currencyCode:'USD',baseCurrencyCode:'USD',managementLaborCosts:[],contractAmount:100,availableBilling:0,billedAmount:100,postedRevenue:0,postedCost:0,managementLaborCost:0,grossProfit:0,budgetRevenueVariance:0,budgetCostVariance:0,pendingApprovals:0,unsettledInvoices:0,closeEligible:false,...patch})
+const profit=(patch:Partial<api.ProjectProfit>={}):api.ProjectProfit=>({projectId:'project-a',openTasks:0,openMilestones:0,unbilledBases:0,invalidBillingBases:0,closeBlockers:[],currencyCode:'USD',baseCurrencyCode:'USD',managementLaborCosts:[],contractAmount:100,availableBilling:0,billedAmount:100,postedRevenue:0,postedCost:0,managementLaborCost:0,grossProfit:0,budgetRevenueVariance:0,budgetCostVariance:0,pendingApprovals:0,unsettledInvoices:0,closeEligible:false,...patch})
 const basis=(patch:Partial<api.ProjectBillingBasis>={}):api.ProjectBillingBasis=>({id:'basis-a',basisType:'FIXED_PRICE',description:'Actual project basis',availableAmount:100,billedAmount:100,remainingAmount:0,currencyCode:'USD',status:'BILLED',...patch})
 function render(permissions=['finance:view']){const pinia=createPinia();useAuthStore(pinia).user={id:'u',username:'u',displayName:'u',organizationId:'org',organizationName:'org',departmentId:null,dataScope:'ALL',permissions,roles:[],mustChangePassword:false};return mount(Panel,{props:{projectId:'project-a'},global:{plugins:[pinia,createI18n({legacy:false,locale:'en-US',messages:{'en-US':en}})],directives:{loading:()=>{}},stubs:{ProjectInvoiceDialog:true,InvoiceCorrectionDialog:dialog,ElCard:slot,ElButton:button,ElSelect:slot,ElOption:true,ElInputNumber:true,ElTable:defineComponent({props:{data:{type:Array,default:()=>[]}},template:'<pre>{{JSON.stringify(data)}}</pre>'}),ElTableColumn:true}}})}
 beforeEach(()=>{vi.resetAllMocks();vi.mocked(api.getProjectProfitability).mockResolvedValue(profit());vi.mocked(api.listProjectBillingBasisV2).mockResolvedValue([basis()])})
@@ -43,4 +43,8 @@ it('disables new billing after completion while keeping existing financial corre
 })
 it('reloads readiness after an operational registration changes the parent revision',async()=>{
  const w=render();await flushPromises();vi.mocked(api.getProjectProfitability).mockResolvedValue(profit({pendingApprovals:1,closeBlockers:['PENDING_APPROVALS']}));await w.setProps({revision:1});await flushPromises();expect(api.getProjectProfitability).toHaveBeenCalledTimes(2);expect(w.find('.close-blockers').text()).toContain('await approval')
+})
+
+it('preserves fractional milestone quota and small remaining capacity in project-currency display',async()=>{
+ vi.mocked(api.getProjectProfitability).mockResolvedValue(profit({contractAmount:100.1234,availableBilling:0.0034}));const w=render();await flushPromises();expect(w.text()).toContain('$100.1234');expect(w.text()).toContain('$0.0034')
 })

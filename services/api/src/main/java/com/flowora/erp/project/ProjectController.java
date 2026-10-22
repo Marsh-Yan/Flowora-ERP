@@ -76,6 +76,12 @@ public class ProjectController {
         return response(service.createMilestone(principal(authentication), id, body, RequestIdFilter.get(request)), request);
     }
 
+    @PostMapping("/milestones/{milestoneId}/status")
+    @PreAuthorize("hasAnyRole('ADMIN', 'PROJECT_MANAGER')")
+    public ApiResponse<MilestoneResponse> changeMilestoneStatus(@PathVariable String milestoneId,@Valid @RequestBody MilestoneStatusChange body,Authentication authentication,HttpServletRequest request) {
+        return response(service.changeMilestoneStatus(principal(authentication),milestoneId,body,RequestIdFilter.get(request)),request);
+    }
+
     @GetMapping("/{id}/tasks")
     @PreAuthorize("@floworaAuthorization.has(authentication, 'project:view')")
     public ApiResponse<PageResponse<TaskResponse>> tasks(@PathVariable String id, @PageableDefault(size = 50) Pageable pageable, Authentication authentication, HttpServletRequest request) {
