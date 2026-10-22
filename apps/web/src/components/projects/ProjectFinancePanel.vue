@@ -12,6 +12,7 @@ import {
 
 const props = defineProps<{ projectId: string; projectStatus?: string; revision?: number }>()
 const closed=computed(()=>['COMPLETED','ARCHIVED'].includes(props.projectStatus || ''))
+const emit=defineEmits<{changed:[]}>()
 const { t, locale } = useI18n()
 const auth=useAuthStore(),correctionVisible=ref(false)
 const loading = ref(false),mutating=ref(false)
@@ -21,7 +22,7 @@ const basis = ref<ProjectBillingBasis[]>([])
 const selectedBasis=ref<ProjectBillingBasis | null>(null)
 const mode = ref('')
 const contractAmount = ref(0)
-function money(value?: number, currency?: string) { if(!currency || !/^[A-Z]{3}$/.test(currency))return '—';return new Intl.NumberFormat(locale.value, { style: 'currency', currency: currency || 'USD', maximumFractionDigits: 2 }).format(Number(value ?? 0)) }
+function money(value?: number, currency?: string) { if(!currency || !/^[A-Z]{3}$/.test(currency))return '—';return new Intl.NumberFormat(locale.value, { style: 'currency', currency: currency || 'USD', maximumFractionDigits: 4 }).format(Number(value ?? 0)) }
 async function load() {
   const token=++generation,id=props.projectId
   loading.value=true
@@ -32,7 +33,7 @@ async function load() {
 async function saveConfiguration() {
   if(closed.value || loading.value || mutating.value || !profit.value || !mode.value)return
   const id=props.projectId,token=generation;mutating.value=true
-  try {await configureProjectBilling(id,{billingMode:mode.value,contractAmount:contractAmount.value});if(token===generation){ElMessage.success(t('projects.m4.saved'));await load()}}
+  try {await configureProjectBilling(id,{billingMode:mode.value,contractAmount:contractAmount.value});if(token===generation){ElMessage.success(t('projects.m4.saved'));await load();emit('changed')}}
   catch {if(token===generation)ElMessage.error(t('projects.saveFailed'))}
   finally {mutating.value=false}
 }

@@ -108,18 +108,28 @@ public class ProjectService {
 
     @Transactional(readOnly = true)
     public List<MilestoneResponse> milestoneList(String organizationId, String projectId) {
-        project(organizationId, projectId);
-        return milestones.findByOrganizationIdAndProjectIdOrderBySequenceNoAsc(organizationId, projectId).stream().map(this::milestoneResponse).toList();
+        var project=project(organizationId, projectId);
+        return milestones.findByOrganizationIdAndProjectIdOrderBySequenceNoAsc(organizationId, projectId).stream().map(item->milestoneResponse(item,project.currencyCode())).toList();
     }
 
     @Transactional
     public MilestoneResponse createMilestone(FloworaPrincipal actor, String projectId, MilestoneCreate body, String requestId) {
         lifecycle.requireOpen(actor.organizationId(),projectId);
-        project(actor.organizationId(), projectId);
+        var project=project(actor.organizationId(), projectId);
+        ProjectLifecycleService.validateMilestoneAmount(body.billable(),money(body.billingAmount()));
+        if(body.billable())lifecycle.requireMilestoneBilling(actor.organizationId(),projectId);
         int sequence = body.sequenceNo() == null ? milestones.findFirstByOrganizationIdAndProjectIdOrderBySequenceNoDesc(actor.organizationId(), projectId).map(item -> item.sequenceNo() + 1).orElse(1) : body.sequenceNo();
-        MilestoneEntity saved = milestones.save(new MilestoneEntity(actor.organizationId(), projectId, body.name().trim(), sequence, body.targetDate()));
+        MilestoneEntity saved = milestones.save(new MilestoneEntity(actor.organizationId(), projectId, body.name().trim(), sequence, body.targetDate(),body.billable(),money(body.billingAmount())));
         record(actor, "MILESTONE_CREATED", projectId, "Milestone " + saved.name() + " created", requestId);
-        return milestoneResponse(saved);
+        return milestoneResponse(saved,project.currencyCode());
+    }
+
+    @Transactional
+    public MilestoneResponse changeMilestoneStatus(FloworaPrincipal actor,String milestoneId,MilestoneStatusChange body,String requestId) {
+        boolean changed=lifecycle.changeMilestoneStatus(actor.organizationId(),milestoneId,body.status(),body.version());
+        var value=milestones.findByIdAndOrganizationId(milestoneId,actor.organizationId()).orElseThrow(()->new ResourceNotFoundException("MILESTONE",milestoneId));
+        if(changed)record(actor,"MILESTONE_STATUS_CHANGED",value.projectId(),"Milestone "+value.name()+" changed to "+body.status(),requestId);
+        return milestoneResponse(value,project(actor.organizationId(),value.projectId()).currencyCode());
     }
 
     @Transactional(readOnly = true)
@@ -132,11 +142,7 @@ public class ProjectService {
     public TaskResponse createTask(FloworaPrincipal actor, String projectId, TaskCreate body, String requestId) {
         lifecycle.requireOpen(actor.organizationId(),projectId);
         project(actor.organizationId(), projectId);
-        if (body.milestoneId() != null) {
-            MilestoneEntity milestone = milestones.findByIdAndOrganizationId(body.milestoneId(), actor.organizationId())
-                    .orElseThrow(() -> new ResourceNotFoundException("MILESTONE", body.milestoneId()));
-            if (!projectId.equals(milestone.projectId())) throw new IllegalArgumentException("Milestone does not belong to project");
-        }
+        if(body.milestoneId()!=null && !body.milestoneId().isBlank())lifecycle.requireMilestoneTaskTarget(actor.organizationId(),projectId,body.milestoneId());
         ProjectTaskEntity saved = tasks.save(new ProjectTaskEntity(actor.organizationId(), projectId, blankToNull(body.milestoneId()), body.title().trim(), body.description(),
                 blankOrDefault(body.assigneeUserId(), actor.userId()), body.priority() == null ? ProjectTaskPriority.MEDIUM : body.priority(),
                 body.dueDate(), money(body.estimatedHours())));
@@ -166,6 +172,7 @@ public class ProjectService {
     public TimesheetResponse createTimesheet(FloworaPrincipal actor, String projectId, TimesheetCreate body, String requestId) {
         lifecycle.requireOpen(actor.organizationId(),projectId);
         ProjectEntity project = project(actor.organizationId(), projectId);
+        if(body.billable())lifecycle.requireOperatingBilling(actor.organizationId(),projectId);
         validateTask(actor.organizationId(), projectId, body.taskId());
         TimesheetEntity saved = timesheets.save(new TimesheetEntity(actor.organizationId(), projectId, blankToNull(body.taskId()), actor.userId(), body.workDate(), body.hours(), body.costRate(), body.billingRate(), body.billable(), normalizeCurrency(body.currencyCode(), project.currencyCode()), body.note()));
         record(actor, "TIMESHEET_CREATED", projectId, "Timesheet logged for " + body.hours() + " hours", requestId);
@@ -182,6 +189,7 @@ public class ProjectService {
     public ExpenseResponse createExpense(FloworaPrincipal actor, String projectId, ExpenseCreate body, String requestId) {
         lifecycle.requireOpen(actor.organizationId(),projectId);
         ProjectEntity project = project(actor.organizationId(), projectId);
+        if(body.billable())lifecycle.requireOperatingBilling(actor.organizationId(),projectId);
         validateTask(actor.organizationId(), projectId, body.taskId());
         ProjectExpenseEntity saved = expenses.save(new ProjectExpenseEntity(actor.organizationId(), projectId, blankToNull(body.taskId()), actor.userId(), body.expenseDate(), body.category().trim(), body.amount(), body.billable(), normalizeCurrency(body.currencyCode(), project.currencyCode()), body.description()));
         record(actor, "EXPENSE_CREATED", projectId, "Expense logged for " + body.amount(), requestId);
@@ -240,7 +248,7 @@ public class ProjectService {
         BigDecimal actualHours = projectTimesheets.stream().map(TimesheetEntity::hours).reduce(BigDecimal.ZERO, BigDecimal::add);
         int completed = (int) projectTasks.stream().filter(item -> item.status() == ProjectTaskStatus.DONE).count();
         BigDecimal progress = projectTasks.isEmpty() ? BigDecimal.ZERO : BigDecimal.valueOf(completed).multiply(ONE_HUNDRED).divide(BigDecimal.valueOf(projectTasks.size()), 2, RoundingMode.HALF_UP);
-        return new ProjectResponse(project.id(), project.number(), project.name(), project.description(), project.customerId(), project.salesOrderId(), project.managerUserId(), project.targetDate(), project.budgetRevenue(), project.budgetCost(), project.currencyCode(), project.status(), progress, actualCost, actualHours, billable, completed, projectTasks.size(), amounts);
+        return new ProjectResponse(project.id(), project.number(), project.name(), project.description(), project.customerId(), project.salesOrderId(), project.managerUserId(), project.targetDate(), project.budgetRevenue(), project.budgetCost(), project.currencyCode(), project.status(), progress, actualCost, actualHours, billable, completed, projectTasks.size(), amounts,project.billingMode());
     }
 
     private static void addOperationalAmount(Map<String,OperationalCurrencyAmount> grouped,String currency,BigDecimal cost,BigDecimal billable) {
@@ -254,7 +262,7 @@ public class ProjectService {
         return new TaskResponse(task.id(), task.projectId(), task.milestoneId(), task.title(), task.description(), task.assigneeUserId(), task.priority(), task.dueDate(), task.status(), task.estimatedHours(), actual);
     }
 
-    private MilestoneResponse milestoneResponse(MilestoneEntity item) { return new MilestoneResponse(item.id(), item.projectId(), item.name(), item.sequenceNo(), item.targetDate(), item.status()); }
+    private MilestoneResponse milestoneResponse(MilestoneEntity item,String currency) { return new MilestoneResponse(item.id(), item.projectId(), item.name(), item.sequenceNo(), item.targetDate(), item.status(),item.billable(),item.billingAmount(),item.approvalStatus(),currency,item.version()); }
     private TimesheetResponse timesheetResponse(TimesheetEntity item) { return new TimesheetResponse(item.id(), item.projectId(), item.taskId(), item.userId(), item.workDate(), item.hours(), item.costAmount(), item.billableAmount(), item.billable(), item.currencyCode(), item.note()); }
     private ExpenseResponse expenseResponse(ProjectExpenseEntity item) { return new ExpenseResponse(item.id(), item.projectId(), item.taskId(), item.userId(), item.expenseDate(), item.category(), item.amount(), item.billableAmount(), item.billable(), item.currencyCode(), item.description()); }
     private BudgetResponse budgetResponse(ProjectBudgetEntity item) { return new BudgetResponse(item.id(), item.projectId(), item.category(), item.amount(), item.currencyCode(), item.note()); }

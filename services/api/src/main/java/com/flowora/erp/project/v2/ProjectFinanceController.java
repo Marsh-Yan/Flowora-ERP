@@ -72,9 +72,9 @@ public class ProjectFinanceController {
     @PostMapping("/milestones/{id}/approval")
     @PreAuthorize("@floworaAuthorization.has(authentication, 'workflow:approve')")
     public ApiResponse<BillingBasisView> approveMilestone(@PathVariable String id,
-                                                           @Valid @RequestBody ApprovalAction body,
+                                                           @Valid @RequestBody MilestoneApprovalAction body,
                                                            Authentication authentication, HttpServletRequest request) {
-        return response(service.approveMilestone(principal(authentication), id, body), request);
+        return response(service.approveMilestone(principal(authentication), id, body,RequestIdFilter.get(request)), request);
     }
 
     @GetMapping("/{id}/billing-basis")

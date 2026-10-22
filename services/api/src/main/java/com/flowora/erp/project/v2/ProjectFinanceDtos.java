@@ -28,6 +28,8 @@ public final class ProjectFinanceDtos {
     public record ApprovalAction(boolean approved, String reason) {
     }
 
+    public record MilestoneApprovalAction(@NotNull Boolean approved,@jakarta.validation.constraints.NotBlank @jakarta.validation.constraints.Size(max=500) String reason,@NotNull @jakarta.validation.constraints.Min(0) Long version) { }
+
     public record BillingBasisView(String id, String projectId, String basisType, String sourceId,
                                    String description, BigDecimal availableAmount, BigDecimal billedAmount,
                                    BigDecimal remainingAmount, String currencyCode, String status,
@@ -59,6 +61,6 @@ public final class ProjectFinanceDtos {
                                     int openTasks, int pendingApprovals, int unsettledInvoices,
                                     boolean closeEligible, String baseCurrencyCode,
                                     List<CurrencyAmount> managementLaborCosts, int unbilledBases,
-                                    int invalidBillingBases, List<String> closeBlockers) {
+                                    int invalidBillingBases, List<String> closeBlockers, int openMilestones) {
     }
 }

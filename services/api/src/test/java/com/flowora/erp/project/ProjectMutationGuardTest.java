@@ -46,4 +46,20 @@ class ProjectMutationGuardTest {
         assertThatThrownBy(()->service.changeStatus(actor,"project",ProjectStatus.COMPLETED,"request")).isInstanceOf(PlatformApiException.class);
         verifyNoInteractions(projects,activities,audits);
     }
+
+    @Test void completedMilestoneRejectsNewLinkedTasksBeforeAnyTaskWrite() {
+        var project=new ProjectEntity("org","PRJ","Delivery",null,null,null,"manager",java.time.LocalDate.of(2026,10,22),BigDecimal.ZERO,BigDecimal.ZERO,"USD");
+        when(projects.findByIdAndOrganizationId("project","org")).thenReturn(Optional.of(project));doThrow(conflict("MILESTONE_ALREADY_COMPLETED",Map.of())).when(lifecycle).requireMilestoneTaskTarget("org","project","milestone");
+        assertThatThrownBy(()->service.createTask(actor,"project",new ProjectDtos.TaskCreate("Task",null,"milestone",null,ProjectTaskPriority.MEDIUM,null,BigDecimal.ONE),"request")).isInstanceOf(PlatformApiException.class);verifyNoInteractions(tasks,activities,audits);
+    }
+    @Test void failedMilestoneTransitionCannotProduceASuccessAudit() {
+        doThrow(conflict("OPTIMISTIC_LOCK_CONFLICT",Map.of())).when(lifecycle).changeMilestoneStatus("org","milestone",MilestoneStatus.COMPLETED,2);
+        assertThatThrownBy(()->service.changeMilestoneStatus(actor,"milestone",new ProjectDtos.MilestoneStatusChange(MilestoneStatus.COMPLETED,2L),"request")).isInstanceOf(PlatformApiException.class);verifyNoInteractions(milestones,activities,audits);
+    }
+
+    @Test void milestoneModeRejectsBillableOperatingRegistrationBeforeSavingSourceRecords() {
+        var project=new ProjectEntity("org","PRJ","Delivery",null,null,null,"manager",java.time.LocalDate.of(2026,10,22),BigDecimal.ZERO,BigDecimal.ZERO,"USD");when(projects.findByIdAndOrganizationId("project","org")).thenReturn(Optional.of(project));doThrow(conflict("PROJECT_BILLING_MODE_MISMATCH",Map.of())).when(lifecycle).requireOperatingBilling("org","project");
+        assertThatThrownBy(()->service.createTimesheet(actor,"project",new ProjectDtos.TimesheetCreate(null,java.time.LocalDate.of(2026,10,22),BigDecimal.ONE,BigDecimal.TEN,BigDecimal.TEN,true,"USD",null),"request")).isInstanceOf(PlatformApiException.class);
+        assertThatThrownBy(()->service.createExpense(actor,"project",new ProjectDtos.ExpenseCreate(null,java.time.LocalDate.of(2026,10,22),"TRAVEL",BigDecimal.TEN,true,"USD",null),"request")).isInstanceOf(PlatformApiException.class);verifyNoInteractions(timesheets,expenses,activities,audits);
+    }
 }

@@ -50,6 +50,7 @@ public class ProjectFinanceService {
         finance.lockProjectBilling(actor.organizationId());
         lifecycle.requireOpen(actor.organizationId(), projectId);
         String mode = body.billingMode().toUpperCase();
+        lifecycle.requireMilestoneModeChange(actor.organizationId(),projectId,mode);
         if (!BILLING_MODES.contains(mode) || body.contractAmount().signum() < 0) {
             throw conflict("INVALID_PROJECT_BILLING_CONFIGURATION", Map.of());
         }
@@ -124,21 +125,22 @@ public class ProjectFinanceService {
     }
 
     @Transactional
-    public BillingBasisView approveMilestone(FloworaPrincipal actor, String milestoneId, ApprovalAction body) {
+    public BillingBasisView approveMilestone(FloworaPrincipal actor, String milestoneId, ProjectFinanceDtos.MilestoneApprovalAction body,String requestId) {
         finance.lockProjectBilling(actor.organizationId());
         Milestone value = milestoneForUpdate(actor.organizationId(), milestoneId);
-        lifecycle.requireOpen(actor.organizationId(),value.projectId());
-        if (!body.approved()) {
-            jdbc.update("UPDATE flowora_project_milestone SET approval_status='REJECTED',version_no=version_no+1 WHERE id=?", milestoneId);
-            return null;
-        }
-        if (!"COMPLETED".equals(value.status()) || !value.billable() || value.billingAmount().signum() <= 0) {
-            throw conflict("MILESTONE_NOT_BILLABLE", Map.of());
-        }
-        jdbc.update("UPDATE flowora_project_milestone SET approval_status='APPROVED',version_no=version_no+1 WHERE id=?", milestoneId);
-        Project project = project(value.projectId(), actor.organizationId());
-        return upsertBasis(actor.organizationId(), value.projectId(), "MILESTONE", milestoneId,
-                "Approved milestone " + value.name(), value.billingAmount(), project.currencyCode());
+        lifecycle.requireMilestoneBilling(actor.organizationId(),value.projectId());
+        if("APPROVED".equals(value.approvalStatus()))throw conflict("MILESTONE_ALREADY_APPROVED",Map.of());
+        if(body.version()==null || value.version()!=body.version())throw conflict("OPTIMISTIC_LOCK_CONFLICT",Map.of());
+        if(body.approved()==null || body.reason()==null || body.reason().isBlank() || body.reason().length()>500)throw conflict("MILESTONE_REASON_REQUIRED",Map.of());
+        if (!"COMPLETED".equals(value.status()) || !value.billable() || value.billingAmount().signum() <= 0)throw conflict("MILESTONE_NOT_BILLABLE", Map.of());
+        lifecycle.requireMilestoneTasksDone(actor.organizationId(),value.projectId(),milestoneId);
+        if(!jdbc.queryForList("SELECT id FROM flowora_project_billing_basis WHERE organization_id=? AND basis_type='MILESTONE' AND source_id=? FOR UPDATE",actor.organizationId(),milestoneId).isEmpty())throw conflict("MILESTONE_BILLING_STATE_CONFLICT",Map.of());
+        String state=body.approved()?"APPROVED":"REJECTED";
+        jdbc.update("UPDATE flowora_project_milestone SET approval_status=?,version_no=version_no+1 WHERE organization_id=? AND id=? AND version_no=?",state,actor.organizationId(),milestoneId,body.version());
+        BillingBasisView basis=null;
+        if(body.approved())basis=upsertBasis(actor.organizationId(),value.projectId(),"MILESTONE",milestoneId,"Approved milestone "+value.name(),value.billingAmount(),project(value.projectId(),actor.organizationId()).currencyCode());
+        jdbc.update("INSERT INTO flowora_audit_event(id,organization_id,actor_user_id,action_code,resource_type,resource_id,request_id,details_json) VALUES (?,?,?,?,'PROJECT',?,?,JSON_OBJECT('milestoneId',?,'reason',?))",UUID.randomUUID().toString(),actor.organizationId(),actor.userId(),body.approved()?"MILESTONE_APPROVED":"MILESTONE_REJECTED",value.projectId(),requestId,milestoneId,body.reason().trim());
+        return basis;
     }
 
     public List<BillingBasisView> billingBasis(String organizationId, String projectId) {
@@ -231,12 +233,14 @@ public class ProjectFinanceService {
                 revenue, cost, labor, gross, project.currencyCode().equals(baseCurrency)?project.budgetRevenue().subtract(revenue):null,
                 project.currencyCode().equals(baseCurrency)?project.budgetCost().subtract(cost):null,
                 readiness.openTasks(), readiness.pendingApprovals(), readiness.unsettledInvoices(), readiness.eligible(), baseCurrency, laborAmounts,
-                readiness.unbilledBases(),readiness.invalidBillingBases(),readiness.blockers());
+                readiness.unbilledBases(),readiness.invalidBillingBases(),readiness.blockers(),readiness.openMilestones());
     }
 
     private BillingBasisView upsertBasis(String organizationId, String projectId, String type, String sourceId,
                                          String description, BigDecimal amount, String currency) {
-        if(!project(projectId,organizationId).currencyCode().equals(currency))
+        var project=project(projectId,organizationId);
+        if("MILESTONE".equals(project.billingMode()) && !"MILESTONE".equals(type))throw conflict("PROJECT_BILLING_MODE_MISMATCH",Map.of());
+        if(!project.currencyCode().equals(currency))
             throw conflict("PROJECT_BILLING_CURRENCY_MISMATCH",Map.of());
         jdbc.update("""
                 INSERT INTO flowora_project_billing_basis
@@ -274,11 +278,11 @@ public class ProjectFinanceService {
 
     private Project project(String id, String organizationId) {
         List<Project> values = jdbc.query("""
-                SELECT id,customer_id,currency_code,contract_amount,budget_revenue,budget_cost
+                SELECT id,customer_id,currency_code,contract_amount,budget_revenue,budget_cost,billing_mode
                 FROM flowora_project WHERE id=? AND organization_id=?
                 """, (rs, row) -> new Project(rs.getString("id"), rs.getString("customer_id"),
                 rs.getString("currency_code"), rs.getBigDecimal("contract_amount"),
-                rs.getBigDecimal("budget_revenue"), rs.getBigDecimal("budget_cost")), id, organizationId);
+                rs.getBigDecimal("budget_revenue"), rs.getBigDecimal("budget_cost"),rs.getString("billing_mode")), id, organizationId);
         if (values.isEmpty()) throw notFound("project", id);
         return values.getFirst();
     }
@@ -311,10 +315,10 @@ public class ProjectFinanceService {
 
     private Milestone milestoneForUpdate(String organizationId, String id) {
         List<Milestone> values = jdbc.query("""
-                SELECT id,project_id,name,status,billable,billing_amount FROM flowora_project_milestone
+                SELECT id,project_id,name,status,billable,billing_amount,approval_status,version_no FROM flowora_project_milestone
                 WHERE organization_id=? AND id=? FOR UPDATE
                 """, (rs, row) -> new Milestone(rs.getString("id"), rs.getString("project_id"), rs.getString("name"),
-                rs.getString("status"), rs.getBoolean("billable"), rs.getBigDecimal("billing_amount")), organizationId, id);
+                rs.getString("status"), rs.getBoolean("billable"), rs.getBigDecimal("billing_amount"),rs.getString("approval_status"),rs.getLong("version_no")), organizationId, id);
         if (values.isEmpty()) throw notFound("projectMilestone", id);
         return values.getFirst();
     }
@@ -339,7 +343,7 @@ public class ProjectFinanceService {
     }
 
     private record Project(String id, String customerId, String currencyCode, BigDecimal contractAmount,
-                           BigDecimal budgetRevenue, BigDecimal budgetCost) {
+                           BigDecimal budgetRevenue, BigDecimal budgetCost,String billingMode) {
     }
 
     private record Timesheet(String id, String projectId, boolean billable, BigDecimal billableAmount,
@@ -351,7 +355,7 @@ public class ProjectFinanceService {
     }
 
     private record Milestone(String id, String projectId, String name, String status, boolean billable,
-                             BigDecimal billingAmount) {
+                             BigDecimal billingAmount,String approvalStatus,long version) {
     }
 
 }

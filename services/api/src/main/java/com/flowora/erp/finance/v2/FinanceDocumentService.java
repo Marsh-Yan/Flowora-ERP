@@ -724,10 +724,11 @@ public class FinanceDocumentService {
                 throw conflict("PROJECT_BILLING_SOURCE_MISMATCH",Map.of());
             if(changes.putIfAbsent(source.sourceLineId(),source.amount())!=null)throw conflict("PROJECT_BILLING_DUPLICATE_BASIS",Map.of());
         }
-        var bases=jdbc.queryForList("SELECT id,available_amount,billed_amount,currency_code,status,approved_at,version_no FROM flowora_project_billing_basis WHERE organization_id=? AND project_id=? ORDER BY id FOR UPDATE",org,invoice.projectId());
+        var bases=jdbc.queryForList("SELECT id,available_amount,billed_amount,currency_code,status,approved_at,version_no,basis_type FROM flowora_project_billing_basis WHERE organization_id=? AND project_id=? ORDER BY id FOR UPDATE",org,invoice.projectId());
         var found=new java.util.HashSet<String>();
         for(var basis:bases) {
             String id=(String)basis.get("id");found.add(id);
+            if(adjustment>=0 && changes.containsKey(id) && "MILESTONE".equals(basis.get("basis_type")))projectLifecycle.requireMilestoneBasis(org,invoice.projectId(),id);
             BigDecimal available=(BigDecimal)basis.get("available_amount"),billed=(BigDecimal)basis.get("billed_amount");
             if(!invoice.currencyCode().equals(basis.get("currency_code")) || basis.get("approved_at")==null
                     || !basisState(available,billed).equals(basis.get("status")))throw conflict("PROJECT_BILLING_STATE_CONFLICT",Map.of());

@@ -42,12 +42,13 @@ class FinanceMySqlTest {
         for(String semantic:List.of("RECEIVABLE","PAYABLE","ACCRUED_PAYABLE","REVENUE","EXPENSE","TAX_PAYABLE","TAX_RECEIVABLE","CASH","FX_GAIN","FX_LOSS"))
             jdbc.update("INSERT INTO flowora_posting_mapping(id,organization_id,semantic_code,account_code) VALUES (?,?,?,?)",key(),org,semantic,semantic);
         ledger=new FinanceLedgerService(jdbc); documents=new FinanceDocumentService(jdbc,ledger,lifecycle());
+        jdbc.update("INSERT INTO flowora_user_account(id,organization_id,username,display_name,password_hash) VALUES ('system:r3-test',?,?,'Synthetic finance actor','not-a-login-password-hash')",org,"r6s-"+org+"@audit.invalid");
         actor=new FloworaPrincipal("system:r3-test","r3","R3 test",org,"R3 isolated test",List.of("ADMIN"));
     }
     @AfterEach void cleanup() {
         jdbc.update("UPDATE flowora_journal_entry SET reversal_of_id=NULL WHERE organization_id=?",org);
         jdbc.update("UPDATE flowora_finance_invoice SET original_invoice_id=NULL WHERE organization_id=?",org);
-        for(String table:List.of("flowora_invoice_correction","flowora_payment_correction","flowora_refund_source_recovery","flowora_refund_correction","flowora_currency_revaluation_line","flowora_currency_revaluation","flowora_bank_reconciliation_link","flowora_bank_reconciliation","flowora_bank_statement_line","flowora_allocation_reversal","flowora_payment_allocation","flowora_payment_v2","flowora_bank_account","flowora_finance_invoice_source","flowora_finance_invoice_line","flowora_finance_invoice","flowora_journal_line","flowora_journal_entry","flowora_accounting_period","flowora_posting_mapping","flowora_finance_setting","flowora_sales_delivery_line","flowora_sales_delivery","flowora_sales_order_line","flowora_sales_order","flowora_purchase_receipt_line","flowora_purchase_receipt","flowora_purchase_order_line","flowora_purchase_order","flowora_account","flowora_timesheet","flowora_project_expense","flowora_project_billing_basis","flowora_project_task","flowora_project_milestone","flowora_project_member","flowora_project","flowora_supplier","flowora_customer"))
+        for(String table:List.of("flowora_invoice_correction","flowora_payment_correction","flowora_refund_source_recovery","flowora_refund_correction","flowora_currency_revaluation_line","flowora_currency_revaluation","flowora_bank_reconciliation_link","flowora_bank_reconciliation","flowora_bank_statement_line","flowora_allocation_reversal","flowora_payment_allocation","flowora_payment_v2","flowora_bank_account","flowora_finance_invoice_source","flowora_finance_invoice_line","flowora_finance_invoice","flowora_journal_line","flowora_journal_entry","flowora_accounting_period","flowora_posting_mapping","flowora_finance_setting","flowora_sales_delivery_line","flowora_sales_delivery","flowora_sales_order_line","flowora_sales_order","flowora_purchase_receipt_line","flowora_purchase_receipt","flowora_purchase_order_line","flowora_purchase_order","flowora_account","flowora_timesheet","flowora_project_expense","flowora_project_billing_basis","flowora_project_task","flowora_project_milestone","flowora_project_member","flowora_audit_event","flowora_activity_event","flowora_project","flowora_supplier","flowora_customer","flowora_user_account"))
             jdbc.update("DELETE FROM "+table+" WHERE organization_id=?",org);
         jdbc.update("DELETE FROM flowora_organization WHERE id=?",org);
     }
@@ -1508,8 +1509,10 @@ class FinanceMySqlTest {
         correctProjectInvoice(documents.invoice(org,posted.id()),true);assertThat(billingBasis(project).billedAmount()).isEqualByComparingTo("0");
     }
     @Test void multipleProjectBasesAndInvoicesRecomputePartialAndUnbilledWithoutReleasingOtherReservations() {
-        String project=billingProject(),other=key();String first=billingBasis(project).id();
-        jdbc.update("INSERT INTO flowora_project_billing_basis(id,organization_id,project_id,basis_type,source_id,description,available_amount,currency_code,status,approved_at) VALUES (?,?,?,'MILESTONE',?,'Approved isolated basis',60,'EUR','AVAILABLE',CURRENT_TIMESTAMP)",other,org,project,key());
+        String project=milestoneProject(),firstMilestone=milestoneFixture(project,true),otherMilestone=milestoneFixture(project,true);
+        jdbc.update("UPDATE flowora_project_milestone SET billing_amount=60 WHERE organization_id=? AND id=?",org,otherMilestone);
+        deliverMilestone(firstMilestone);deliverMilestone(otherMilestone);
+        String first=reviewMilestone(firstMilestone,true,2).id(),other=reviewMilestone(otherMilestone,true,2).id();
         var body=new ProjectInvoiceCreate(date,date,date,date,"EUR",n("1.3"),List.of(new ProjectInvoiceLine(first,n("30"),n("0"),null),new ProjectInvoiceLine(other,n("60"),n("0"),null)));
         var draft=run(()->projectFinance().generateInvoice(actor,project,key(),body));assertThat(projectBillingState(project)).isEqualTo("PARTIAL");
         correctProjectInvoice(draft,false);assertThat(projectFinance().billingBasis(org,project)).allSatisfy(b->assertThat(b.billedAmount()).isEqualByComparingTo("0"));assertThat(projectBillingState(project)).isEqualTo("UNBILLED");
@@ -1674,9 +1677,9 @@ class FinanceMySqlTest {
         assertThat(documents.invoice(org,draft.id()).status()).isEqualTo("POSTED");
     }
     @Test void completedBillableMilestoneApprovalIsPartOfTheSharedCloseAssessment() {
-        String project=closeProject(),milestone=key();jdbc.update("INSERT INTO flowora_project_milestone(id,organization_id,project_id,name,sequence_no,status,billable,billing_amount) VALUES (?,?,?,'Completed synthetic milestone',1,'COMPLETED',TRUE,10)",milestone,org,project);
+        String project=closeProject(),milestone=key();run(()->projectFinance().configure(actor,project,new BillingConfiguration("MILESTONE",n("0"),null)));jdbc.update("INSERT INTO flowora_project_milestone(id,organization_id,project_id,name,sequence_no,status,billable,billing_amount) VALUES (?,?,?,'Completed synthetic milestone',1,'COMPLETED',TRUE,10)",milestone,org,project);
         assertThat(projectFinance().profit(org,project).pendingApprovals()).isEqualTo(1);assertCloseBlocked(project,"PENDING_APPROVALS");
-        run(()->projectFinance().approveMilestone(actor,milestone,new ApprovalAction(true,"Approve completed delivery")));assertCloseBlocked(project,"UNBILLED_BASES");
+        run(()->projectFinance().approveMilestone(actor,milestone,new MilestoneApprovalAction(true,"Approve completed delivery",0L),key()));assertCloseBlocked(project,"UNBILLED_BASES");
     }
     @Test void invalidHistoricalBillingStateCannotBeCertifiedOrRepairedByClosing() {
         String project=billingProject();jdbc.update("UPDATE flowora_project_billing_basis SET billed_amount=available_amount,status='BILLED' WHERE organization_id=? AND project_id=?",org,project);
@@ -1740,5 +1743,89 @@ class FinanceMySqlTest {
     @Test void positiveFixedContractCannotAppearClosedWhenItsBasisIsMissing() {
         String project=billingProject();jdbc.update("DELETE FROM flowora_project_billing_basis WHERE organization_id=? AND project_id=?",org,project);
         assertThat(projectFinance().profit(org,project).invalidBillingBases()).isEqualTo(1);assertCloseBlocked(project,"INVALID_BILLING_BASES");assertThat(projectFinance().billingBasis(org,project)).isEmpty();
+    }
+
+    String milestoneProject(){String id=closeProject();jdbc.update("UPDATE flowora_project SET currency_code='EUR' WHERE organization_id=? AND id=?",org,id);run(()->projectFinance().configure(actor,id,new BillingConfiguration("MILESTONE",n("0"),null)));return id;}
+    String milestoneFixture(String project,boolean billable) {
+        String id=key();jdbc.update("INSERT INTO flowora_project_milestone(id,organization_id,project_id,name,sequence_no,status,billable,billing_amount,approval_status) VALUES (?,?,?,'Synthetic delivery milestone',1,'PLANNED',?,?,?)",id,org,project,billable,billable?n("100"):n("0"),billable?"DRAFT":"NOT_REQUIRED");return id;
+    }
+    long milestoneVersion(String id){return jdbc.queryForObject("SELECT version_no FROM flowora_project_milestone WHERE organization_id=? AND id=?",Long.class,org,id);}
+    void milestoneStatus(String id,com.flowora.erp.project.MilestoneStatus status,long version){run(()->lifecycle().changeMilestoneStatus(org,id,status,version));}
+    void deliverMilestone(String id){milestoneStatus(id,com.flowora.erp.project.MilestoneStatus.IN_PROGRESS,0);milestoneStatus(id,com.flowora.erp.project.MilestoneStatus.COMPLETED,1);}
+    BillingBasisView reviewMilestone(String id,boolean approved,long version){return run(()->projectFinance().approveMilestone(actor,id,new MilestoneApprovalAction(approved,"Synthetic milestone review",version),key()));}
+    @Test void openNonBillableMilestoneBlocksCompletionAndArchiveUntilItsLinkedTasksFinish() {
+        String project=milestoneProject(),milestone=milestoneFixture(project,false);assertCloseBlocked(project,"OPEN_MILESTONES");
+        assertThatThrownBy(()->milestoneStatus(milestone,com.flowora.erp.project.MilestoneStatus.COMPLETED,0)).isInstanceOf(PlatformApiException.class).extracting("code").isEqualTo("INVALID_MILESTONE_TRANSITION");assertThat(milestoneVersion(milestone)).isZero();
+        milestoneStatus(milestone,com.flowora.erp.project.MilestoneStatus.IN_PROGRESS,0);String task=closeTask(project,"TODO");jdbc.update("UPDATE flowora_project_task SET milestone_id=? WHERE organization_id=? AND id=?",milestone,org,task);
+        assertThatThrownBy(()->milestoneStatus(milestone,com.flowora.erp.project.MilestoneStatus.COMPLETED,1)).isInstanceOf(PlatformApiException.class).extracting("code").isEqualTo("MILESTONE_OPEN_TASKS");assertThat(milestoneVersion(milestone)).isEqualTo(1);
+        jdbc.update("UPDATE flowora_project_task SET status='DONE' WHERE organization_id=? AND id=?",org,task);milestoneStatus(milestone,com.flowora.erp.project.MilestoneStatus.COMPLETED,1);
+        assertThat(projectFinance().profit(org,project).openMilestones()).isZero();assertThat(projectFinance().profit(org,project).closeEligible()).isTrue();changeProject(project,com.flowora.erp.project.ProjectStatus.ARCHIVED);assertThat(projectFinance().billingBasis(org,project)).isEmpty();assertThat(ledger.journals(org,date,date)).isEmpty();
+    }
+    @Test void milestoneDeliveryAndApprovalAreSeparateAndRetainProjectCurrencyAndExactAmount() {
+        String project=milestoneProject(),milestone=milestoneFixture(project,true);deliverMilestone(milestone);
+        assertThat(projectFinance().profit(org,project).pendingApprovals()).isEqualTo(1);assertThat(projectFinance().billingBasis(org,project)).isEmpty();
+        var basis=reviewMilestone(milestone,true,2);assertThat(basis.basisType()).isEqualTo("MILESTONE");assertThat(basis.sourceId()).isEqualTo(milestone);assertThat(basis.currencyCode()).isEqualTo("EUR");assertThat(basis.availableAmount()).isEqualByComparingTo("100");assertThat(basis.billedAmount()).isEqualByComparingTo("0");assertThat(milestoneVersion(milestone)).isEqualTo(3);assertCloseBlocked(project,"UNBILLED_BASES");assertThat(ledger.journals(org,date,date)).isEmpty();
+    }
+    @Test void approvedMilestoneCannotBeRejectedOrApprovedAgainAndKeepsItsActualBasis() {
+        String project=milestoneProject(),milestone=milestoneFixture(project,true);deliverMilestone(milestone);var basis=reviewMilestone(milestone,true,2);var before=jdbc.queryForMap("SELECT * FROM flowora_project_milestone WHERE id=?",milestone);
+        for(boolean decision:List.of(false,true))assertThatThrownBy(()->reviewMilestone(milestone,decision,3)).isInstanceOf(PlatformApiException.class).extracting("code").isEqualTo("MILESTONE_ALREADY_APPROVED");
+        assertThat(jdbc.queryForMap("SELECT * FROM flowora_project_milestone WHERE id=?",milestone)).isEqualTo(before);assertThat(projectFinance().billingBasis(org,project)).containsExactly(basis);assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM flowora_audit_event WHERE organization_id=? AND action_code='MILESTONE_APPROVED'",Integer.class,org)).isEqualTo(1);
+    }
+    @Test void rejectedMilestoneCanBeReviewedAgainOnlyWithItsCurrentVersion() {
+        String project=milestoneProject(),milestone=milestoneFixture(project,true);deliverMilestone(milestone);assertThat(reviewMilestone(milestone,false,2)).isNull();assertThat(projectFinance().billingBasis(org,project)).isEmpty();
+        assertThatThrownBy(()->reviewMilestone(milestone,true,2)).isInstanceOf(PlatformApiException.class).extracting("code").isEqualTo("OPTIMISTIC_LOCK_CONFLICT");var basis=reviewMilestone(milestone,true,3);assertThat(basis.availableAmount()).isEqualByComparingTo("100");assertThat(projectFinance().billingBasis(org,project)).hasSize(1);assertThat(milestoneVersion(milestone)).isEqualTo(4);
+    }
+    @Test void deliveryTransitionsAndReviewRejectStaleVersionsAndPrematureApprovalWithoutWrites() {
+        String project=milestoneProject(),milestone=milestoneFixture(project,true);
+        assertThatThrownBy(()->reviewMilestone(milestone,true,0)).isInstanceOf(PlatformApiException.class).extracting("code").isEqualTo("MILESTONE_NOT_BILLABLE");
+        milestoneStatus(milestone,com.flowora.erp.project.MilestoneStatus.IN_PROGRESS,0);
+        assertThatThrownBy(()->milestoneStatus(milestone,com.flowora.erp.project.MilestoneStatus.COMPLETED,0)).isInstanceOf(PlatformApiException.class).extracting("code").isEqualTo("OPTIMISTIC_LOCK_CONFLICT");assertThat(milestoneVersion(milestone)).isEqualTo(1);assertThat(projectFinance().billingBasis(org,project)).isEmpty();assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM flowora_audit_event WHERE organization_id=?",Integer.class,org)).isZero();
+    }
+    @Test void billableMilestonesRequireTheirBillingModeAndCannotMixExistingContractQuota() {
+        String fixed=billingProject();var original=billingBasis(fixed);
+        assertThatThrownBy(()->run(()->{lifecycle().requireMilestoneBilling(org,fixed);return true;})).isInstanceOf(PlatformApiException.class).extracting("code").isEqualTo("MILESTONE_BILLING_MODE_REQUIRED");
+        assertThatThrownBy(()->run(()->projectFinance().configure(actor,fixed,new BillingConfiguration("MILESTONE",n("0"),null)))).isInstanceOf(PlatformApiException.class).extracting("code").isEqualTo("MILESTONE_BILLING_MODE_CONFLICT");assertThat(billingBasis(fixed)).isEqualTo(original);
+        String project=milestoneProject();milestoneFixture(project,true);
+        assertThatThrownBy(()->run(()->projectFinance().configure(actor,project,new BillingConfiguration("FIXED_PRICE",n("200"),null)))).isInstanceOf(PlatformApiException.class).extracting("code").isEqualTo("MILESTONE_BILLING_MODE_REQUIRED");assertThat(projectFinance().billingBasis(org,project)).isEmpty();assertThat(jdbc.queryForObject("SELECT billing_mode FROM flowora_project WHERE id=?",String.class,project)).isEqualTo("MILESTONE");
+    }
+    @Test void milestoneModeRejectsBillableTimeAndExpensesButAllowsTheirOperatingCostApproval() {
+        String project=milestoneProject();
+        for(boolean expense:List.of(false,true)){
+            String id=operationalSource(project,expense,true),table=expense?"flowora_project_expense":"flowora_timesheet";var before=jdbc.queryForMap("SELECT * FROM "+table+" WHERE id=?",id);
+            assertThatThrownBy(()->run(()->expense?projectFinance().approveExpense(actor,id,new ApprovalAction(true,"Review")):projectFinance().approveTimesheet(actor,id,new ApprovalAction(true,"Review")))).isInstanceOf(PlatformApiException.class).extracting("code").isEqualTo("PROJECT_BILLING_MODE_MISMATCH");
+            var after=jdbc.queryForMap("SELECT * FROM "+table+" WHERE id=?",id);for(var field:before.entrySet())if(!"updated_at".equals(field.getKey()))assertThat(after.get(field.getKey())).isEqualTo(field.getValue());
+            String cost=operationalSource(project,expense,false);assertThat(run(()->expense?projectFinance().approveExpense(actor,cost,new ApprovalAction(true,"Operating cost")):projectFinance().approveTimesheet(actor,cost,new ApprovalAction(true,"Operating cost")))).isNull();
+        }assertThat(projectFinance().billingBasis(org,project)).isEmpty();
+    }
+    @Test void milestoneBasisCreatesAndPostsOnlyAgainstCurrentApprovedDeliveryEvidence() {
+        String project=milestoneProject(),milestone=milestoneFixture(project,true);deliverMilestone(milestone);var basis=reviewMilestone(milestone,true,2);
+        var draft=projectDraft(project,"100");assertThat(draft.lines().getFirst().sources().getFirst().sourceLineId()).isEqualTo(basis.id());run(()->documents.postInvoice(actor,draft.id(),0));assertThat(billingBasis(project).billedAmount()).isEqualByComparingTo("100");assertCloseBlocked(project,"UNSETTLED_INVOICES");
+        assertThat(correctProjectInvoice(documents.invoice(org,draft.id()),true).status()).isEqualTo("REVERSED");assertThat(billingBasis(project).remainingAmount()).isEqualByComparingTo("100");assertThat(jdbc.queryForObject("SELECT approval_status FROM flowora_project_milestone WHERE id=?",String.class,milestone)).isEqualTo("APPROVED");
+    }
+    @Test void postingRechecksMilestoneHistoryButCancellationCanReleaseLegacyInconsistentQuota() {
+        String project=milestoneProject(),milestone=milestoneFixture(project,true);deliverMilestone(milestone);reviewMilestone(milestone,true,2);var draft=projectDraft(project,"100");var basis=billingBasis(project);
+        jdbc.update("UPDATE flowora_project_milestone SET approval_status='REJECTED' WHERE id=? AND organization_id=?",milestone,org);
+        assertThatThrownBy(()->run(()->documents.postInvoice(actor,draft.id(),0))).isInstanceOf(PlatformApiException.class).extracting("code").isEqualTo("MILESTONE_BILLING_STATE_CONFLICT");assertThat(ledger.journals(org,date,date)).isEmpty();assertThat(billingBasis(project)).isEqualTo(basis);assertThat(documents.invoice(org,draft.id()).status()).isEqualTo("DRAFT");
+        assertThat(correctProjectInvoice(draft,false).status()).isEqualTo("CANCELLED");assertCloseBlocked(project,"INVALID_BILLING_BASES");assertThat(jdbc.queryForObject("SELECT approval_status FROM flowora_project_milestone WHERE id=?",String.class,milestone)).isEqualTo("REJECTED");
+    }
+    @Test void milestoneTargetsAndStatusRespectProjectOrganizationAndTerminalState() {
+        String project=milestoneProject(),milestone=milestoneFixture(project,false),other=closeProject();
+        assertThatThrownBy(()->run(()->{lifecycle().requireMilestoneTaskTarget(org,other,milestone);return true;})).isInstanceOf(PlatformApiException.class).extracting("code").isEqualTo("MILESTONE_PROJECT_MISMATCH");
+        assertThatThrownBy(()->run(()->lifecycle().changeMilestoneStatus(key(),milestone,com.flowora.erp.project.MilestoneStatus.IN_PROGRESS,0))).isInstanceOf(PlatformApiException.class);
+        deliverMilestone(milestone);assertThatThrownBy(()->run(()->{lifecycle().requireMilestoneTaskTarget(org,project,milestone);return true;})).isInstanceOf(PlatformApiException.class).extracting("code").isEqualTo("MILESTONE_ALREADY_COMPLETED");
+        changeProject(project,com.flowora.erp.project.ProjectStatus.ARCHIVED);assertThatThrownBy(()->milestoneStatus(milestone,com.flowora.erp.project.MilestoneStatus.COMPLETED,2)).isInstanceOf(PlatformApiException.class).extracting("code").isEqualTo("PROJECT_CLOSED");
+    }
+    @Test void concurrentMilestoneReviewCannotBothApproveAndRejectTheSameVersion() throws Exception {
+        String project=milestoneProject(),milestone=milestoneFixture(project,true);deliverMilestone(milestone);var pool=java.util.concurrent.Executors.newFixedThreadPool(2);var barrier=new java.util.concurrent.CyclicBarrier(2);
+        try {var approve=pool.submit(()->{barrier.await(10,java.util.concurrent.TimeUnit.SECONDS);try{reviewMilestone(milestone,true,2);return "APPROVED";}catch(PlatformApiException ex){return ex.code();}});var reject=pool.submit(()->{barrier.await(10,java.util.concurrent.TimeUnit.SECONDS);try{reviewMilestone(milestone,false,2);return "REJECTED";}catch(PlatformApiException ex){return ex.code();}});var outcomes=List.of(approve.get(20,java.util.concurrent.TimeUnit.SECONDS),reject.get(20,java.util.concurrent.TimeUnit.SECONDS));
+            String state=jdbc.queryForObject("SELECT approval_status FROM flowora_project_milestone WHERE id=?",String.class,milestone);
+            if("APPROVED".equals(state)){assertThat(outcomes).containsExactlyInAnyOrder("APPROVED","MILESTONE_ALREADY_APPROVED");assertThat(projectFinance().billingBasis(org,project)).hasSize(1);}else{assertThat(outcomes).containsExactlyInAnyOrder("REJECTED","OPTIMISTIC_LOCK_CONFLICT");assertThat(projectFinance().billingBasis(org,project)).isEmpty();}assertThat(milestoneVersion(milestone)).isEqualTo(3);assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM flowora_audit_event WHERE organization_id=?",Integer.class,org)).isEqualTo(1);
+        }finally{pool.shutdownNow();}
+    }
+    @Test void concurrentNewLinkedTaskAndMilestoneCompletionCannotLeaveCompletedOpenWork() throws Exception {
+        String project=milestoneProject(),milestone=milestoneFixture(project,false);milestoneStatus(milestone,com.flowora.erp.project.MilestoneStatus.IN_PROGRESS,0);var pool=java.util.concurrent.Executors.newFixedThreadPool(2);var barrier=new java.util.concurrent.CyclicBarrier(2);
+        try {var finish=pool.submit(()->{barrier.await(10,java.util.concurrent.TimeUnit.SECONDS);try{milestoneStatus(milestone,com.flowora.erp.project.MilestoneStatus.COMPLETED,1);return "COMPLETED";}catch(PlatformApiException ex){return ex.code();}});var add=pool.submit(()->{barrier.await(10,java.util.concurrent.TimeUnit.SECONDS);try{return run(()->{lifecycle().requireOpen(org,project);lifecycle().requireMilestoneTaskTarget(org,project,milestone);String task=closeTask(project,"TODO");jdbc.update("UPDATE flowora_project_task SET milestone_id=? WHERE id=? AND organization_id=?",milestone,task,org);return "CREATED";});}catch(PlatformApiException ex){return ex.code();}});var outcomes=List.of(finish.get(20,java.util.concurrent.TimeUnit.SECONDS),add.get(20,java.util.concurrent.TimeUnit.SECONDS));
+            String state=jdbc.queryForObject("SELECT status FROM flowora_project_milestone WHERE id=?",String.class,milestone);if("COMPLETED".equals(state))assertThat(outcomes).containsExactlyInAnyOrder("COMPLETED","MILESTONE_ALREADY_COMPLETED");else assertThat(outcomes).containsExactlyInAnyOrder("MILESTONE_OPEN_TASKS","CREATED");
+        }finally{pool.shutdownNow();}
     }
 }
